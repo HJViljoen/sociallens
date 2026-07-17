@@ -91,7 +91,7 @@ interface TopTheme {
 }
 
 const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1)
-const PLATFORM_NAMES: Record<string, string> = { tiktok: 'TikTok', youtube: 'YouTube', instagram: 'Instagram' }
+const PLATFORM_NAMES: Record<string, string> = { tiktok: 'TikTok', youtube: 'YouTube', instagram: 'Instagram', reddit: 'Reddit' }
 
 /** "TikTok, YouTube & Instagram" */
 function listNames(platforms: string[]): string {

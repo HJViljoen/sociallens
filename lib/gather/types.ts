@@ -3,7 +3,7 @@
 // analysis pipeline (lib/pipeline). These shapes narrow only the columns gather
 // writes; the live schema source of truth is Architecture/Schema-Actual.
 
-export type Platform = 'tiktok' | 'youtube' | 'instagram'
+export type Platform = 'tiktok' | 'youtube' | 'instagram' | 'reddit'
 
 /** The tracking_configs subset gather needs. */
 export interface GatherConfig {

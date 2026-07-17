@@ -2,7 +2,7 @@
 // plain module (no 'use server'/'use client') so both sides import one source
 // of truth for the allowed values + numeric bounds.
 
-export const PLATFORMS = ['tiktok', 'youtube', 'instagram'] as const
+export const PLATFORMS = ['tiktok', 'youtube', 'instagram', 'reddit'] as const
 export const PERIODS = ['weekly', 'monthly'] as const
 export const DAYS = [
   'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday',
