@@ -439,7 +439,10 @@ async function cloneW6(): Promise<{ maps: CloneMaps; actual: W6Actual }> {
     }
     const cm = maps.comment.get(e.comment_id as string)
     if (!cm) continue
-    evidenceRows.push({ id: randomUUID(), audience_insight_id: ai, comment_id: cm, quote: e.quote, relevance_rank: e.relevance_rank, created_at: stamp })
+    // Uniform keys with the video branch: bulk inserts use the UNION of keys
+    // across rows and default missing keys to NULL — which would violate the
+    // source NOT NULL constraint on any chunk mixing both shapes.
+    evidenceRows.push({ id: randomUUID(), audience_insight_id: ai, comment_id: cm, source: 'comment', source_video_id: null, quote: e.quote, relevance_rank: e.relevance_rank, created_at: stamp })
   }
   maps.evidenceInserted = await insertRows('insight_evidence', evidenceRows)
 

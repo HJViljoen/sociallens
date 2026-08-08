@@ -693,9 +693,16 @@ export async function transcribeBatch(opts: {
   let skipped = 0
   let whisperMinutes = 0
   const gate = { prompt: 0, completion: 0 }
+  const statusCounts: Record<string, number> = {}
   for (const row of pending) {
     try {
       const t = await resolveTranscript(adapter.extractMedia!(row.raw))
+      // Spend happened the moment Whisper/the gate ran — accumulate BEFORE the
+      // persist attempt so a failed update can't under-log real cost.
+      whisperMinutes += t.whisperMinutes ?? 0
+      gate.prompt += t.gateTokens?.prompt ?? 0
+      gate.completion += t.gateTokens?.completion ?? 0
+      statusCounts[t.status] = (statusCounts[t.status] ?? 0) + 1
       if (!opts.dryRun) {
         const { error } = await admin
           .from('videos')
@@ -715,9 +722,6 @@ export async function transcribeBatch(opts: {
       }
       if (t.status === 'ok') transcribed++
       else skipped++
-      whisperMinutes += t.whisperMinutes ?? 0
-      gate.prompt += t.gateTokens?.prompt ?? 0
-      gate.completion += t.gateTokens?.completion ?? 0
     } catch (e) {
       errors.push(`transcribe (${row.video_id}): ${(e as Error).message}`)
     }
@@ -736,7 +740,7 @@ export async function transcribeBatch(opts: {
       model: TRANSCRIBE_MODEL,
       prompt_version: 'transcribe_v1',
       request: { platform: opts.platform, videos: pending.length },
-      response: { ok: transcribed, gated_or_empty: skipped, failed: errors.length, whisper_minutes: Math.round(whisperMinutes * 100) / 100, gate_prompt_tokens: gate.prompt, gate_completion_tokens: gate.completion },
+      response: { ok: transcribed, statuses: statusCounts, failed: errors.length, whisper_minutes: Math.round(whisperMinutes * 100) / 100, gate_prompt_tokens: gate.prompt, gate_completion_tokens: gate.completion },
       error_message: null,
       prompt_tokens: gate.prompt,
       completion_tokens: gate.completion,

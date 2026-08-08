@@ -161,9 +161,15 @@ export const runPipeline = inngest.createFunction(
             for (let w = 0; w < txBatches.length; w += TRANSCRIBE_PARALLEL) {
               const wave = await Promise.all(
                 txBatches.slice(w, w + TRANSCRIBE_PARALLEL).map((videoIds, j) =>
-                  step.run(`transcribe:${platform}:${w + j + 1}-of-${txBatches.length}`, () =>
-                    transcribeBatch({ clientId, runId, platform, videoIds, batchNo: w + j + 1 }),
-                  ),
+                  step
+                    .run(`transcribe:${platform}:${w + j + 1}-of-${txBatches.length}`, () =>
+                      transcribeBatch({ clientId, runId, platform, videoIds, batchNo: w + j + 1 }),
+                    )
+                    // Per-step catch (comments-fan-out precedent): one batch
+                    // exhausting its retries must not abandon the remaining
+                    // waves — hundreds of this run's videos would silently
+                    // stay untranscribed and are never re-planned.
+                    .catch(() => ({ transcribed: 0, skipped: 0, errors: ['transcribe step failed'] })),
                 ),
               )
               for (const t of wave) totalErrors += t.errors.length
