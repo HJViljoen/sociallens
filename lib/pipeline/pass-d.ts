@@ -72,11 +72,16 @@ export interface ValidSvhItem {
  *  on non-silent verdicts, cap 3. */
 export function validateSayVsHear(items: SayVsHearItemOut[], claims: BrandClaim[]): ValidSvhItem[] {
   const out: ValidSvhItem[] = []
+  const usedRefs = new Set<number>()
   for (const it of items) {
     if (out.length >= 3) break
-    const m = /^s(\d+)$/.exec(it.you_say_ref.toLowerCase().trim())
-    const claim = m ? claims[Number(m[1]) - 1] : undefined
-    if (!claim || !it.gap.trim()) continue
+    // Lenient parse ("[S1]", "S 1" — the input literally shows [S#]), same
+    // spirit as D-b's hero-index handling; one claim gets at most one verdict.
+    const m = /^s(\d+)$/.exec(it.you_say_ref.toLowerCase().replace(/[^a-z0-9]/g, ''))
+    const idx = m ? Number(m[1]) : NaN
+    const claim = m ? claims[idx - 1] : undefined
+    if (!claim || usedRefs.has(idx) || !it.gap.trim()) continue
+    usedRefs.add(idx)
     if (it.audience === 'silent') {
       out.push({ claim, audience: 'silent', they_say: null, gap: it.gap, supporting_themes: [] })
       continue
@@ -170,9 +175,10 @@ export function buildSystemPromptA(brandName?: string, hasClaims = false): strin
     '- If the data is thin, produce fewer, honest insights rather than padding. Fewer, tightly-grounded insights beat many loosely-grounded ones.',
   ]
   if (!hasClaims) return base.join('\n')
-  return [
-    ...base,
-    '',
+  // v5: the say_vs_hear deliverable is spliced in as item 4 BEFORE the Rules
+  // block (a fourth deliverable announced after the rules weakens instruction-
+  // following on exactly the calibration rules that matter — review finding).
+  const sayVsHearItem = [
     `4. say_vs_hear — the input includes claims ${name} makes in its OWN videos, labelled [S1], [S2], …`,
     `   For up to 3 claims where the contrast is genuinely informative, return: you_say_ref (the S# label),`,
     '   audience ("echoes" = the audience independently says the same thing; "contradicts" = the audience',
@@ -180,10 +186,18 @@ export function buildSystemPromptA(brandName?: string, hasClaims = false): strin
     '   they_say (what the audience actually says on this subject — null when silent), gap (the one-sentence',
     '   takeaway: what the mismatch or match means for ' + name + '), and supporting_themes (T# indices',
     '   grounding the audience side — EMPTY when silent).',
-    '   Rules: judge only against the themes provided — silence is a real, reportable verdict, never invent',
+    '   Judge only against the themes provided — silence is a real, reportable verdict, never invent',
     '   audience voice to fill it. Pick the claims with the most decision value, not the first three.',
     '   gap and they_say are client-facing prose: no indices, no numbers.',
-  ].join('\n')
+    '',
+  ]
+  const rulesAt = base.indexOf('Rules:')
+  const v5 = [
+    ...base.slice(0, rulesAt).map((l) => (l === 'Produce three things:' ? 'Produce four things:' : l)),
+    ...sayVsHearItem,
+    ...base.slice(rulesAt),
+  ]
+  return v5.join('\n')
 }
 
 function themeLine(label: string, theme: AggregatedTheme): string {
@@ -551,14 +565,20 @@ export async function runPassD(opts: RunPassDOptions): Promise<RunPassDResult> {
         })
       })
     }
-    const entries = items.map((it) => ({
-      you_say: it.claim.claim,
-      your_quote: it.claim.quote,
-      audience: it.audience,
-      they_say: it.they_say ? stripThemeRefs(it.they_say) : null,
-      gap: stripThemeRefs(it.gap),
-      supporting_theme_ids: resolveThemes(it.supporting_themes),
-    }))
+    const entries = items
+      .map((it) => ({
+        you_say: it.claim.claim,
+        your_quote: it.claim.quote,
+        audience: it.audience,
+        they_say: it.they_say ? stripThemeRefs(it.they_say) : null,
+        gap: stripThemeRefs(it.gap),
+        supporting_theme_ids: resolveThemes(it.supporting_themes),
+      }))
+      // The silent contract's other direction: a non-silent verdict whose refs
+      // all failed the floor/resolution has NO grounded audience voice left —
+      // rendering "they echo it" with zero evidence is exactly the invented-
+      // voice failure this feature must never ship. Silent needs no grounding.
+      .filter((e) => e.audience === 'silent' || e.supporting_theme_ids.length > 0)
     result.sayVsHear = entries.length ? entries : null
   }
 

@@ -381,7 +381,7 @@ function SayVsHearSection({ entries, themeSlugById }: { entries: SayVsHearEntry[
         : { text: 'Not talked about yet', cls: 'bg-muted text-muted-foreground' }
   const themesOf = (e: SayVsHearEntry): string[] => {
     const slugs = new Set<string>()
-    for (const id of e.supporting_theme_ids) {
+    for (const id of e.supporting_theme_ids ?? []) {
       const s = themeSlugById.get(id)
       if (s) slugs.add(s)
     }
