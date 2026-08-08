@@ -20,7 +20,9 @@ import type { BrandClaim } from './claims'
 // v4 (2026-07-04): calibrated language — prose rule (no intensity/frequency
 // words; cross-bucket comparisons stay allowed, they're this pass's job) + an
 // anti-inflation guard on impact_level (the 3 Jul run rated 3 of 5 "high").
-const PROMPT_VERSION = 'pass_c_v4'
+// v5 (2026-08-08, Step 2b): competitor claims from video transcripts enter as
+// CONTEXT (claims block) — findings still cite themes only.
+const PROMPT_VERSION = 'pass_c_v5'
 
 export interface TrackingConfig {
   brand_keywords: string[] | null
@@ -70,11 +72,12 @@ export function indexThemes(themes: AggregatedTheme[]): { label: string; theme: 
   return themes.map((theme, i) => ({ label: `T${i + 1}`, theme }))
 }
 
-function buildSystemPrompt(tc: TrackingConfig | undefined, brandName?: string): string {
+/** Exported for tests (v5 claims-block pins). */
+export function buildSystemPrompt(tc: TrackingConfig | undefined, brandName?: string, hasClaims = false): string {
   const name = brandName?.trim() || 'the client brand'
   const aliases = (tc?.brand_keywords ?? []).join(', ')
   const competitors = (tc?.competitor_names ?? []).join(', ') || '(none provided)'
-  return [
+  const base = [
     'You are a media-based competitive intelligence analyst working for a brand.',
     '',
     `The brand you work for is ${name}${aliases ? ` (also referred to as: ${aliases})` : ''}.`,
@@ -100,18 +103,36 @@ function buildSystemPrompt(tc: TrackingConfig | undefined, brandName?: string): 
     CALIBRATED_PROSE_RULE,
     `- A finding must rest on a genuine cross-bucket contrast. If only ONE bucket is present (no competitor or ${name} data to compare), return an empty "competitive_insights" array. Do not manufacture comparisons.`,
     '- impact_level reflects how much the finding should affect the brand’s strategy. "high" is scarce: at most one or two findings per run genuinely demand a strategy response — when in doubt, medium.',
+  ]
+  if (!hasClaims) return base.join('\n')
+  return [
+    ...base,
+    '',
+    'WHAT COMPETITORS SAY: the input includes claims competitors make in their OWN videos (from transcripts). Rules for using them:',
+    '- A claim is the competitor\'s marketing voice — context, NEVER audience sentiment and NEVER evidence on its own.',
+    `- Use claims to sharpen cross-bucket contrasts: a claimed strength the audience doesn't echo, a competitor pitch that exposes a gap in ${name}'s content, a claim the audience actively contradicts.`,
+    '- Findings must still cite audience themes by bracket index for support; a claim can motivate a finding but never substitutes for theme support.',
   ].join('\n')
 }
 
-function buildUserPrompt(
+/** Exported for tests (v5 claims-block pins). */
+export function buildUserPrompt(
   themeIndex: { label: string; theme: AggregatedTheme }[],
   sov: Record<string, SovEntry> | undefined,
+  competitorClaims: BrandClaim[] = [],
 ): string {
   const lines: string[] = []
   if (sov && Object.keys(sov).length) {
     lines.push('SHARE OF VOICE (by bucket):')
     for (const [bucket, e] of Object.entries(sov)) {
       lines.push(`- ${bucket}: ${e.videos} videos (${e.pct_videos}% of corpus)`)
+    }
+    lines.push('')
+  }
+  if (competitorClaims.length) {
+    lines.push('WHAT COMPETITORS SAY IN THEIR OWN VIDEOS (from transcripts):')
+    for (const c of competitorClaims) {
+      lines.push(`- [${c.competitor}] ${c.claim} — "${c.quote}"`)
     }
     lines.push('')
   }
@@ -134,8 +155,9 @@ export async function runPassC(opts: RunPassCOptions): Promise<RunPassCResult> {
 
   const themeIndex = indexThemes(themes)
   const byLabel = new Map(themeIndex.map((t) => [t.label.toLowerCase(), t.theme]))
-  const systemPrompt = buildSystemPrompt(trackingConfig, opts.brandName)
-  const userPrompt = buildUserPrompt(themeIndex, sov)
+  const competitorClaims = opts.competitorClaims ?? []
+  const systemPrompt = buildSystemPrompt(trackingConfig, opts.brandName, competitorClaims.length > 0)
+  const userPrompt = buildUserPrompt(themeIndex, sov, competitorClaims)
 
   const base: RunPassCResult = {
     competitiveInsights: [],
