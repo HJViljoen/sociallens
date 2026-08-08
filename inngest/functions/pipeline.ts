@@ -1,7 +1,7 @@
 import { randomUUID } from 'crypto'
 import { inngest } from '@/inngest/client'
 import { createAdminClient, selectAll } from '@/lib/supabase-admin'
-import { planGatherSearches, searchOne, gatePlatform, scrapeCommentsBatch, transcribeBatch, resolveGatherWindow, inWindow, type SearchResult } from '@/lib/gather/gather'
+import { planGatherSearches, searchOne, gatePlatform, scrapeCommentsBatch, transcribeBatch, planTranscribeBatches, resolveGatherWindow, inWindow, type SearchResult } from '@/lib/gather/gather'
 import { runPassA } from '@/lib/pipeline/pass-a'
 import { runStepA2 } from '@/lib/pipeline/step-a2'
 import { runPassB } from '@/lib/pipeline/pass-b'
@@ -12,7 +12,7 @@ import { loadBrandClaims } from '@/lib/pipeline/claims'
 import { persistThemes, loadThemes } from '@/lib/pipeline/themes'
 import { writeRunSummary } from '@/lib/pipeline/run-summary'
 import { computeMetrics } from '@/lib/pipeline/metrics'
-import { CLUSTER_SIMILARITY_THRESHOLD, EVIDENCE_FLOOR, transcriptsEnabled } from '@/lib/config'
+import { CLUSTER_SIMILARITY_THRESHOLD, EVIDENCE_FLOOR, TRANSCRIBE_PARALLEL, transcriptsEnabled } from '@/lib/config'
 import type { Platform } from '@/lib/gather/types'
 import type { VideoRow, CommentRow } from '@/lib/pipeline/types'
 
@@ -147,15 +147,27 @@ export const runPipeline = inngest.createFunction(
             totalErrors++
           }
         }
-        // Step 1 (capture only, flag-gated): resolve one transcript per kept
-        // video from the raw items gatePlatform stored. Own step for the
-        // download+Whisper duration; the analysis passes don't read the output.
+        // Transcripts (flag-gated), fanned out like Pass A: a plan step chunks
+        // this run's pending candidates signal-first (TRANSCRIBE_BATCH per
+        // step), then batches dispatch in parallel waves. One sequential
+        // whole-platform step measured out at ~10s/video — 60 videos would
+        // blow the 300s cap, and a real run has hundreds (readiness 2026-08-08).
+        // Step retries are free: the in-batch status re-check skips done videos.
         if (transcriptsEnabled()) {
           try {
-            const t = await step.run(`transcribe:${platform}`, () =>
-              transcribeBatch({ clientId, runId, platform }),
+            const txBatches = await step.run(`plan-transcribe:${platform}`, () =>
+              planTranscribeBatches(clientId, runId, platform),
             )
-            totalErrors += t.errors.length
+            for (let w = 0; w < txBatches.length; w += TRANSCRIBE_PARALLEL) {
+              const wave = await Promise.all(
+                txBatches.slice(w, w + TRANSCRIBE_PARALLEL).map((videoIds, j) =>
+                  step.run(`transcribe:${platform}:${w + j + 1}-of-${txBatches.length}`, () =>
+                    transcribeBatch({ clientId, runId, platform, videoIds, batchNo: w + j + 1 }),
+                  ),
+                ),
+              )
+              for (const t of wave) totalErrors += t.errors.length
+            }
           } catch {
             totalErrors++
           }

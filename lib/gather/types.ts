@@ -98,6 +98,10 @@ export interface TranscriptResult {
   lang: string | null
   source: 'tiktok_caption' | 'whisper' | null
   status: 'ok' | 'no_speech' | 'lyrics' | 'garbled' | 'no_media' | 'failed'
+  /** Whisper audio minutes billed for this video (absent: caption/no-media path). */
+  whisperMinutes?: number
+  /** Content-gate token usage (absent when the letter gate short-circuited). */
+  gateTokens?: { prompt: number; completion: number }
 }
 
 /** Client/run ids + config threaded into the normalisers. */

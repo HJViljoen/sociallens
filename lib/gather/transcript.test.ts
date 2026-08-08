@@ -124,3 +124,29 @@ describe('instagram.extractMedia', () => {
     expect(media.mediaUrl).toBe('https://cdn/ig.mp4')
   })
 })
+
+describe('orderAndChunkPending (transcribe fan-out plan)', () => {
+  const row = (video_id: string, comments: number | null, status: string | null = null) => ({
+    video_id, comments_count: comments, transcript_status: status,
+  })
+
+  it('drops already-attempted, orders by comment volume desc, chunks', async () => {
+    const { orderAndChunkPending } = await import('./gather')
+    const batches = orderAndChunkPending(
+      [row('a', 5), row('b', 50, 'ok'), row('c', 20), row('d', null), row('e', 9, 'failed'), row('f', 30)],
+      2, 10,
+    )
+    expect(batches).toEqual([['f', 'c'], ['a', 'd']])
+  })
+
+  it('applies the cap after ordering (highest-signal survive)', async () => {
+    const { orderAndChunkPending } = await import('./gather')
+    const batches = orderAndChunkPending([row('a', 1), row('b', 3), row('c', 2)], 2, 2)
+    expect(batches).toEqual([['b', 'c']])
+  })
+
+  it('empty input → no batches', async () => {
+    const { orderAndChunkPending } = await import('./gather')
+    expect(orderAndChunkPending([], 8, 1000)).toEqual([])
+  })
+})

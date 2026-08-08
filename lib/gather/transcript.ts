@@ -116,7 +116,7 @@ export type TranscriptContent = 'speech' | 'lyrics' | 'garbled'
  * Fails OPEN (returns 'speech'): a transient classifier error should not throw
  * away a good transcript, and Pass A's own prompt is the second line of defence.
  */
-export async function classifyTranscript(text: string): Promise<TranscriptContent> {
+export async function classifyTranscript(text: string): Promise<{ verdict: TranscriptContent; tokens: { prompt: number; completion: number } }> {
   try {
     const completion = await openai.chat.completions.create({
       model: CONTENT_GATE_MODEL,
@@ -129,10 +129,11 @@ export async function classifyTranscript(text: string): Promise<TranscriptConten
     })
     const raw = JSON.parse(completion.choices[0]?.message?.content ?? '{}') as { verdict?: string }
     const v = (raw.verdict ?? '').toLowerCase()
-    return v === 'lyrics' || v === 'garbled' ? v : 'speech'
+    const tokens = { prompt: completion.usage?.prompt_tokens ?? 0, completion: completion.usage?.completion_tokens ?? 0 }
+    return { verdict: v === 'lyrics' || v === 'garbled' ? v : 'speech', tokens }
   } catch (e) {
     console.warn(`[transcript] content gate failed, keeping transcript: ${(e as Error).message}`)
-    return 'speech'
+    return { verdict: 'speech', tokens: { prompt: 0, completion: 0 } }
   }
 }
 
@@ -142,7 +143,7 @@ async function fetchCaption(url: string): Promise<string> {
   return res.text()
 }
 
-async function whisperMedia(url: string): Promise<{ text: string; lang: string | null }> {
+async function whisperMedia(url: string): Promise<{ text: string; lang: string | null; minutes: number }> {
   const res = await fetch(url)
   if (!res.ok) throw new Error(`media fetch ${res.status}`)
   const declared = Number(res.headers.get('content-length') ?? 0)
@@ -158,20 +159,23 @@ async function whisperMedia(url: string): Promise<{ text: string; lang: string |
     model: TRANSCRIBE_MODEL,
     response_format: 'verbose_json',
   })
-  const o = out as { text?: string; language?: string }
-  return { text: (o.text ?? '').trim(), lang: normaliseLang(o.language) }
+  const o = out as { text?: string; language?: string; duration?: number }
+  // verbose_json also returns the audio duration — the unit Whisper bills by.
+  return { text: (o.text ?? '').trim(), lang: normaliseLang(o.language), minutes: (o.duration ?? 0) / 60 }
 }
 
 /** Apply both gates to a resolved text: the cheap letter count first (silent or
- *  music-only never reaches the classifier), then the content gate. */
+ *  music-only never reaches the classifier), then the content gate. Carries the
+ *  cost facts (Whisper minutes, gate tokens) so the caller can log spend. */
 async function settle(
   text: string,
   lang: string | null,
   source: 'tiktok_caption' | 'whisper',
+  whisperMinutes?: number,
 ): Promise<TranscriptResult> {
-  if (speechLen(text) < MIN_TRANSCRIPT_CHARS) return { text, lang, source, status: 'no_speech' }
-  const verdict = await classifyTranscript(text)
-  return { text, lang, source, status: verdict === 'speech' ? 'ok' : verdict }
+  if (speechLen(text) < MIN_TRANSCRIPT_CHARS) return { text, lang, source, status: 'no_speech', whisperMinutes }
+  const { verdict, tokens } = await classifyTranscript(text)
+  return { text, lang, source, status: verdict === 'speech' ? 'ok' : verdict, whisperMinutes, gateTokens: tokens }
 }
 
 /**
@@ -202,8 +206,8 @@ export async function resolveTranscript(media: MediaRef): Promise<TranscriptResu
       }
     }
     if (media.mediaUrl) {
-      const { text, lang } = await whisperMedia(media.mediaUrl)
-      return await settle(text, lang, 'whisper')
+      const { text, lang, minutes } = await whisperMedia(media.mediaUrl)
+      return await settle(text, lang, 'whisper', minutes)
     }
     return { text: '', lang: null, source: null, status: 'no_media' }
   } catch (e) {

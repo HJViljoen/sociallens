@@ -68,8 +68,22 @@ export const MIN_TRANSCRIPT_CHARS = 15
  */
 export const CONTENT_GATE_MODEL = 'gpt-4.1-mini'
 
-/** Max videos to transcribe per platform per run (throughput/cost cap). */
-export const TRANSCRIBE_CAP = 60
+/** Runaway BACKSTOP, not a budget (Heinrich 2026-08-08: transcribe everything
+ *  analysed — whole-run Whisper ≈ $2.50–3.50 at run-1 scale). A real run's
+ *  biggest platform was ~460 candidates; 1000 exists so a pathological gather
+ *  can't spend unbounded time/money. */
+export const TRANSCRIBE_CAP = 1000
+
+/** Videos per transcribe Inngest step. Download-dominated (~10s/video after
+ *  the IG audio-first fix) — 8 ≈ 80s/step, wide margin under the 300s cap. */
+export const TRANSCRIBE_BATCH = 8
+
+/** Transcribe steps dispatched per parallel wave (Pass A wave pattern). */
+export const TRANSCRIBE_PARALLEL = 4
+
+/** Whisper is priced per audio MINUTE, not per token — MODEL_PRICING can't
+ *  represent it and estimateCost('whisper-1', …) returns 0. */
+export const WHISPER_PER_MINUTE = 0.006
 
 /** Skip Whisper for media larger than this (bytes) — the API's own file cap. */
 export const TRANSCRIBE_MAX_BYTES = 25 * 1024 * 1024

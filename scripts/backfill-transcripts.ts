@@ -206,7 +206,7 @@ async function regate(admin: ReturnType<typeof createAdminClient>, o: Opts): Pro
 
   const moves = new Map<string, number>()
   for (const r of rows) {
-    const verdict = await classifyTranscript(r.transcript)
+    const { verdict } = await classifyTranscript(r.transcript)
     const status = verdict === 'speech' ? 'ok' : verdict
     if (status === r.transcript_status) continue
     moves.set(`${r.transcript_status}→${status}`, (moves.get(`${r.transcript_status}→${status}`) ?? 0) + 1)
