@@ -68,6 +68,30 @@ export interface CommentInsert {
  *  it's an unknown record and the adapters extract defensively. */
 export type RawItem = Record<string, unknown>
 
+// ---- Transcripts (Step 1 — capture only) ------------------------------------
+
+/** A caption/subtitle track a platform's raw item exposes. */
+export interface SubtitleTrack {
+  url: string
+  lang: string | null
+  isAuto: boolean
+}
+
+/** Direct media + caption handles for transcript resolution, pulled from a raw
+ *  item by the adapter. URLs are signed and EXPIRING — use them during the run. */
+export interface MediaRef {
+  mediaUrl: string | null
+  subtitleTracks: SubtitleTrack[] | null
+}
+
+/** One resolved transcript. status: ok | no_speech (music-only) | no_media | failed. */
+export interface TranscriptResult {
+  text: string
+  lang: string | null
+  source: 'tiktok_caption' | 'whisper' | null
+  status: 'ok' | 'no_speech' | 'no_media' | 'failed'
+}
+
 /** Client/run ids + config threaded into the normalisers. */
 export interface NormaliseCtx {
   clientId: string
@@ -120,6 +144,14 @@ export interface PlatformAdapter {
    * on Apify platforms a count check costs as much as the scrape it would save.
    */
   fetchCommentCounts?(videoIds: string[]): Promise<Map<string, number>>
+  /**
+   * Extract the direct media URL + any caption tracks from a raw item, for
+   * transcript resolution (Step 1). Absent on platforms with no usable route:
+   * YouTube is deferred (its transcript text is pot-gated — see
+   * Architecture/Video-Transcripts), so it simply doesn't implement this and the
+   * transcribe step skips it.
+   */
+  extractMedia?(raw: RawItem): MediaRef
   /** Raw actor item → VideoInsert. null = skip (unparseable / no url). */
   normaliseVideo(raw: RawItem, ctx: NormaliseCtx): VideoInsert | null
   /** Raw actor item → CommentInsert. null = skip. */

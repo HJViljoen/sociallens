@@ -1,7 +1,7 @@
 import { randomUUID } from 'crypto'
 import { inngest } from '@/inngest/client'
 import { createAdminClient, selectAll } from '@/lib/supabase-admin'
-import { planGatherSearches, searchOne, gatePlatform, scrapeCommentsBatch, resolveGatherWindow, inWindow, type SearchResult } from '@/lib/gather/gather'
+import { planGatherSearches, searchOne, gatePlatform, scrapeCommentsBatch, transcribeBatch, resolveGatherWindow, inWindow, type SearchResult } from '@/lib/gather/gather'
 import { runPassA } from '@/lib/pipeline/pass-a'
 import { runStepA2 } from '@/lib/pipeline/step-a2'
 import { runPassB } from '@/lib/pipeline/pass-b'
@@ -11,7 +11,7 @@ import { runCrossReference } from '@/lib/pipeline/cross-reference'
 import { persistThemes, loadThemes } from '@/lib/pipeline/themes'
 import { writeRunSummary } from '@/lib/pipeline/run-summary'
 import { computeMetrics } from '@/lib/pipeline/metrics'
-import { CLUSTER_SIMILARITY_THRESHOLD, EVIDENCE_FLOOR } from '@/lib/config'
+import { CLUSTER_SIMILARITY_THRESHOLD, EVIDENCE_FLOOR, transcriptsEnabled } from '@/lib/config'
 import type { Platform } from '@/lib/gather/types'
 import type { VideoRow, CommentRow } from '@/lib/pipeline/types'
 
@@ -142,6 +142,19 @@ export const runPipeline = inngest.createFunction(
               scrapeCommentsBatch({ clientId, runId, platform, refs }),
             )
             totalErrors += r.errors.length
+          } catch {
+            totalErrors++
+          }
+        }
+        // Step 1 (capture only, flag-gated): resolve one transcript per kept
+        // video from the raw items gatePlatform stored. Own step for the
+        // download+Whisper duration; the analysis passes don't read the output.
+        if (transcriptsEnabled()) {
+          try {
+            const t = await step.run(`transcribe:${platform}`, () =>
+              transcribeBatch({ clientId, runId, platform }),
+            )
+            totalErrors += t.errors.length
           } catch {
             totalErrors++
           }

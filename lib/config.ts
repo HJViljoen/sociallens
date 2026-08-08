@@ -36,6 +36,33 @@ export const EVIDENCE_FLOOR = 2
 /** Sampling temperature for analysis calls. 0 for reproducible iteration. */
 export const ANALYSIS_TEMPERATURE = 0
 
+// --- Video transcripts (Step 1, 2026-07-23) ----------------------------------
+// CAPTURE ONLY: gather stores the raw item + resolves one transcript per kept
+// video (caption when present, else Whisper). The analysis passes do NOT read
+// these yet. See _Claude/Projects/SaaS/Architecture/Video-Transcripts.
+
+/** Master switch. Off by default — when unset, gather is byte-identical to
+ *  before (no raw capture, no transcription). Set TRANSCRIPTS_ENABLED=1 to bank
+ *  transcripts on real runs. Read at call-time so it works in serverless. */
+export function transcriptsEnabled(): boolean {
+  const v = process.env.TRANSCRIPTS_ENABLED
+  return v === '1' || v === 'true'
+}
+
+/** OpenAI transcription model for videos without a usable caption track. */
+export const TRANSCRIBE_MODEL = 'whisper-1'
+
+/** Below this many LETTERS a resolved transcript is treated as no-speech —
+ *  music-only reels (Whisper renders those as "♪♪", captions as "[Music]"; the
+ *  2026-07-23 lift experiment saw such videos add nothing). Speech-gate. */
+export const MIN_TRANSCRIPT_CHARS = 15
+
+/** Max videos to transcribe per platform per run (throughput/cost cap). */
+export const TRANSCRIBE_CAP = 60
+
+/** Skip Whisper for media larger than this (bytes) — the API's own file cap. */
+export const TRANSCRIBE_MAX_BYTES = 25 * 1024 * 1024
+
 /**
  * Embedding model for Step A2 theme clustering (Analysis-Passes §Step A2 — the
  * pre-approved fallback when string-match clustering fails, which the first real

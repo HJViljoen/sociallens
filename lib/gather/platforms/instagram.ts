@@ -82,6 +82,14 @@ export const instagram: PlatformAdapter = {
     }
   },
 
+  // Transcript source (Step 1): the item carries a direct CDN mp4 at `videoUrl`
+  // (plus an `audioUrl`) — no caption field, so IG is always Whisper. Verified
+  // on real data 2026-07-23 (see Architecture/Video-Transcripts).
+  extractMedia(raw) {
+    const v = raw as Record<string, unknown>
+    return { mediaUrl: str(first(v.videoUrl, v.audioUrl)) || null, subtitleTracks: null }
+  },
+
   commentScrape(video, config) {
     return {
       actor: APIFY_ACTORS.instagram.comment,

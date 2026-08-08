@@ -79,6 +79,26 @@ export const tiktok: PlatformAdapter = {
     }
   },
 
+  // Transcript sources (Step 1): the actor returns a direct CDN mp4 at
+  // `video.url` and, WHEN the video has captions, a `subtitleInformation` array
+  // of auto-generated WebVTT tracks (each with a direct, expiring URL). Verified
+  // on real data 2026-07-23 (see Architecture/Video-Transcripts).
+  extractMedia(raw) {
+    const v = raw as Record<string, unknown>
+    const mediaUrl = str(getPath(v, ['video', 'url'])) || null
+    const rawSubs = v.subtitleInformation
+    const tracks = Array.isArray(rawSubs)
+      ? rawSubs
+          .map((s) => {
+            const t = s as Record<string, unknown>
+            const url = str(first(t.url, Array.isArray(t.url_list) ? t.url_list[0] : undefined))
+            return url ? { url, lang: str(first(t.language_code, t.lang)) || null, isAuto: Boolean(t.is_auto_generated) } : null
+          })
+          .filter((t): t is { url: string; lang: string | null; isAuto: boolean } => t !== null)
+      : []
+    return { mediaUrl, subtitleTracks: tracks.length ? tracks : null }
+  },
+
   commentScrape(video, config) {
     return {
       actor: APIFY_ACTORS.tiktok.comment,
