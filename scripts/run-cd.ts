@@ -114,9 +114,9 @@ async function main() {
     .maybeSingle()
   const brandName = client?.company_name ?? undefined
 
-  // Brand claims (Step 2b) — all-time, deduped/capped; empty for tenants that
-  // have never run Pass A v4.
-  const claims = await loadBrandClaims(admin, args.clientId)
+  // Brand claims (Step 2b) — all-time, newest-run-per-video, tracked
+  // competitors only; empty for tenants that have never run Pass A v4.
+  const claims = await loadBrandClaims(admin, args.clientId, tc?.competitor_names ?? [])
   if (claims.client.length || claims.competitors.length) {
     console.log(`\nBrand claims: ${claims.client.length} client · ${claims.competitors.length} competitor`)
   }

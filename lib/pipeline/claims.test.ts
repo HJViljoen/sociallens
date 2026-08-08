@@ -1,7 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { dedupeAndCap } from './claims'
+import { selectClaims } from './claims'
 
-const row = (over: Partial<Parameters<typeof dedupeAndCap>[0][number]> = {}) => ({
+const TRACKED = ['Cotopaxi', 'Topo Designs']
+
+const row = (over: Partial<Parameters<typeof selectClaims>[0][number]> = {}) => ({
+  run_id: 'run-new',
   source_video_id: 'v1',
   entity: 'competitor',
   competitor_name: 'Cotopaxi',
@@ -10,48 +13,66 @@ const row = (over: Partial<Parameters<typeof dedupeAndCap>[0][number]> = {}) => 
   ...over,
 })
 
-describe('dedupeAndCap', () => {
+describe('selectClaims', () => {
   it('splits client and named-competitor claims', () => {
-    const r = dedupeAndCap([
+    const r = selectClaims([
       row({ entity: 'client', competitor_name: null, source_video_id: 'c1', claim: 'Upcycled materials' }),
       row(),
-    ])
+    ], TRACKED)
     expect(r.client).toEqual([{ competitor: null, claim: 'Upcycled materials', quote: row().quote }])
     expect(r.competitors).toEqual([{ competitor: 'Cotopaxi', claim: 'Lifetime warranty on bags', quote: row().quote }])
   })
 
-  it('dedupes the same video+claim across runs, keeping the newest (first) row', () => {
-    const r = dedupeAndCap([
-      row({ quote: 'newest quote' }),
-      row({ quote: 'older duplicate', claim: '  lifetime   WARRANTY on bags ' }),
-    ])
+  it('newest-run-wins per video: older runs\' paraphrase variants vanish entirely', () => {
+    const r = selectClaims([
+      row({ run_id: 'run-new', claim: 'Democratises shipping rates for all merchants' }),
+      row({ run_id: 'run-old', claim: 'Democratises shipping rates so merchants get the same price' }),
+      row({ run_id: 'run-old', claim: 'A completely different old claim' }),
+    ], TRACKED)
     expect(r.competitors).toHaveLength(1)
-    expect(r.competitors[0].quote).toBe('newest quote')
+    expect(r.competitors[0].claim).toBe('Democratises shipping rates for all merchants')
   })
 
-  it('keeps the same claim from different videos (repeated messaging is signal)', () => {
-    const r = dedupeAndCap([row({ source_video_id: 'v1' }), row({ source_video_id: 'v2' })])
+  it('newest-run-wins is per video — other videos keep their own newest run', () => {
+    const r = selectClaims([
+      row({ source_video_id: 'v1', run_id: 'run-new' }),
+      row({ source_video_id: 'v2', run_id: 'run-old', claim: 'Free People collab collection' }),
+    ], TRACKED)
     expect(r.competitors).toHaveLength(2)
   })
 
-  it('excludes unnamed competitor claims', () => {
-    const r = dedupeAndCap([
-      row({ competitor_name: null }),
-      row({ competitor_name: 'unknown', source_video_id: 'v2' }),
-      row({ competitor_name: '  ', source_video_id: 'v3' }),
-    ])
-    expect(r.competitors).toHaveLength(0)
+  it('drops claims from competitors no longer tracked (fold-compared)', () => {
+    const r = selectClaims([
+      row({ competitor_name: 'cotopaxi' }),
+      row({ competitor_name: 'Patagonia', source_video_id: 'v2' }),
+    ], TRACKED)
+    expect(r.competitors).toHaveLength(1)
+    expect(r.competitors[0].competitor).toBe('cotopaxi')
   })
 
-  it('caps per entity independently', () => {
+  it('excludes unnamed competitor claims; client claims unaffected by tracking', () => {
+    const r = selectClaims([
+      row({ competitor_name: null }),
+      row({ competitor_name: 'unknown', source_video_id: 'v2' }),
+      row({ entity: 'client', competitor_name: null, source_video_id: 'c1', claim: 'Handmade' }),
+    ], [])
+    expect(r.competitors).toHaveLength(0)
+    expect(r.client).toHaveLength(1)
+  })
+
+  it('dedupes same video+normalized claim and caps per entity', () => {
+    const dup = selectClaims([row({ quote: 'newest quote' }), row({ claim: ' lifetime   WARRANTY on bags ' })], TRACKED)
+    expect(dup.competitors).toHaveLength(1)
+    expect(dup.competitors[0].quote).toBe('newest quote')
+
     const rows = [
       ...Array.from({ length: 4 }, (_, i) => row({ source_video_id: `a${i}`, claim: `claim ${i}` })),
-      ...Array.from({ length: 4 }, (_, i) => row({ source_video_id: `b${i}`, claim: `claim ${i}`, competitor_name: 'Topo' })),
+      ...Array.from({ length: 4 }, (_, i) => row({ source_video_id: `b${i}`, claim: `claim ${i}`, competitor_name: 'Topo Designs' })),
       ...Array.from({ length: 4 }, (_, i) => row({ source_video_id: `c${i}`, claim: `claim ${i}`, entity: 'client', competitor_name: null })),
     ]
-    const r = dedupeAndCap(rows, 3)
-    expect(r.competitors.filter((c) => c.competitor === 'Cotopaxi')).toHaveLength(3)
-    expect(r.competitors.filter((c) => c.competitor === 'Topo')).toHaveLength(3)
-    expect(r.client).toHaveLength(3)
+    const capped = selectClaims(rows, TRACKED, 3)
+    expect(capped.competitors.filter((c) => c.competitor === 'Cotopaxi')).toHaveLength(3)
+    expect(capped.competitors.filter((c) => c.competitor === 'Topo Designs')).toHaveLength(3)
+    expect(capped.client).toHaveLength(3)
   })
 })

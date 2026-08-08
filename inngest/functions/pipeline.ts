@@ -374,9 +374,9 @@ async function runSynthesisHalf(clientId: string, runId: string) {
     .select('company_name').eq('id', clientId).maybeSingle()
   const brandName = client?.company_name ?? undefined
 
-  // Brand claims (Step 2b) — all-time accumulation, deduped/capped; empty for
-  // tenants that never ran Pass A v4.
-  const claims = await loadBrandClaims(admin, clientId)
+  // Brand claims (Step 2b) — all-time accumulation, newest-run-per-video,
+  // tracked competitors only; empty for tenants that never ran Pass A v4.
+  const claims = await loadBrandClaims(admin, clientId, tc?.competitor_names ?? [])
 
   // Floor-passing themes only — early signals surface on pages, not in C/D.
   const themes = (await loadThemes(clientId, runId)).filter((t) => !t.singleSource)
