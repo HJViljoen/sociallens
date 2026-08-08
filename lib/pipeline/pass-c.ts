@@ -7,6 +7,7 @@ import { logAiCall } from './ai-log'
 import { CALIBRATED_PROSE_RULE, stripThemeRefs } from './prose-rules'
 import { embedTexts, cosine } from './cluster'
 import type { AggregatedTheme, SovEntry } from './types'
+import type { BrandClaim } from './claims'
 
 // Pass C — competitive analysis (Architecture/Analysis-Passes §Pass C). Single
 // GPT call over Step A2's bucketed themes (never re-reads raw comments). Finds
@@ -35,6 +36,9 @@ export interface RunPassCOptions {
   /** The client's display name (clients.company_name) — findings name it directly. */
   brandName?: string
   sov?: Record<string, SovEntry>
+  /** Named competitors' own video claims (Step 2b) — CONTEXT for findings,
+   *  never evidence; findings still cite T# themes only. */
+  competitorClaims?: BrandClaim[]
   persist?: boolean
   dryRun?: boolean
 }

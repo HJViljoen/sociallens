@@ -5,6 +5,7 @@ import { runPassB } from '../lib/pipeline/pass-b'
 import { runPassC } from '../lib/pipeline/pass-c'
 import { runPassD } from '../lib/pipeline/pass-d'
 import { runCrossReference } from '../lib/pipeline/cross-reference'
+import { loadBrandClaims } from '../lib/pipeline/claims'
 import { persistThemes } from '../lib/pipeline/themes'
 import { writeRunSummary } from '../lib/pipeline/run-summary'
 import { resolveGatherWindow, inWindow } from '../lib/gather/gather'
@@ -113,6 +114,13 @@ async function main() {
     .maybeSingle()
   const brandName = client?.company_name ?? undefined
 
+  // Brand claims (Step 2b) — all-time, deduped/capped; empty for tenants that
+  // have never run Pass A v4.
+  const claims = await loadBrandClaims(admin, args.clientId)
+  if (claims.client.length || claims.competitors.length) {
+    console.log(`\nBrand claims: ${claims.client.length} client · ${claims.competitors.length} competitor`)
+  }
+
   console.log('\nShare of voice:')
   for (const [bucket, e] of Object.entries(metrics.share_of_voice)) console.log(`  ${bucket}: ${e.videos} videos (${e.pct_videos}%)`)
 
@@ -146,6 +154,7 @@ async function main() {
     trackingConfig: tc ?? undefined,
     brandName,
     sov: metrics.share_of_voice,
+    competitorClaims: claims.competitors,
     persist,
     dryRun: args.dryRun,
   })
@@ -165,6 +174,7 @@ async function main() {
     competitiveInsights: c.competitiveInsights,
     brandName,
     sov: metrics.share_of_voice,
+    clientClaims: claims.client,
     persist,
     dryRun: args.dryRun,
   })

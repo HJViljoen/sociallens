@@ -8,6 +8,7 @@ import { runPassB } from '@/lib/pipeline/pass-b'
 import { runPassC } from '@/lib/pipeline/pass-c'
 import { runPassD } from '@/lib/pipeline/pass-d'
 import { runCrossReference } from '@/lib/pipeline/cross-reference'
+import { loadBrandClaims } from '@/lib/pipeline/claims'
 import { persistThemes, loadThemes } from '@/lib/pipeline/themes'
 import { writeRunSummary } from '@/lib/pipeline/run-summary'
 import { computeMetrics } from '@/lib/pipeline/metrics'
@@ -361,16 +362,22 @@ async function runSynthesisHalf(clientId: string, runId: string) {
     .select('company_name').eq('id', clientId).maybeSingle()
   const brandName = client?.company_name ?? undefined
 
+  // Brand claims (Step 2b) — all-time accumulation, deduped/capped; empty for
+  // tenants that never ran Pass A v4.
+  const claims = await loadBrandClaims(admin, clientId)
+
   // Floor-passing themes only — early signals surface on pages, not in C/D.
   const themes = (await loadThemes(clientId, runId)).filter((t) => !t.singleSource)
 
   const c = await runPassC({
     clientId, runId, themes,
-    trackingConfig: tc ?? undefined, brandName, sov: metrics.share_of_voice, persist: true,
+    trackingConfig: tc ?? undefined, brandName, sov: metrics.share_of_voice,
+    competitorClaims: claims.competitors, persist: true,
   })
   const d = await runPassD({
     clientId, runId, themes,
-    competitiveInsights: c.competitiveInsights, brandName, sov: metrics.share_of_voice, persist: true,
+    competitiveInsights: c.competitiveInsights, brandName, sov: metrics.share_of_voice,
+    clientClaims: claims.client, persist: true,
   })
 
   await writeRunSummary({

@@ -8,6 +8,7 @@ import { CALIBRATED_PROSE_RULE, stripThemeRefs } from './prose-rules'
 import { validateBrief } from './narrative'
 import { logAiCall } from './ai-log'
 import { indexThemes, type PersistedCompetitiveInsight } from './pass-c'
+import type { BrandClaim } from './claims'
 import { readsAsHeroQuote } from '../quotes'
 import { embedTexts, cosine } from './cluster'
 import { loadThemes } from './themes'
@@ -61,6 +62,8 @@ export interface RunPassDOptions {
   /** The client's display name (clients.company_name) — insights name it directly. */
   brandName?: string
   sov?: Record<string, SovEntry>
+  /** The client's own video claims (Step 2b) — D-a's say-vs-hear input. */
+  clientClaims?: BrandClaim[]
   persist?: boolean
   dryRun?: boolean
 }
