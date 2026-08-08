@@ -66,6 +66,14 @@ const languageSampleSchema = z.object({
   comment_id: z.string(),
 })
 
+// Brand messaging extracted from a CLIENT/COMPETITOR video's transcript
+// (pass_a_v4). Never audience evidence — validated verbatim against the
+// transcript and persisted to video_claims (Pass C / say-vs-hear are Step 2b).
+const claimSchema = z.object({
+  claim: z.string(),
+  quote: z.string(),
+})
+
 const classificationSchema = z.object({
   classified_type: z.enum(CLASSIFIED_TYPES),
   hook_style: z.enum(HOOK_STYLES),
@@ -83,10 +91,16 @@ export const PassAVideoSchema = z.object({
   language_samples: z.array(languageSampleSchema),
 })
 
+/** Pass A v4 — v3 plus transcript-aware brand claims (TRANSCRIPTS_ENABLED). */
+export const PassAVideoSchemaV4 = PassAVideoSchema.extend({
+  claims: z.array(claimSchema),
+})
+
 export type PassAVideoOutput = z.infer<typeof PassAVideoSchema>
 export type PassAClassification = z.infer<typeof classificationSchema>
 export type PassAInsight = z.infer<typeof insightSchema>
 export type PassALanguageSample = z.infer<typeof languageSampleSchema>
+export type PassAClaim = z.infer<typeof claimSchema>
 
 // --- Pass C / Pass D (Architecture/Analysis-Passes §Pass C, §Pass D) ----------
 // DB-enforced enums are only impact_level / priority and the 1–10 score ranges;

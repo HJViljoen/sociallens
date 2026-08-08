@@ -29,6 +29,11 @@ export interface VideoRow {
   /** 'discovered' (keyword search) or 'owned' (the client's own accounts).
    *  The SoV guard keeps owned rows out of discovered-corpus metrics. */
   source?: string | null
+  /** Step 1 transcript capture. Only status 'ok' text is ever readable — go
+   *  through lib/pipeline/transcript-input.usableTranscript, never directly. */
+  transcript?: string | null
+  transcript_lang?: string | null
+  transcript_status?: string | null
 }
 
 export interface CommentRow {
