@@ -12,7 +12,9 @@ import { SENTIMENT_BADGE } from '@/lib/ui-colors'
 // Demo-layout ranked tables with inline single-hue bars (magnitude, not
 // identity — dataviz rules; values always labelled). Anchored on the newest
 // gather with data, excluding in-flight runs, like the dashboard. Honesty
-// rule (positioning): hooks are read from captions + comments, never footage.
+// rule (positioning): hooks are read from captions + comments — and, since
+// Pass A v4 (TRANSCRIPTS_ENABLED), from the video's transcript when one was
+// captured; still never the footage itself.
 
 interface VideoRow {
   id: string

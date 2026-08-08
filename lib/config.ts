@@ -36,6 +36,67 @@ export const EVIDENCE_FLOOR = 2
 /** Sampling temperature for analysis calls. 0 for reproducible iteration. */
 export const ANALYSIS_TEMPERATURE = 0
 
+// --- Video transcripts (Step 1 capture 2026-07-23, Step 2 analysis 2026-08-08) --
+// Gather stores the raw item + resolves one transcript per kept video (caption
+// when present, else Whisper). Pass A reads them behind the same flag (v4:
+// classification grounding on every bucket; industry-other transcripts as
+// evidence; client/competitor claims). See _Claude/Projects/SaaS/Architecture/Video-Transcripts.
+
+/** Master switch. Off by default — when unset, gather is byte-identical to
+ *  before (no raw capture, no transcription). Set TRANSCRIPTS_ENABLED=1 to bank
+ *  transcripts on real runs. Read at call-time so it works in serverless. */
+export function transcriptsEnabled(): boolean {
+  const v = process.env.TRANSCRIPTS_ENABLED
+  return v === '1' || v === 'true'
+}
+
+/** OpenAI transcription model for videos without a usable caption track. */
+export const TRANSCRIBE_MODEL = 'whisper-1'
+
+/** Below this many LETTERS a resolved transcript is treated as no-speech —
+ *  music-only reels (Whisper renders those as "♪♪", captions as "[Music]"; the
+ *  2026-07-23 lift experiment saw such videos add nothing). Speech-gate. */
+export const MIN_TRANSCRIPT_CHARS = 15
+
+/**
+ * Model for the content gate — the second gate, after the letter-count one.
+ * Measured on the 2026-08-08 backfill: of 43 transcripts that PASSED the
+ * letter-count gate, only 67% were speech; 16% were song lyrics ("Have a holly
+ * jolly Christmas") and 16% noise ("Transcribed by https://otter.ai"). Lyrics
+ * have plenty of letters, so only a semantic check catches them. ~$0.04 per
+ * 600-video run.
+ */
+export const CONTENT_GATE_MODEL = 'gpt-4.1-mini'
+
+/** Runaway BACKSTOP, not a budget (Heinrich 2026-08-08: transcribe everything
+ *  analysed — whole-run Whisper ≈ $2.50–3.50 at run-1 scale). A real run's
+ *  biggest platform was ~460 candidates; 1000 exists so a pathological gather
+ *  can't spend unbounded time/money. */
+export const TRANSCRIBE_CAP = 1000
+
+/** Videos per transcribe Inngest step. Download-dominated (~10s/video after
+ *  the IG audio-first fix) — 8 ≈ 80s/step, wide margin under the 300s cap. */
+export const TRANSCRIBE_BATCH = 8
+
+/** Transcribe steps dispatched per parallel wave (Pass A wave pattern). */
+export const TRANSCRIBE_PARALLEL = 4
+
+/** Whisper is priced per audio MINUTE, not per token — MODEL_PRICING can't
+ *  represent it and estimateCost('whisper-1', …) returns 0. */
+export const WHISPER_PER_MINUTE = 0.006
+
+/** Skip Whisper for media larger than this (bytes) — the API's own file cap. */
+export const TRANSCRIBE_MAX_BYTES = 25 * 1024 * 1024
+
+/** Max transcript characters injected into a Pass A prompt (~600 tokens),
+ *  clipped code-point-safe (clipText). Short reels rarely reach this. */
+export const TRANSCRIPT_PROMPT_CHARS = 2400
+
+/** Max length of a video-sourced (transcript) evidence quote. Keeps transcript
+ *  quotes sentence-scale so everything downstream that assumes comment-sized
+ *  quotes (D-b pools, cards) holds. */
+export const PASS_A_VIDEO_QUOTE_MAX = 200
+
 /**
  * Embedding model for Step A2 theme clustering (Analysis-Passes §Step A2 — the
  * pre-approved fallback when string-match clustering fails, which the first real
@@ -125,6 +186,10 @@ export const APIFY_ACTORS = {
     // apify/instagram-scraper (flagship) in `comments` mode — replaced
     // apify/instagram-comment-scraper (SbK00X0JYCPblD2wp), which returned 0.
     comment: process.env.APIFY_IG_COMMENT_ACTOR ?? 'shu8hvrXbJbY3Eb9W',
+    // Same flagship actor as `comment`, driven in `posts` mode: the hashtag
+    // scraper can only search, so re-fetching ONE known post (to refresh its
+    // expiring media url for transcription) has to go through this one.
+    post: process.env.APIFY_IG_POST_ACTOR ?? 'shu8hvrXbJbY3Eb9W',
   },
 } as const
 

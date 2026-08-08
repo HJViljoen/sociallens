@@ -12,13 +12,15 @@ export const CALIBRATED_PROSE_RULE =
   '- Prose is client-facing. NEVER cite internal handles like [T4] or T12 inside titles, findings, or ' +
   'descriptions — name the topic in plain words instead. T# belongs ONLY in the structured supporting_themes field.'
 
-/** Defensive strip for internal T# handles that leak into client-facing prose
- *  despite the prompt rule (seen live: Pass C findings citing "[T18]", 2026-07-09).
+/** Defensive strip for internal handles that leak into client-facing prose
+ *  despite the prompt rule (seen live: Pass C findings citing "[T18]",
+ *  2026-07-09). Covers T# (themes), C# (competitive insights), and S# (client
+ *  claims, Step 2b) — the same leak class for every bracket-labelled input.
  *  Removes bracketed refs and tidies the whitespace/punctuation left behind. */
 export function stripThemeRefs(text: string): string {
   return text
-    .replace(/\s*\[T\d+\](\[T\d+\])*/g, '')
-    .replace(/\s*\(T\d+(,\s*T\d+)*\)/g, '')
+    .replace(/\s*\[[TSC]\d+\](\[[TSC]\d+\])*/g, '')
+    .replace(/\s*\([TSC]\d+(,\s*[TSC]\d+)*\)/g, '')
     .replace(/\s{2,}/g, ' ')
     .replace(/\s+([.,;:])/g, '$1')
     .trim()

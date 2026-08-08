@@ -68,6 +68,42 @@ export interface CommentInsert {
  *  it's an unknown record and the adapters extract defensively. */
 export type RawItem = Record<string, unknown>
 
+// ---- Transcripts (Step 1 — capture only) ------------------------------------
+
+/** A caption/subtitle track a platform's raw item exposes. */
+export interface SubtitleTrack {
+  url: string
+  lang: string | null
+  isAuto: boolean
+}
+
+/** Direct media + caption handles for transcript resolution, pulled from a raw
+ *  item by the adapter. URLs are signed and EXPIRING — use them during the run. */
+export interface MediaRef {
+  mediaUrl: string | null
+  subtitleTracks: SubtitleTrack[] | null
+}
+
+/**
+ * One resolved transcript. Only `ok` is ever usable by the analysis passes.
+ *   ok        — a person is actually talking
+ *   no_speech — silent or music-only (the letter-count gate)
+ *   lyrics    — Whisper transcribed a song, not narration (the content gate)
+ *   garbled   — noise, watermarks, transcription artefacts (the content gate)
+ *   no_media  — the item carried no media handle
+ *   failed    — fetch or transcription errored
+ */
+export interface TranscriptResult {
+  text: string
+  lang: string | null
+  source: 'tiktok_caption' | 'whisper' | null
+  status: 'ok' | 'no_speech' | 'lyrics' | 'garbled' | 'no_media' | 'failed'
+  /** Whisper audio minutes billed for this video (absent: caption/no-media path). */
+  whisperMinutes?: number
+  /** Content-gate token usage (absent when the letter gate short-circuited). */
+  gateTokens?: { prompt: number; completion: number }
+}
+
 /** Client/run ids + config threaded into the normalisers. */
 export interface NormaliseCtx {
   clientId: string
@@ -120,6 +156,22 @@ export interface PlatformAdapter {
    * on Apify platforms a count check costs as much as the scrape it would save.
    */
   fetchCommentCounts?(videoIds: string[]): Promise<Map<string, number>>
+  /**
+   * Apify actor slug + input to re-fetch SPECIFIC videos by URL rather than by
+   * search. Media and caption URLs are signed and expiring, so a video stored by
+   * an earlier run has no live handle to transcribe — this refreshes it without
+   * gathering anything new. Used by the transcript backfill; not part of a run.
+   * Absent on YouTube (transcripts deferred — see Architecture/Video-Transcripts).
+   */
+  refetchByUrl?(videoUrls: string[]): { actor: string; input: RawItem }
+  /**
+   * Extract the direct media URL + any caption tracks from a raw item, for
+   * transcript resolution (Step 1). Absent on platforms with no usable route:
+   * YouTube is deferred (its transcript text is pot-gated — see
+   * Architecture/Video-Transcripts), so it simply doesn't implement this and the
+   * transcribe step skips it.
+   */
+  extractMedia?(raw: RawItem): MediaRef
   /** Raw actor item → VideoInsert. null = skip (unparseable / no url). */
   normaliseVideo(raw: RawItem, ctx: NormaliseCtx): VideoInsert | null
   /** Raw actor item → CommentInsert. null = skip. */

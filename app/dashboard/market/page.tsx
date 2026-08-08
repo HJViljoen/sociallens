@@ -9,7 +9,7 @@ import { HowToRead } from '@/components/how-to-read'
 import { Quotes } from '@/components/quotes'
 import type { GlossaryKey } from '@/lib/calibration'
 import { rankByTheme, fetchQuotesByAudience, createQuotePicker, bucketByAudienceId, scopeToClientVoices, type ThemeBucketRow } from '@/lib/quotes'
-import type { CiSummary } from '@/lib/pipeline/schemas'
+import type { CiSummary, SayVsHearEntry } from '@/lib/pipeline/schemas'
 
 // Market Intelligence — "What should we do?" (Redesign Spec §3). The editorial
 // layer over Pass D: the consumer-intelligence summary leads (the "someone
@@ -87,7 +87,7 @@ function EvidenceChip({ tier }: { tier: GateTier }) {
   return null
 }
 
-const LEGEND_ITEMS: GlossaryKey[] = ['conversations', 'act_now', 'plan_next', 'worth_considering', 'strong_evidence', 'early_signal']
+const LEGEND_ITEMS: GlossaryKey[] = ['conversations', 'say_vs_hear', 'act_now', 'plan_next', 'worth_considering', 'strong_evidence', 'early_signal']
 
 export default async function MarketIntelligencePage({
   searchParams,
@@ -127,7 +127,7 @@ export default async function MarketIntelligencePage({
       .eq('client_id', clientId).eq('run_id', runId),
     supabase.from('competitive_insights').select('id, evidence, impact_level')
       .eq('client_id', clientId).eq('run_id', runId),
-    supabase.from('run_summary').select('consumer_intelligence_summary')
+    supabase.from('run_summary').select('consumer_intelligence_summary, say_vs_hear')
       .eq('client_id', clientId).eq('run_id', runId).maybeSingle(),
     // Single-source pills must clear the same strength bar as early-signal
     // insights — "Early signal" is a calibrated term, not a catch-all for
@@ -148,6 +148,7 @@ export default async function MarketIntelligencePage({
   const recommendations = (recRes.data ?? []) as Recommendation[]
   const competitive = (ciRes.data ?? []) as CompetitiveRef[]
   const ciSummary = (summaryRes.data?.consumer_intelligence_summary ?? null) as CiSummary | null
+  const sayVsHear = (summaryRes.data?.say_vs_hear ?? null) as SayVsHearEntry[] | null
   const singleSourceThemes = (ssRes.data ?? []) as SingleSourceTheme[]
   const singleSourceTotal = ssRes.count ?? singleSourceThemes.length
 
@@ -268,6 +269,10 @@ export default async function MarketIntelligencePage({
       {/* The short read — a tight at-a-glance digest (spec §3.1) */}
       {ciSummary && <ShortRead s={ciSummary} />}
 
+      {/* Say vs hear (Step 2b) — the brand's own video claims set against the
+          tracked conversation. Self-gates: null/empty renders nothing. */}
+      {sayVsHear && sayVsHear.length > 0 && <SayVsHearSection entries={sayVsHear} themeSlugById={themeSlugById} />}
+
       {/* Top recommendations (spec §3.2) — the outcome, promoted above insights */}
       {recommendations.length > 0 && (
         <section className="space-y-4">
@@ -359,6 +364,77 @@ export default async function MarketIntelligencePage({
         </CollapsedSection>
       )}
     </div>
+  )
+}
+
+/** Say vs hear (Step 2b) — two-panel contrast per claim: what the brand's own
+ *  video says (verbatim, from its transcript) against what the tracked
+ *  conversation says. Entries arrive pre-validated from the pipeline
+ *  (run_summary.say_vs_hear); silence is a real verdict, rendered honestly —
+ *  never fabricated audience voice. */
+function SayVsHearSection({ entries, themeSlugById }: { entries: SayVsHearEntry[]; themeSlugById: Map<string, string> }) {
+  const verdict = (a: SayVsHearEntry['audience']) =>
+    a === 'echoes'
+      ? { text: 'They echo it', cls: 'bg-positive/12 text-positive' }
+      : a === 'contradicts'
+        ? { text: 'They push back', cls: 'bg-warning/15 text-warning' }
+        : { text: 'Not talked about yet', cls: 'bg-muted text-muted-foreground' }
+  const themesOf = (e: SayVsHearEntry): string[] => {
+    const slugs = new Set<string>()
+    for (const id of e.supporting_theme_ids ?? []) {
+      const s = themeSlugById.get(id)
+      if (s) slugs.add(s)
+    }
+    return [...slugs].slice(0, 4)
+  }
+  return (
+    <section className="space-y-4">
+      <SectionHeading label="What you say vs what they hear" hint="Your own videos&rsquo; words, set against the tracked conversation" />
+      <div className="space-y-4">
+        {entries.map((e, i) => {
+          const chip = verdict(e.audience)
+          const themes = themesOf(e)
+          return (
+            <Card key={i}>
+              <CardContent className="pt-6 space-y-4">
+                <div className="grid gap-6 lg:grid-cols-2">
+                  <div className="space-y-2">
+                    <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">You say</p>
+                    <p className="text-sm font-medium">{e.you_say}</p>
+                    <blockquote className="border-l-2 pl-3 text-sm italic text-muted-foreground">&ldquo;{e.your_quote}&rdquo;</blockquote>
+                  </div>
+                  <div className="space-y-2">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">What your audience says</p>
+                      <span title={glossaryRule('say_vs_hear')} className={`${chipBase} ${chip.cls}`}>{chip.text}</span>
+                    </div>
+                    {e.they_say ? (
+                      <p className="text-sm">{e.they_say}</p>
+                    ) : (
+                      <p className="text-sm text-muted-foreground">The tracked conversation doesn&rsquo;t engage with this claim yet.</p>
+                    )}
+                    {themes.length > 0 && (
+                      <div className="flex flex-wrap gap-1.5">
+                        {themes.map((t) => (
+                          <Link
+                            key={t}
+                            href={`/dashboard/voice?themes=${encodeURIComponent(t)}`}
+                            className="px-2 py-0.5 rounded-full text-xs bg-muted text-muted-foreground hover:bg-muted/70"
+                          >
+                            {prettyType(t)}
+                          </Link>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+                <p className="border-t pt-3 text-sm text-muted-foreground">{e.gap}</p>
+              </CardContent>
+            </Card>
+          )
+        })}
+      </div>
+    </section>
   )
 }
 

@@ -66,6 +66,14 @@ const languageSampleSchema = z.object({
   comment_id: z.string(),
 })
 
+// Brand messaging extracted from a CLIENT/COMPETITOR video's transcript
+// (pass_a_v4). Never audience evidence — validated verbatim against the
+// transcript and persisted to video_claims (Pass C / say-vs-hear are Step 2b).
+const claimSchema = z.object({
+  claim: z.string(),
+  quote: z.string(),
+})
+
 const classificationSchema = z.object({
   classified_type: z.enum(CLASSIFIED_TYPES),
   hook_style: z.enum(HOOK_STYLES),
@@ -83,10 +91,16 @@ export const PassAVideoSchema = z.object({
   language_samples: z.array(languageSampleSchema),
 })
 
+/** Pass A v4 — v3 plus transcript-aware brand claims (TRANSCRIPTS_ENABLED). */
+export const PassAVideoSchemaV4 = PassAVideoSchema.extend({
+  claims: z.array(claimSchema),
+})
+
 export type PassAVideoOutput = z.infer<typeof PassAVideoSchema>
 export type PassAClassification = z.infer<typeof classificationSchema>
 export type PassAInsight = z.infer<typeof insightSchema>
 export type PassALanguageSample = z.infer<typeof languageSampleSchema>
+export type PassAClaim = z.infer<typeof claimSchema>
 
 // --- Pass C / Pass D (Architecture/Analysis-Passes §Pass C, §Pass D) ----------
 // DB-enforced enums are only impact_level / priority and the 1–10 score ranges;
@@ -219,6 +233,42 @@ export const PassDaSchema = z.object({
   executive_brief: executiveBriefSchema,
 })
 export type PassDaOutput = z.infer<typeof PassDaSchema>
+
+// --- Say-vs-hear (Step 2b, 2026-08-08) — client claims vs audience voice ------
+// The model contrasts what the client SAYS in its own videos ([S#] claims from
+// transcripts) with what the audience actually says (themes). Verdict per
+// claim: the audience echoes it, contradicts it, or is silent on it — silence
+// enforced in code to carry no invented audience voice.
+
+export const SAY_VS_HEAR_AUDIENCE = ['echoes', 'contradicts', 'silent'] as const
+
+const sayVsHearItemSchema = z.object({
+  // The S# index of the claim being assessed — must exist in the input.
+  you_say_ref: z.string(),
+  audience: z.enum(SAY_VS_HEAR_AUDIENCE),
+  // What the audience says on this claim's subject; null when audience is 'silent'.
+  they_say: z.string().nullable(),
+  // The takeaway for the brand — client-facing prose, no indices, no numbers.
+  gap: z.string(),
+  supporting_themes: z.array(z.string()), // T# indices; empty when 'silent'
+})
+
+/** Pass D-a v5 — v4 plus say_vs_hear (only when client claims exist). */
+export const PassDaSchemaV5 = PassDaSchema.extend({
+  say_vs_hear: z.array(sayVsHearItemSchema),
+})
+export type SayVsHearItemOut = z.infer<typeof sayVsHearItemSchema>
+
+/** The persisted run_summary.say_vs_hear blob — claims resolved so the UI
+ *  never needs video_claims access (RLS: service-role only). */
+export interface SayVsHearEntry {
+  you_say: string
+  your_quote: string
+  audience: (typeof SAY_VS_HEAR_AUDIENCE)[number]
+  they_say: string | null
+  gap: string
+  supporting_theme_ids: string[]
+}
 export type CiSummary = z.infer<typeof ciSummarySchema>
 export type ExecutiveBrief = z.infer<typeof executiveBriefSchema>
 export type BriefBeat = z.infer<typeof briefBeatSchema>

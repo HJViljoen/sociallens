@@ -5,6 +5,7 @@ import { runPassB } from '../lib/pipeline/pass-b'
 import { runPassC } from '../lib/pipeline/pass-c'
 import { runPassD } from '../lib/pipeline/pass-d'
 import { runCrossReference } from '../lib/pipeline/cross-reference'
+import { loadBrandClaims } from '../lib/pipeline/claims'
 import { persistThemes } from '../lib/pipeline/themes'
 import { writeRunSummary } from '../lib/pipeline/run-summary'
 import { resolveGatherWindow, inWindow } from '../lib/gather/gather'
@@ -113,6 +114,13 @@ async function main() {
     .maybeSingle()
   const brandName = client?.company_name ?? undefined
 
+  // Brand claims (Step 2b) — all-time, newest-run-per-video, tracked
+  // competitors only; empty for tenants that have never run Pass A v4.
+  const claims = await loadBrandClaims(admin, args.clientId, tc?.competitor_names ?? [])
+  if (claims.client.length || claims.competitors.length) {
+    console.log(`\nBrand claims: ${claims.client.length} client · ${claims.competitors.length} competitor`)
+  }
+
   console.log('\nShare of voice:')
   for (const [bucket, e] of Object.entries(metrics.share_of_voice)) console.log(`  ${bucket}: ${e.videos} videos (${e.pct_videos}%)`)
 
@@ -146,6 +154,7 @@ async function main() {
     trackingConfig: tc ?? undefined,
     brandName,
     sov: metrics.share_of_voice,
+    competitorClaims: claims.competitors,
     persist,
     dryRun: args.dryRun,
   })
@@ -165,6 +174,7 @@ async function main() {
     competitiveInsights: c.competitiveInsights,
     brandName,
     sov: metrics.share_of_voice,
+    clientClaims: claims.client,
     persist,
     dryRun: args.dryRun,
   })
@@ -187,6 +197,15 @@ async function main() {
   } else {
     console.log('  (none produced — dashboard will use the code-composed fallback)')
   }
+  if (d.sayVsHear?.length) {
+    console.log(`\n=== PASS D-a — say vs hear (${d.sayVsHear.length}) ===`)
+    for (const s of d.sayVsHear) {
+      console.log(`  [${s.audience}] you say: ${s.you_say}`)
+      console.log(`     they say: ${s.they_say ?? '(silent — the conversation doesn\'t engage with this)'}`)
+      console.log(`     gap: ${s.gap}`)
+    }
+  }
+
   console.log(`\n=== PASS D-b — recommendations (${d.recommendations.length}) ===`)
   for (const r of d.recommendations) {
     console.log(`  [${r.type} · ${r.priority}] ${r.title}`)
@@ -198,7 +217,7 @@ async function main() {
     await writeRunSummary({
       clientId: args.clientId, runId: args.runId!, metrics, videos,
       periodMetrics, periodVideos,
-      ciSummary: d.ciSummary, executiveBrief: d.executiveBrief, period: tc?.report_period ?? null,
+      ciSummary: d.ciSummary, executiveBrief: d.executiveBrief, sayVsHear: d.sayVsHear, period: tc?.report_period ?? null,
     })
     console.log('\nrun_summary written.')
   }

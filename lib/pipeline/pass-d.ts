@@ -2,12 +2,13 @@ import { zodResponseFormat } from 'openai/helpers/zod'
 import { createAdminClient } from '../supabase-admin'
 import { openai, samplingParams } from '../openai'
 import { SYNTHESIS_MODEL, CITATION_RELEVANCE_FLOOR, estimateCost } from '../config'
-import { PassDaSchema, PassDbSchema, type PassDaOutput, type PassDbOutput, type CiSummary, type ExecutiveBrief } from './schemas'
+import { PassDaSchema, PassDaSchemaV5, PassDbSchema, type PassDaOutput, type PassDbOutput, type CiSummary, type ExecutiveBrief, type SayVsHearItemOut, type SayVsHearEntry } from './schemas'
 import { priorityForRank } from '../calibration'
 import { CALIBRATED_PROSE_RULE, stripThemeRefs } from './prose-rules'
 import { validateBrief } from './narrative'
 import { logAiCall } from './ai-log'
 import { indexThemes, type PersistedCompetitiveInsight } from './pass-c'
+import type { BrandClaim } from './claims'
 import { readsAsHeroQuote } from '../quotes'
 import { embedTexts, cosine } from './cluster'
 import { loadThemes } from './themes'
@@ -36,6 +37,9 @@ import type { AggregatedTheme, SovEntry } from './types'
 // executive-read paragraph that leads Market Intelligence (same voice as the
 // brief), so that page reads as a written briefing, not list-shaped cards.
 const PROMPT_VERSION_A = 'pass_d_a_v4'
+// v5 (2026-08-08, Step 2b): + say_vs_hear over [S#] client claims — selected
+// only when claims exist, so claim-less tenants keep the v4 schema/prompt.
+const PROMPT_VERSION_A_V5 = 'pass_d_a_v5'
 // v5 (2026-07-07): also select a hero_quote per recommendation AND per market
 // insight (evidence-led cards, Redesign Spec §1) — the one place a raw verbatim
 // belongs. Code validates each against the shown quotes and drops non-matches.
@@ -53,6 +57,42 @@ const COMPETITOR_QUOTES_PER_INSIGHT = 4
 
 const clampScore = (n: number) => Math.max(1, Math.min(10, Math.round(n)))
 
+/** A say-vs-hear item that survived validation, S# resolved to its claim. */
+export interface ValidSvhItem {
+  claim: BrandClaim
+  audience: SayVsHearItemOut['audience']
+  they_say: string | null
+  gap: string
+  supporting_themes: string[]
+}
+
+/** Pure say-vs-hear validation (exported for tests): resolve S# against the
+ *  claims shown (1-based), enforce the silent contract (silence carries NO
+ *  audience voice and NO theme refs — enforced, not trusted), require they_say
+ *  on non-silent verdicts, cap 3. */
+export function validateSayVsHear(items: SayVsHearItemOut[], claims: BrandClaim[]): ValidSvhItem[] {
+  const out: ValidSvhItem[] = []
+  const usedRefs = new Set<number>()
+  for (const it of items) {
+    if (out.length >= 3) break
+    // Lenient parse ("[S1]", "S 1" — the input literally shows [S#]), same
+    // spirit as D-b's hero-index handling; one claim gets at most one verdict.
+    const m = /^s(\d+)$/.exec(it.you_say_ref.toLowerCase().replace(/[^a-z0-9]/g, ''))
+    const idx = m ? Number(m[1]) : NaN
+    const claim = m ? claims[idx - 1] : undefined
+    if (!claim || usedRefs.has(idx) || !it.gap.trim()) continue
+    usedRefs.add(idx)
+    if (it.audience === 'silent') {
+      out.push({ claim, audience: 'silent', they_say: null, gap: it.gap, supporting_themes: [] })
+      continue
+    }
+    const they = it.they_say?.trim()
+    if (!they) continue
+    out.push({ claim, audience: it.audience, they_say: they, gap: it.gap, supporting_themes: it.supporting_themes })
+  }
+  return out
+}
+
 export interface RunPassDOptions {
   clientId: string
   runId: string
@@ -61,6 +101,8 @@ export interface RunPassDOptions {
   /** The client's display name (clients.company_name) — insights name it directly. */
   brandName?: string
   sov?: Record<string, SovEntry>
+  /** The client's own video claims (Step 2b) — D-a's say-vs-hear input. */
+  clientClaims?: BrandClaim[]
   persist?: boolean
   dryRun?: boolean
 }
@@ -72,6 +114,9 @@ export interface RunPassDResult {
   /** Sanitised dashboard hero brief, or null when the model produced none usable
    *  (render falls back to a code-composed narrative). */
   executiveBrief: ExecutiveBrief | null
+  /** Say-vs-hear entries (v5, claims resolved for the UI), or null when the
+   *  run had no client claims / nothing validated. */
+  sayVsHear: SayVsHearEntry[] | null
   rejectedRefs: number
   promptTokens: number
   completionTokens: number
@@ -81,9 +126,10 @@ export interface RunPassDResult {
 
 // ---- D-a: market insights + CI summary --------------------------------------
 
-function buildSystemPromptA(brandName?: string): string {
+/** Exported for tests (v5 say-vs-hear pins). */
+export function buildSystemPromptA(brandName?: string, hasClaims = false): string {
   const name = brandName?.trim() || 'the brand'
-  return [
+  const base = [
     `You are a media-based consumer intelligence analyst producing the strategic output that ${name} pays for.`,
     '',
     'You are given audience themes (distilled from real comments) and, if present, competitive insights.',
@@ -127,7 +173,31 @@ function buildSystemPromptA(brandName?: string): string {
     '- Do NOT invent counts or percentages. confidence_score and opportunity_score are 1–10 judgments, not measured quantities.',
     CALIBRATED_PROSE_RULE,
     '- If the data is thin, produce fewer, honest insights rather than padding. Fewer, tightly-grounded insights beat many loosely-grounded ones.',
-  ].join('\n')
+  ]
+  if (!hasClaims) return base.join('\n')
+  // v5: the say_vs_hear deliverable is spliced in as item 4 BEFORE the Rules
+  // block (a fourth deliverable announced after the rules weakens instruction-
+  // following on exactly the calibration rules that matter — review finding).
+  const sayVsHearItem = [
+    `4. say_vs_hear — the input includes claims ${name} makes in its OWN videos, labelled [S1], [S2], …`,
+    `   For up to 3 claims where the contrast is genuinely informative, return: you_say_ref (the S# label),`,
+    '   audience ("echoes" = the audience independently says the same thing; "contradicts" = the audience',
+    '   pushes back on it; "silent" = the tracked conversation simply does not engage with this claim),',
+    '   they_say (what the audience actually says on this subject — null when silent), gap (the one-sentence',
+    '   takeaway: what the mismatch or match means for ' + name + '), and supporting_themes (T# indices',
+    '   grounding the audience side — EMPTY when silent).',
+    '   Judge only against the themes provided — silence is a real, reportable verdict, never invent',
+    '   audience voice to fill it. Pick the claims with the most decision value, not the first three.',
+    '   gap and they_say are client-facing prose: no indices, no numbers.',
+    '',
+  ]
+  const rulesAt = base.indexOf('Rules:')
+  const v5 = [
+    ...base.slice(0, rulesAt).map((l) => (l === 'Produce three things:' ? 'Produce four things:' : l)),
+    ...sayVsHearItem,
+    ...base.slice(rulesAt),
+  ]
+  return v5.join('\n')
 }
 
 function themeLine(label: string, theme: AggregatedTheme): string {
@@ -138,15 +208,22 @@ function themeLine(label: string, theme: AggregatedTheme): string {
   )
 }
 
-function buildUserPromptA(
+/** Exported for tests (v5 say-vs-hear pins). */
+export function buildUserPromptA(
   themeIndex: { label: string; theme: AggregatedTheme }[],
   ciIndex: Map<string, PersistedCompetitiveInsight>,
   sov: Record<string, SovEntry> | undefined,
+  clientClaims: BrandClaim[] = [],
 ): string {
   const lines: string[] = []
   if (sov && Object.keys(sov).length) {
     lines.push('SHARE OF VOICE (by bucket):')
     for (const [bucket, e] of Object.entries(sov)) lines.push(`- ${bucket}: ${e.videos} videos (${e.pct_videos}%)`)
+    lines.push('')
+  }
+  if (clientClaims.length) {
+    lines.push('WHAT THE BRAND SAYS IN ITS OWN VIDEOS (from transcripts):')
+    clientClaims.forEach((c, i) => lines.push(`[S${i + 1}] ${c.claim} — "${c.quote}"`))
     lines.push('')
   }
   lines.push(`THEMES (${themeIndex.length})`)
@@ -361,6 +438,7 @@ async function structuredCall<T>(
 export async function runPassD(opts: RunPassDOptions): Promise<RunPassDResult> {
   const { clientId, runId, themes, sov } = opts
   const competitive = opts.competitiveInsights ?? []
+  const clientClaims = opts.clientClaims ?? []
   const dryRun = opts.dryRun ?? false
   const persist = opts.persist ?? !dryRun
   const admin = createAdminClient()
@@ -376,6 +454,7 @@ export async function runPassD(opts: RunPassDOptions): Promise<RunPassDResult> {
     recommendations: [],
     ciSummary: null,
     executiveBrief: null,
+    sayVsHear: null,
     rejectedRefs: 0,
     promptTokens: 0,
     completionTokens: 0,
@@ -384,17 +463,19 @@ export async function runPassD(opts: RunPassDOptions): Promise<RunPassDResult> {
   }
   if (dryRun) return result
 
-  // ---- D-a: market insights + CI summary ----
-  const systemPromptA = buildSystemPromptA(opts.brandName)
-  const userPromptA = buildUserPromptA(themeIndex, ciIndex, sov)
+  // ---- D-a: market insights + CI summary (+ say_vs_hear when claims exist) ----
+  const promptVersionA = clientClaims.length ? PROMPT_VERSION_A_V5 : PROMPT_VERSION_A
+  const systemPromptA = buildSystemPromptA(opts.brandName, clientClaims.length > 0)
+  const userPromptA = buildUserPromptA(themeIndex, ciIndex, sov, clientClaims)
 
-  let a: ParsedCall<PassDaOutput>
+  type ParsedDa = PassDaOutput & { say_vs_hear?: SayVsHearItemOut[] }
+  let a: ParsedCall<ParsedDa>
   try {
-    a = await structuredCall<PassDaOutput>(PassDaSchema, 'pass_d_a', systemPromptA, userPromptA)
+    a = await structuredCall<ParsedDa>(clientClaims.length ? PassDaSchemaV5 : PassDaSchema, 'pass_d_a', systemPromptA, userPromptA)
   } catch (e) {
     const error = e instanceof Error ? e.message : String(e)
     if (persist) {
-      await logAiCall(admin, { clientId, runId, pass: 'pass_d_a', callIndex: 1, model: SYNTHESIS_MODEL, promptVersion: PROMPT_VERSION_A, systemPrompt: systemPromptA, userPrompt: userPromptA, response: null, error, usage: { prompt_tokens: 0, completion_tokens: 0 }, durationMs: 0, validationStatus: 'parse_error' })
+      await logAiCall(admin, { clientId, runId, pass: 'pass_d_a', callIndex: 1, model: SYNTHESIS_MODEL, promptVersion: promptVersionA, systemPrompt: systemPromptA, userPrompt: userPromptA, response: null, error, usage: { prompt_tokens: 0, completion_tokens: 0 }, durationMs: 0, validationStatus: 'parse_error' })
     }
     throw new Error(`Pass D-a call failed: ${error}`)
   }
@@ -404,7 +485,7 @@ export async function runPassD(opts: RunPassDOptions): Promise<RunPassDResult> {
 
   if (!a.parsed) {
     if (persist) {
-      await logAiCall(admin, { clientId, runId, pass: 'pass_d_a', callIndex: 1, model: SYNTHESIS_MODEL, promptVersion: PROMPT_VERSION_A, systemPrompt: systemPromptA, userPrompt: userPromptA, response: { refusal: true }, error: 'no parsed output', usage: a.usage, durationMs: a.durationMs, validationStatus: 'parse_error' })
+      await logAiCall(admin, { clientId, runId, pass: 'pass_d_a', callIndex: 1, model: SYNTHESIS_MODEL, promptVersion: promptVersionA, systemPrompt: systemPromptA, userPrompt: userPromptA, response: { refusal: true }, error: 'no parsed output', usage: a.usage, durationMs: a.durationMs, validationStatus: 'parse_error' })
     }
     return result
   }
@@ -464,6 +545,43 @@ export async function runPassD(opts: RunPassDOptions): Promise<RunPassDResult> {
     return [...new Set(ids)]
   }
 
+  // ---- Say-vs-hear (v5) — validate, floor the audience-side refs, resolve ----
+  if (clientClaims.length && a.parsed.say_vs_hear?.length) {
+    const items = validateSayVsHear(a.parsed.say_vs_hear, clientClaims)
+    const cited = [...new Set(items.flatMap((it) => it.supporting_themes.map((r) => r.toLowerCase().trim())))].filter((l) => themeByLabel.has(l))
+    if (cited.length) {
+      // Same 0.35 floor as market insights: the audience side of a contrast
+      // must be semantically related to the themes cited as its grounding.
+      const itemTexts = items.map((it) => `${it.gap} ${it.they_say ?? ''}`.trim())
+      const vecs = await embedTexts([...itemTexts, ...cited.map((l) => themeText(themeByLabel.get(l)!))])
+      const themeVec = new Map(cited.map((l, i) => [l, vecs[itemTexts.length + i]]))
+      items.forEach((it, i) => {
+        it.supporting_themes = it.supporting_themes.filter((r) => {
+          const v = themeVec.get(r.toLowerCase().trim())
+          if (!v) return true // unknown ref — resolveThemes counts and drops it
+          if (cosine(vecs[i], v) >= CITATION_RELEVANCE_FLOOR) return true
+          relevanceRejected++
+          return false
+        })
+      })
+    }
+    const entries = items
+      .map((it) => ({
+        you_say: it.claim.claim,
+        your_quote: it.claim.quote,
+        audience: it.audience,
+        they_say: it.they_say ? stripThemeRefs(it.they_say) : null,
+        gap: stripThemeRefs(it.gap),
+        supporting_theme_ids: resolveThemes(it.supporting_themes),
+      }))
+      // The silent contract's other direction: a non-silent verdict whose refs
+      // all failed the floor/resolution has NO grounded audience voice left —
+      // rendering "they echo it" with zero evidence is exactly the invented-
+      // voice failure this feature must never ship. Silent needs no grounding.
+      .filter((e) => e.audience === 'silent' || e.supporting_theme_ids.length > 0)
+    result.sayVsHear = entries.length ? entries : null
+  }
+
   // Build market_insights rows (M# = 1-based array order).
   const miRows = a.parsed.market_insights.map((mi, i) => ({
     client_id: clientId,
@@ -497,8 +615,8 @@ export async function runPassD(opts: RunPassDOptions): Promise<RunPassDResult> {
       result.marketInsights = inserted
     }
     await logAiCall(admin, {
-      clientId, runId, pass: 'pass_d_a', callIndex: 1, model: SYNTHESIS_MODEL, promptVersion: PROMPT_VERSION_A, systemPrompt: systemPromptA, userPrompt: userPromptA,
-      response: { market_insights: miRows.length, ci_summary: true, executive_brief: !!brief.brief, brief_leaked: brief.leaked, brief_dropped: brief.dropped, rejected_refs: rejectedRefs, relevance_rejected: relevanceRejected },
+      clientId, runId, pass: 'pass_d_a', callIndex: 1, model: SYNTHESIS_MODEL, promptVersion: promptVersionA, systemPrompt: systemPromptA, userPrompt: userPromptA,
+      response: { market_insights: miRows.length, ci_summary: true, executive_brief: !!brief.brief, brief_leaked: brief.leaked, brief_dropped: brief.dropped, rejected_refs: rejectedRefs, relevance_rejected: relevanceRejected, ...(clientClaims.length ? { say_vs_hear: result.sayVsHear?.length ?? 0 } : {}) },
       error: null, usage: a.usage, durationMs: a.durationMs,
       validationStatus: rejectedRefs > 0 ? 'ref_rejected' : 'ok',
     })

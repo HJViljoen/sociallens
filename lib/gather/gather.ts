@@ -1,7 +1,8 @@
 import { createAdminClient, selectAll } from '../supabase-admin'
-import { periodWindowDays, RECHECK_MIN_GROWTH, RECHECK_CAP, RECHECK_WINDOW_DAYS } from '../config'
+import { periodWindowDays, RECHECK_MIN_GROWTH, RECHECK_CAP, RECHECK_WINDOW_DAYS, TRANSCRIBE_CAP, TRANSCRIBE_BATCH, TRANSCRIBE_MODEL, CONTENT_GATE_MODEL, WHISPER_PER_MINUTE, estimateCost, transcriptsEnabled } from '../config'
 import { runActor } from './apify'
 import { adapters } from './platforms'
+import { resolveTranscript } from './transcript'
 import { dedupeBy, round2 } from './util'
 import { classifyRelevance, type RelevanceMethod } from './relevance'
 import { attributeVideos, type AttributionMethod } from './attribution'
@@ -104,6 +105,8 @@ export interface PlatformResult {
   platform: Platform
   videos: number
   comments: number
+  /** Transcripts resolved this run (Step 1). Present only when enabled. */
+  transcripts?: number
   errors: string[]
 }
 
@@ -198,6 +201,10 @@ export interface SearchResult {
   keyword: string
   bucket: KeywordBucket
   videos: VideoInsert[]
+  /** Raw actor item per video_id, for transcript capture (Step 1). Only
+   *  populated when TRANSCRIPTS_ENABLED — otherwise the default path is
+   *  unchanged and nothing extra is serialised between Inngest steps. */
+  raws?: Record<string, RawItem>
 }
 
 /** What a platform's gate hands the comment-scrape steps. */
@@ -254,12 +261,21 @@ export async function searchOne(opts: {
   } else {
     throw new Error(`adapter ${opts.platform} has no video source`)
   }
-  const videos = dedupeBy(
-    raw.map((r) => adapter.normaliseVideo(r, ctx)).filter((v): v is VideoInsert => v !== null),
-    (v) => v.video_id,
-  )
+  // Keep each raw item paired with its normalised video so the transcript step
+  // can reach the media/caption URLs (discarded otherwise). Cheap; only surfaced
+  // in the return value when transcripts are enabled.
+  const paired = raw
+    .map((r) => ({ raw: r, video: adapter.normaliseVideo(r, ctx) }))
+    .filter((p): p is { raw: RawItem; video: VideoInsert } => p.video !== null)
+  const videos = dedupeBy(paired.map((p) => p.video), (v) => v.video_id)
   for (const v of videos) v.source_keywords = [opts.keyword]
-  return { keyword: opts.keyword, bucket: opts.bucket, videos }
+
+  let raws: Record<string, RawItem> | undefined
+  if (transcriptsEnabled()) {
+    raws = {}
+    for (const p of paired) raws[p.video.video_id] = p.raw
+  }
+  return { keyword: opts.keyword, bucket: opts.bucket, videos, raws }
 }
 
 /** Merge a platform's keyword searches (unioning source_keywords), run the
@@ -385,6 +401,29 @@ export async function gatePlatform(opts: {
       .from('videos')
       .upsert(toUpsert, { onConflict: 'client_id,platform,video_id' })
     if (error) errors.push(`videos upsert: ${error.message}`)
+  }
+
+  // Step 1 capture: persist the raw actor item for each kept video, so the
+  // transcript step can reach the media + caption URLs (discarded at normalise).
+  // Kept-only — gate-dropped noise isn't stored. The analysis passes ignore it.
+  if (transcriptsEnabled() && !opts.dryRun && toUpsert.length) {
+    const rawById = new Map<string, RawItem>()
+    for (const s of opts.searches) for (const [id, r] of Object.entries(s.raws ?? {})) if (!rawById.has(id)) rawById.set(id, r)
+    const rawRows = toUpsert
+      .filter((v) => rawById.has(v.video_id))
+      .map((v) => ({
+        client_id: opts.clientId,
+        run_id: opts.runId,
+        platform: adapter.platform,
+        video_id: v.video_id,
+        raw: rawById.get(v.video_id),
+      }))
+    if (rawRows.length) {
+      const { error } = await admin
+        .from('video_raw')
+        .upsert(rawRows, { onConflict: 'client_id,platform,video_id,run_id' })
+      if (error) errors.push(`video_raw upsert: ${error.message}`)
+    }
   }
 
   // Eligible-for-comments (stats credit spans fresh + resurfaced so keyword ROI
@@ -536,6 +575,188 @@ export async function scrapeCommentsBatch(opts: {
   return { comments: commentCount, errors }
 }
 
+/**
+ * Resolve + store one transcript per kept video for a run+platform (Step 1 —
+ * CAPTURE ONLY; the analysis passes do NOT read these columns). Reads the raw
+ * items gatePlatform persisted, extracts each platform's media/caption handles,
+ * and resolves a transcript (free caption when present, else Whisper) — speech-
+ * gated and capped at TRANSCRIBE_CAP. Idempotent: videos already carrying a
+ * transcript_status are skipped, so re-runs are cheap. Platforms without an
+ * `extractMedia` (YouTube — deferred) are skipped entirely. Its own step so the
+ * per-video download+Whisper loop stays under the function-duration cap.
+ */
+/** Pure: order pending-transcript candidates highest-comment-first (the best
+ *  signal proxy under any cap), drop already-attempted videos, cap, and chunk
+ *  into Inngest-step-sized batches. Exported for tests. */
+export function orderAndChunkPending(
+  rows: { video_id: string; comments_count: number | null; transcript_status: string | null }[],
+  batchSize: number,
+  cap: number,
+): string[][] {
+  const ids = rows
+    .filter((r) => r.transcript_status == null)
+    .sort((a, b) => (b.comments_count ?? 0) - (a.comments_count ?? 0) || a.video_id.localeCompare(b.video_id))
+    .slice(0, cap)
+    .map((r) => r.video_id)
+  const batches: string[][] = []
+  for (let i = 0; i < ids.length; i += batchSize) batches.push(ids.slice(i, i + batchSize))
+  return batches
+}
+
+/** Batch plan for the transcribe fan-out: this run's video_raw candidates,
+ *  minus already-transcribed videos, signal-first, chunked. The status check is
+ *  scoped to exactly these candidates (chunked .in) — never a platform-wide
+ *  unbounded read. */
+export async function planTranscribeBatches(clientId: string, runId: string, platform: Platform): Promise<string[][]> {
+  const admin = createAdminClient()
+  if (!adapters[platform]?.extractMedia) return [] // YouTube: deferred
+  const rawIds = (
+    await selectAll<{ video_id: string }>(() =>
+      admin
+        .from('video_raw')
+        .select('video_id')
+        .eq('client_id', clientId)
+        .eq('run_id', runId)
+        .eq('platform', platform)
+        .order('id', { ascending: true }),
+    )
+  ).map((r) => r.video_id)
+  if (!rawIds.length) return []
+
+  const rows: { video_id: string; comments_count: number | null; transcript_status: string | null }[] = []
+  for (let i = 0; i < rawIds.length; i += 100) {
+    const { data, error } = await admin
+      .from('videos')
+      .select('video_id, comments_count, transcript_status')
+      .eq('client_id', clientId)
+      .eq('platform', platform)
+      .in('video_id', rawIds.slice(i, i + 100))
+    if (error) throw new Error(`plan transcribe: ${error.message}`)
+    rows.push(...((data ?? []) as typeof rows))
+  }
+  return orderAndChunkPending(rows, TRANSCRIBE_BATCH, TRANSCRIBE_CAP)
+}
+
+export async function transcribeBatch(opts: {
+  clientId: string
+  runId: string
+  platform: Platform
+  /** Fan-out mode: exactly these videos (a planTranscribeBatches chunk). The
+   *  plan already excluded done videos and applied the cap; the in-batch
+   *  status re-check still runs (cheap, makes Inngest step retries free). */
+  videoIds?: string[]
+  /** 1-based batch number for the ai_call_log call_index (fan-out mode). */
+  batchNo?: number
+  dryRun?: boolean
+}): Promise<{ transcribed: number; skipped: number; errors: string[] }> {
+  const admin = createAdminClient()
+  const adapter = adapters[opts.platform]
+  const errors: string[] = []
+  if (!adapter?.extractMedia) return { transcribed: 0, skipped: 0, errors } // YouTube: deferred
+  const startedAt = Date.now()
+
+  const rawRows = await selectAll<{ video_id: string; raw: RawItem }>(() => {
+    let q = admin
+      .from('video_raw')
+      .select('video_id, raw')
+      .eq('client_id', opts.clientId)
+      .eq('run_id', opts.runId)
+      .eq('platform', opts.platform)
+    if (opts.videoIds?.length) q = q.in('video_id', opts.videoIds)
+    return q.order('id', { ascending: true })
+  })
+  if (!rawRows.length) return { transcribed: 0, skipped: 0, errors }
+
+  // Skip videos already transcribed (idempotent re-runs / step retries).
+  // Scoped to exactly the candidate ids, chunked — bounded however large the
+  // client's history grows.
+  const candidateIds = rawRows.map((r) => r.video_id)
+  const done = new Set<string>()
+  for (let i = 0; i < candidateIds.length; i += 100) {
+    const { data, error } = await admin
+      .from('videos')
+      .select('video_id')
+      .eq('client_id', opts.clientId)
+      .eq('platform', opts.platform)
+      .in('video_id', candidateIds.slice(i, i + 100))
+      .not('transcript_status', 'is', null)
+    if (error) {
+      errors.push(`transcribe done-check: ${error.message}`)
+      return { transcribed: 0, skipped: 0, errors }
+    }
+    for (const r of data ?? []) done.add(r.video_id as string)
+  }
+
+  const filtered = rawRows.filter((r) => !done.has(r.video_id))
+  const pending = opts.videoIds?.length ? filtered : filtered.slice(0, TRANSCRIBE_CAP)
+  let transcribed = 0
+  let skipped = 0
+  let whisperMinutes = 0
+  const gate = { prompt: 0, completion: 0 }
+  const statusCounts: Record<string, number> = {}
+  for (const row of pending) {
+    try {
+      const t = await resolveTranscript(adapter.extractMedia!(row.raw))
+      // Spend happened the moment Whisper/the gate ran — accumulate BEFORE the
+      // persist attempt so a failed update can't under-log real cost.
+      whisperMinutes += t.whisperMinutes ?? 0
+      gate.prompt += t.gateTokens?.prompt ?? 0
+      gate.completion += t.gateTokens?.completion ?? 0
+      statusCounts[t.status] = (statusCounts[t.status] ?? 0) + 1
+      if (!opts.dryRun) {
+        const { error } = await admin
+          .from('videos')
+          .update({
+            transcript: t.text || null,
+            transcript_lang: t.lang,
+            transcript_source: t.source,
+            transcript_status: t.status,
+          })
+          .eq('client_id', opts.clientId)
+          .eq('platform', opts.platform)
+          .eq('video_id', row.video_id)
+        if (error) {
+          errors.push(`transcript update (${row.video_id}): ${error.message}`)
+          continue
+        }
+      }
+      if (t.status === 'ok') transcribed++
+      else skipped++
+    } catch (e) {
+      errors.push(`transcribe (${row.video_id}): ${(e as Error).message}`)
+    }
+  }
+
+  // Cost observability (Step 2 readiness): Whisper bills per audio minute —
+  // invisible to estimateCost — so this is the one place the spend is recorded.
+  // A logging failure must never sink capture.
+  if (!opts.dryRun && pending.length) {
+    const costUsd = whisperMinutes * WHISPER_PER_MINUTE + estimateCost(CONTENT_GATE_MODEL, gate.prompt, gate.completion)
+    const { error: logErr } = await admin.from('ai_call_log').insert({
+      client_id: opts.clientId,
+      run_id: opts.runId,
+      pass: 'transcribe',
+      call_index: opts.batchNo ?? 1,
+      model: TRANSCRIBE_MODEL,
+      prompt_version: 'transcribe_v1',
+      request: { platform: opts.platform, videos: pending.length },
+      response: { ok: transcribed, statuses: statusCounts, failed: errors.length, whisper_minutes: Math.round(whisperMinutes * 100) / 100, gate_prompt_tokens: gate.prompt, gate_completion_tokens: gate.completion },
+      error_message: null,
+      prompt_tokens: gate.prompt,
+      completion_tokens: gate.completion,
+      cost_usd: costUsd,
+      duration_ms: Date.now() - startedAt,
+      validation_status: 'ok',
+    })
+    if (logErr) console.warn(`[${opts.platform}] transcribe cost log failed: ${logErr.message}`)
+  }
+
+  console.log(
+    `[${opts.platform}] transcripts${opts.batchNo ? ` (batch ${opts.batchNo})` : ''}: ${transcribed} ok, ${skipped} empty/no-speech, ${rawRows.length - pending.length} already-done · ${Math.round(whisperMinutes * 10) / 10} whisper-min`,
+  )
+  return { transcribed, skipped, errors }
+}
+
 // ---- CLI composition ---------------------------------------------------------
 
 /** Sequential composition of the step pieces — the CLI path (run-gather.ts).
@@ -578,7 +799,19 @@ export async function runGather(opts: GatherOptions): Promise<PlatformResult[]> 
         refs: gate.eligible, dryRun: opts.dryRun,
       })
       errors.push(...scraped.errors)
-      results.push({ platform, videos: gate.videosKept, comments: scraped.comments, errors })
+      let transcripts: number | undefined
+      if (transcriptsEnabled()) {
+        // Same plan + batch units as the Inngest fan-out, run sequentially
+        // (the CLI has no step cap to duck under).
+        const batches = await planTranscribeBatches(opts.clientId, opts.runId, platform)
+        transcripts = 0
+        for (let b = 0; b < batches.length; b++) {
+          const tx = await transcribeBatch({ clientId: opts.clientId, runId: opts.runId, platform, videoIds: batches[b], batchNo: b + 1, dryRun: opts.dryRun })
+          transcripts += tx.transcribed
+          errors.push(...tx.errors)
+        }
+      }
+      results.push({ platform, videos: gate.videosKept, comments: scraped.comments, transcripts, errors })
     } catch (e) {
       errors.push((e as Error).message)
       results.push({ platform, videos: 0, comments: 0, errors })

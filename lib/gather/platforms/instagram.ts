@@ -82,6 +82,34 @@ export const instagram: PlatformAdapter = {
     }
   },
 
+  // Verified live 2026-08-08: the flagship actor in `posts` mode returns the
+  // same `videoUrl`/`audioUrl` pair the hashtag scraper does, so extractMedia
+  // reads a refetched item unchanged. resultsLimit is PER url — 1 each.
+  refetchByUrl(videoUrls) {
+    return {
+      actor: APIFY_ACTORS.instagram.post,
+      input: {
+        directUrls: videoUrls,
+        resultsType: 'posts',
+        resultsLimit: 1,
+        addParentData: false,
+      },
+    }
+  },
+
+  // Transcript source (Step 1): the item carries a separate audio-only stream at
+  // `audioUrl` alongside the full mp4 at `videoUrl` — no caption field, so IG is
+  // always Whisper. Verified on real data 2026-07-23.
+  //
+  // audioUrl FIRST (2026-08-08): Whisper only ever hears the audio, and the mp4
+  // blew the 25MB cap on 7 of 60 backfilled videos (one was 110MB) and returned
+  // undecodable bytes on 5 more. Pulling the audio track alone fixes both and
+  // cuts the download by an order of magnitude. videoUrl stays as the fallback.
+  extractMedia(raw) {
+    const v = raw as Record<string, unknown>
+    return { mediaUrl: str(first(v.audioUrl, v.videoUrl)) || null, subtitleTracks: null }
+  },
+
   commentScrape(video, config) {
     return {
       actor: APIFY_ACTORS.instagram.comment,

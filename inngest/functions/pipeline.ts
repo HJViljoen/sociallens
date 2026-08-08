@@ -1,17 +1,18 @@
 import { randomUUID } from 'crypto'
 import { inngest } from '@/inngest/client'
 import { createAdminClient, selectAll } from '@/lib/supabase-admin'
-import { planGatherSearches, searchOne, gatePlatform, scrapeCommentsBatch, resolveGatherWindow, inWindow, type SearchResult } from '@/lib/gather/gather'
+import { planGatherSearches, searchOne, gatePlatform, scrapeCommentsBatch, transcribeBatch, planTranscribeBatches, resolveGatherWindow, inWindow, type SearchResult } from '@/lib/gather/gather'
 import { runPassA } from '@/lib/pipeline/pass-a'
 import { runStepA2 } from '@/lib/pipeline/step-a2'
 import { runPassB } from '@/lib/pipeline/pass-b'
 import { runPassC } from '@/lib/pipeline/pass-c'
 import { runPassD } from '@/lib/pipeline/pass-d'
 import { runCrossReference } from '@/lib/pipeline/cross-reference'
+import { loadBrandClaims } from '@/lib/pipeline/claims'
 import { persistThemes, loadThemes } from '@/lib/pipeline/themes'
 import { writeRunSummary } from '@/lib/pipeline/run-summary'
 import { computeMetrics } from '@/lib/pipeline/metrics'
-import { CLUSTER_SIMILARITY_THRESHOLD, EVIDENCE_FLOOR } from '@/lib/config'
+import { CLUSTER_SIMILARITY_THRESHOLD, EVIDENCE_FLOOR, TRANSCRIBE_PARALLEL, transcriptsEnabled } from '@/lib/config'
 import type { Platform } from '@/lib/gather/types'
 import type { VideoRow, CommentRow } from '@/lib/pipeline/types'
 
@@ -142,6 +143,37 @@ export const runPipeline = inngest.createFunction(
               scrapeCommentsBatch({ clientId, runId, platform, refs }),
             )
             totalErrors += r.errors.length
+          } catch {
+            totalErrors++
+          }
+        }
+        // Transcripts (flag-gated), fanned out like Pass A: a plan step chunks
+        // this run's pending candidates signal-first (TRANSCRIBE_BATCH per
+        // step), then batches dispatch in parallel waves. One sequential
+        // whole-platform step measured out at ~10s/video — 60 videos would
+        // blow the 300s cap, and a real run has hundreds (readiness 2026-08-08).
+        // Step retries are free: the in-batch status re-check skips done videos.
+        if (transcriptsEnabled()) {
+          try {
+            const txBatches = await step.run(`plan-transcribe:${platform}`, () =>
+              planTranscribeBatches(clientId, runId, platform),
+            )
+            for (let w = 0; w < txBatches.length; w += TRANSCRIBE_PARALLEL) {
+              const wave = await Promise.all(
+                txBatches.slice(w, w + TRANSCRIBE_PARALLEL).map((videoIds, j) =>
+                  step
+                    .run(`transcribe:${platform}:${w + j + 1}-of-${txBatches.length}`, () =>
+                      transcribeBatch({ clientId, runId, platform, videoIds, batchNo: w + j + 1 }),
+                    )
+                    // Per-step catch (comments-fan-out precedent): one batch
+                    // exhausting its retries must not abandon the remaining
+                    // waves — hundreds of this run's videos would silently
+                    // stay untranscribed and are never re-planned.
+                    .catch(() => ({ transcribed: 0, skipped: 0, errors: ['transcribe step failed'] })),
+                ),
+              )
+              for (const t of wave) totalErrors += t.errors.length
+            }
           } catch {
             totalErrors++
           }
@@ -348,22 +380,28 @@ async function runSynthesisHalf(clientId: string, runId: string) {
     .select('company_name').eq('id', clientId).maybeSingle()
   const brandName = client?.company_name ?? undefined
 
+  // Brand claims (Step 2b) — all-time accumulation, newest-run-per-video,
+  // tracked competitors only; empty for tenants that never ran Pass A v4.
+  const claims = await loadBrandClaims(admin, clientId, tc?.competitor_names ?? [])
+
   // Floor-passing themes only — early signals surface on pages, not in C/D.
   const themes = (await loadThemes(clientId, runId)).filter((t) => !t.singleSource)
 
   const c = await runPassC({
     clientId, runId, themes,
-    trackingConfig: tc ?? undefined, brandName, sov: metrics.share_of_voice, persist: true,
+    trackingConfig: tc ?? undefined, brandName, sov: metrics.share_of_voice,
+    competitorClaims: claims.competitors, persist: true,
   })
   const d = await runPassD({
     clientId, runId, themes,
-    competitiveInsights: c.competitiveInsights, brandName, sov: metrics.share_of_voice, persist: true,
+    competitiveInsights: c.competitiveInsights, brandName, sov: metrics.share_of_voice,
+    clientClaims: claims.client, persist: true,
   })
 
   await writeRunSummary({
     clientId, runId, metrics, videos,
     periodMetrics, periodVideos,
-    ciSummary: d.ciSummary, executiveBrief: d.executiveBrief, period: tc?.report_period ?? null,
+    ciSummary: d.ciSummary, executiveBrief: d.executiveBrief, sayVsHear: d.sayVsHear, period: tc?.report_period ?? null,
   })
 
   return {
