@@ -423,13 +423,22 @@ async function cloneW6(): Promise<{ maps: CloneMaps; actual: W6Actual }> {
   }))
   await insertRows('audience_insights', insightRows)
 
-  // insight_evidence (remap both FKs; a row is still dropped only if its comment
-  // genuinely no longer exists — never dangled).
+  // insight_evidence (remap FKs; a row is dropped only if its SOURCE genuinely
+  // no longer exists — never dangled). Two shapes since Step 2 (2026-08-08):
+  // source='comment' rows remap comment_id; source='video' rows (transcript
+  // evidence — hero-eligible by design, D2) remap source_video_id instead.
   const evidenceRows: Row[] = []
   for (const e of rawEvidence) {
     const ai = maps.insight.get(e.audience_insight_id as string)
+    if (!ai) continue
+    if (e.source === 'video') {
+      const vid = maps.video.get(e.source_video_id as string)
+      if (!vid) continue
+      evidenceRows.push({ id: randomUUID(), audience_insight_id: ai, comment_id: null, source: 'video', source_video_id: vid, quote: e.quote, relevance_rank: e.relevance_rank, created_at: stamp })
+      continue
+    }
     const cm = maps.comment.get(e.comment_id as string)
-    if (!ai || !cm) continue
+    if (!cm) continue
     evidenceRows.push({ id: randomUUID(), audience_insight_id: ai, comment_id: cm, quote: e.quote, relevance_rank: e.relevance_rank, created_at: stamp })
   }
   maps.evidenceInserted = await insertRows('insight_evidence', evidenceRows)
