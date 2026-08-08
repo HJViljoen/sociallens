@@ -57,6 +57,16 @@ export const TRANSCRIBE_MODEL = 'whisper-1'
  *  2026-07-23 lift experiment saw such videos add nothing). Speech-gate. */
 export const MIN_TRANSCRIPT_CHARS = 15
 
+/**
+ * Model for the content gate — the second gate, after the letter-count one.
+ * Measured on the 2026-08-08 backfill: of 43 transcripts that PASSED the
+ * letter-count gate, only 67% were speech; 16% were song lyrics ("Have a holly
+ * jolly Christmas") and 16% noise ("Transcribed by https://otter.ai"). Lyrics
+ * have plenty of letters, so only a semantic check catches them. ~$0.04 per
+ * 600-video run.
+ */
+export const CONTENT_GATE_MODEL = 'gpt-4.1-mini'
+
 /** Max videos to transcribe per platform per run (throughput/cost cap). */
 export const TRANSCRIBE_CAP = 60
 
@@ -152,6 +162,10 @@ export const APIFY_ACTORS = {
     // apify/instagram-scraper (flagship) in `comments` mode — replaced
     // apify/instagram-comment-scraper (SbK00X0JYCPblD2wp), which returned 0.
     comment: process.env.APIFY_IG_COMMENT_ACTOR ?? 'shu8hvrXbJbY3Eb9W',
+    // Same flagship actor as `comment`, driven in `posts` mode: the hashtag
+    // scraper can only search, so re-fetching ONE known post (to refresh its
+    // expiring media url for transcription) has to go through this one.
+    post: process.env.APIFY_IG_POST_ACTOR ?? 'shu8hvrXbJbY3Eb9W',
   },
 } as const
 

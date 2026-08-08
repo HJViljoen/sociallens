@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { parseWebVtt, pickTrack, speechLen } from './transcript'
+import { parseWebVtt, pickTrack, speechLen, normaliseLang, clipText } from './transcript'
 import { tiktok } from './platforms/tiktok'
 import { instagram } from './platforms/instagram'
 import type { SubtitleTrack } from './types'
@@ -76,10 +76,51 @@ describe('tiktok.extractMedia', () => {
   })
 })
 
+describe('clipText', () => {
+  // A plain .slice() counts UTF-16 units, so cutting mid-emoji leaves a lone
+  // surrogate and the OpenAI request body 400s. Social text is full of emoji.
+  it('never splits an emoji in half', () => {
+    const s = 'ab🎉cd'
+    expect('ab🎉'.length).toBe(4) // the emoji is two UTF-16 units
+    const out = clipText(s, 3)
+    expect(out).toBe('ab🎉')
+    expect(out.match(/\p{Cs}/gu)).toBeNull()
+  })
+
+  it('collapses whitespace and leaves short text alone', () => {
+    expect(clipText('  a   b  ', 100)).toBe('a b')
+  })
+})
+
+describe('normaliseLang', () => {
+  it('collapses Whisper language names and caption ISO codes onto one vocabulary', () => {
+    expect(normaliseLang('english')).toBe('en')
+    expect(normaliseLang('English')).toBe('en')
+    expect(normaliseLang('en')).toBe('en')
+    expect(normaliseLang('telugu')).toBe('te')
+  })
+
+  it('passes unknown languages through rather than dropping them', () => {
+    expect(normaliseLang('xhosa')).toBe('xhosa')
+  })
+
+  it('treats absent and blank as no language', () => {
+    expect(normaliseLang(null)).toBeNull()
+    expect(normaliseLang('  ')).toBeNull()
+  })
+})
+
 describe('instagram.extractMedia', () => {
-  it('pulls the mp4 and never a caption track', () => {
+  // Whisper only hears the audio, and the full mp4 blew the 25MB cap on 7 of 60
+  // backfilled videos — so the audio-only stream is the one to fetch.
+  it('prefers the audio stream and never a caption track', () => {
     const media = instagram.extractMedia!({ videoUrl: 'https://cdn/ig.mp4', audioUrl: 'https://cdn/ig.m4a' })
-    expect(media.mediaUrl).toBe('https://cdn/ig.mp4')
+    expect(media.mediaUrl).toBe('https://cdn/ig.m4a')
     expect(media.subtitleTracks).toBeNull()
+  })
+
+  it('falls back to the mp4 when the item carries no audio stream', () => {
+    const media = instagram.extractMedia!({ videoUrl: 'https://cdn/ig.mp4' })
+    expect(media.mediaUrl).toBe('https://cdn/ig.mp4')
   })
 })

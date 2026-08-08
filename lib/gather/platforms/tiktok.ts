@@ -79,6 +79,20 @@ export const tiktok: PlatformAdapter = {
     }
   },
 
+  // Verified live 2026-08-08: `startUrls` returns the same object shape as a
+  // search, including `video.url` + `subtitleInformation` — but ONLY with the
+  // customMapFunction passthrough; without it the actor trims both away.
+  refetchByUrl(videoUrls) {
+    return {
+      actor: APIFY_ACTORS.tiktok.video,
+      input: {
+        startUrls: videoUrls,
+        maxItems: videoUrls.length,
+        customMapFunction: '(object) => { return {...object} }',
+      },
+    }
+  },
+
   // Transcript sources (Step 1): the actor returns a direct CDN mp4 at
   // `video.url` and, WHEN the video has captions, a `subtitleInformation` array
   // of auto-generated WebVTT tracks (each with a direct, expiring URL). Verified

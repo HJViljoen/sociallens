@@ -84,12 +84,20 @@ export interface MediaRef {
   subtitleTracks: SubtitleTrack[] | null
 }
 
-/** One resolved transcript. status: ok | no_speech (music-only) | no_media | failed. */
+/**
+ * One resolved transcript. Only `ok` is ever usable by the analysis passes.
+ *   ok        — a person is actually talking
+ *   no_speech — silent or music-only (the letter-count gate)
+ *   lyrics    — Whisper transcribed a song, not narration (the content gate)
+ *   garbled   — noise, watermarks, transcription artefacts (the content gate)
+ *   no_media  — the item carried no media handle
+ *   failed    — fetch or transcription errored
+ */
 export interface TranscriptResult {
   text: string
   lang: string | null
   source: 'tiktok_caption' | 'whisper' | null
-  status: 'ok' | 'no_speech' | 'no_media' | 'failed'
+  status: 'ok' | 'no_speech' | 'lyrics' | 'garbled' | 'no_media' | 'failed'
 }
 
 /** Client/run ids + config threaded into the normalisers. */
@@ -144,6 +152,14 @@ export interface PlatformAdapter {
    * on Apify platforms a count check costs as much as the scrape it would save.
    */
   fetchCommentCounts?(videoIds: string[]): Promise<Map<string, number>>
+  /**
+   * Apify actor slug + input to re-fetch SPECIFIC videos by URL rather than by
+   * search. Media and caption URLs are signed and expiring, so a video stored by
+   * an earlier run has no live handle to transcribe — this refreshes it without
+   * gathering anything new. Used by the transcript backfill; not part of a run.
+   * Absent on YouTube (transcripts deferred — see Architecture/Video-Transcripts).
+   */
+  refetchByUrl?(videoUrls: string[]): { actor: string; input: RawItem }
   /**
    * Extract the direct media URL + any caption tracks from a raw item, for
    * transcript resolution (Step 1). Absent on platforms with no usable route:
