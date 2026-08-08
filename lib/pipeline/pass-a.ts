@@ -153,14 +153,26 @@ function buildSystemPrompt(tc: TrackingConfig, withTranscripts = false): string 
     '- Insights must come from the comments, not the metadata.',
   ]
   if (!withTranscripts) return base.join('\n')
+  // v4: the comments-only framing must yield where the transcript is evidence —
+  // stated up front, not only in the addendum (measured 2026-08-08: with the
+  // addendum alone, 33 industry videos produced ONE transcript citation).
+  const v4Base = base.map((line) => {
+    if (line === 'Given ONE social video and its comments, return:')
+      return 'Given ONE social video, its transcript when present, and its comments, return:'
+    if (line.startsWith('2. Audience insights distilled STRICTLY from the comments'))
+      return '2. Audience insights distilled STRICTLY from the comments and — on industry/other videos — the video transcript. ONLY insights that carry consumer-intelligence value for the brand.'
+    if (line === '- Insights must come from the comments, not the metadata.')
+      return '- Insights must come from the comments or (on industry/other videos) the transcript — never from the caption/hashtags alone.'
+    return line
+  })
   return [
-    ...base,
+    ...v4Base,
     '',
     'TRANSCRIPT rules — a TRANSCRIPT block, labelled "t", may be present: the words actually spoken in the video.',
     '- Ground the classification (type, hook style, hook_text, topics) in what the video says. When the transcript shows the video\'s opening words, hook_text should be those words.',
     '- The audio may be unrelated background/trending sound. Judge the transcript against the caption and account first; if it clearly is not this video\'s own content, ignore it.',
     '- The transcript may be in any language; read it as-is.',
-    '- Industry/other videos: the creator IS a customer — a produced video is a deliberate, costly act of opinion. Their spoken words are first-class evidence: you may cite the transcript with the label "t", quoted VERBATIM, one short sentence or phrase per quote (never a long passage). This refines the comments-only rule above: on industry/other videos the transcript also counts as customer voice.',
+    '- Industry/other videos: the creator IS a customer — a produced video is a deliberate, costly act of opinion, a STRONGER signal than a passing comment. Their spoken words are first-class evidence: cite the transcript with the label "t", quoted VERBATIM, one short sentence or phrase per quote (never a long passage). When the transcript expresses an opinion, experience, complaint, or claim with consumer-intelligence value, report it as an insight (or fold it into a matching comment insight as extra evidence) — do not ignore transcript signal just because comments exist.',
     '- CLIENT or COMPETITOR videos: the transcript is brand messaging, NEVER insight evidence — never cite "t" on these. Instead return claims: up to 3 assertions the brand makes about itself, its products, or the market — {claim: the assertion in your words, quote: the VERBATIM transcript line making it}.',
     '- claims come ONLY from CLIENT/COMPETITOR transcripts. Return an empty claims array in every other case.',
     '- Audience insights still come from the comments first; transcript evidence supplements them. Video sentiment stays comment-derived.',
