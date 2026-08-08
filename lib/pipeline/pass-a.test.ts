@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { validateInsights, validateClaims } from './pass-a'
+import { validateInsights, validateClaims, buildSystemPrompt } from './pass-a'
 import { usableTranscript } from './transcript-input'
 import { PASS_A_VIDEO_QUOTE_MAX, TRANSCRIPT_PROMPT_CHARS } from '../config'
 import type { PassAVideoOutput, PassAInsight } from './schemas'
@@ -106,6 +106,28 @@ describe('validateClaims', () => {
     const r = validateClaims(claims, TRANSCRIPT)
     expect(r.kept).toHaveLength(3)
     expect(r.dropped).toBe(1)
+  })
+})
+
+describe('buildSystemPrompt v4 line rewrites', () => {
+  // The v4 rewrites are exact-string matches against the base prompt lines. If
+  // a base line is ever edited, the rewrite silently stops applying and v4
+  // reverts to the comments-only framing — the exact failure A/B round 1
+  // measured (1 transcript citation across 33 industry videos). These pins
+  // fail loudly instead.
+  const tc = { brand_keywords: ['sealand'], competitor_names: [], industry_keywords: [] }
+
+  it('v4 amends the comments-only framing and appends the transcript rules', () => {
+    const v4 = buildSystemPrompt(tc, true)
+    expect(v4).toContain('on industry/other videos — the video transcript')
+    expect(v4).not.toContain('- Insights must come from the comments, not the metadata.')
+    expect(v4).toContain('TRANSCRIPT rules')
+  })
+
+  it('v3 output keeps the original lines and no transcript section', () => {
+    const v3 = buildSystemPrompt(tc, false)
+    expect(v3).toContain('- Insights must come from the comments, not the metadata.')
+    expect(v3).not.toContain('TRANSCRIPT')
   })
 })
 

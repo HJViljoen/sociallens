@@ -102,7 +102,9 @@ function ownerLabel(v: VideoRow): string {
   return 'an industry/other account'
 }
 
-function buildSystemPrompt(tc: TrackingConfig, withTranscripts = false): string {
+/** Exported for tests — the v4 line rewrites are exact-string-matched against
+ *  the base prompt, so a test pins them against silent reversion. */
+export function buildSystemPrompt(tc: TrackingConfig, withTranscripts = false): string {
   const brand = (tc.brand_keywords ?? []).join(', ') || '(none provided)'
   const competitors = (tc.competitor_names ?? []).join(', ') || '(none provided)'
   const industry = (tc.industry_keywords ?? []).join(', ') || '(none provided)'
@@ -579,7 +581,7 @@ export async function runPassA(opts: RunPassAOptions): Promise<RunPassASummary> 
         promptVersion,
         systemPrompt,
         userPrompt,
-        response: { classification: parsed.classification, insights_kept: validation.kept.length, insights_dropped: validation.insightsDropped, evidence_dropped: validation.evidenceDropped, claims_kept: claims?.kept.length ?? 0, claims_dropped: claims?.dropped ?? 0 },
+        response: { classification: parsed.classification, insights_kept: validation.kept.length, insights_dropped: validation.insightsDropped, evidence_dropped: validation.evidenceDropped, ...(claims ? { claims_kept: claims.kept.length, claims_dropped: claims.dropped } : {}) },
         error: null,
         usage,
         durationMs,
@@ -657,9 +659,11 @@ async function persistVideo(admin: ReturnType<typeof createAdminClient>, args: P
     if (error || !row) continue
     const insightId = row.id as string
     // v4 (claims !== null) writes the source discriminator on every row —
-    // uniform keys for the bulk insert, and the migration is guaranteed applied
-    // on any v4 path. v3 keeps the legacy shape (source defaults to 'comment').
-    await admin.from('insight_evidence').insert(
+    // uniform keys for the bulk insert. v3 keeps the legacy shape and its
+    // legacy error behavior exactly (flag-off path byte-identical); the v4
+    // shape throws on failure — a swallowed error here would persist insights
+    // with zero evidence against a mis-migrated DB (review finding).
+    const { error: evErr } = await admin.from('insight_evidence').insert(
       evidence.map((e, i) =>
         claims !== null
           ? {
@@ -678,13 +682,15 @@ async function persistVideo(admin: ReturnType<typeof createAdminClient>, args: P
             },
       ),
     )
+    if (claims !== null && evErr) throw new Error(`insert insight_evidence: ${evErr.message}`)
   }
 
   // Brand claims (v4 only) — idempotent per video+run, like insights above.
   if (claims !== null) {
-    await admin.from('video_claims').delete().eq('run_id', runId).eq('source_video_id', video.id)
+    const { error: delErr } = await admin.from('video_claims').delete().eq('run_id', runId).eq('source_video_id', video.id)
+    if (delErr) throw new Error(`clear video_claims: ${delErr.message}`)
     if (claims.length) {
-      await admin.from('video_claims').insert(
+      const { error: insErr } = await admin.from('video_claims').insert(
         claims.map((cl) => ({
           client_id: video.client_id,
           run_id: runId,
@@ -696,6 +702,7 @@ async function persistVideo(admin: ReturnType<typeof createAdminClient>, args: P
           quote: cl.quote,
         })),
       )
+      if (insErr) throw new Error(`insert video_claims: ${insErr.message}`)
     }
   }
 
