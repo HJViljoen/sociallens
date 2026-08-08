@@ -1,5 +1,5 @@
 import { createAdminClient } from '../supabase-admin'
-import type { CiSummary, ExecutiveBrief } from './schemas'
+import type { CiSummary, ExecutiveBrief, SayVsHearEntry } from './schemas'
 import type { VideoRow, Step2aMetrics } from './types'
 
 // run_summary writer. The table existed unwritten since v4.1; the pipeline back
@@ -23,6 +23,8 @@ export interface WriteRunSummaryArgs {
   ciSummary: CiSummary | null
   /** Pass D-a's woven dashboard hero brief (already sanitised), or null. */
   executiveBrief?: ExecutiveBrief | null
+  /** Pass D-a v5's say-vs-hear entries (claims resolved), or null. */
+  sayVsHear?: SayVsHearEntry[] | null
   /** tracking_configs.report_period ('weekly' | 'monthly' | …), if known. */
   period?: string | null
 }
@@ -45,7 +47,7 @@ function sentimentShares(videos: VideoRow[]) {
 }
 
 export async function writeRunSummary(args: WriteRunSummaryArgs): Promise<void> {
-  const { clientId, runId, metrics, videos, periodMetrics, periodVideos, ciSummary, executiveBrief, period } = args
+  const { clientId, runId, metrics, videos, periodMetrics, periodVideos, ciSummary, executiveBrief, sayVsHear, period } = args
   const admin = createAdminClient()
 
   // Corpus (all-time) distribution — the market-map state; raw counts live in
@@ -87,6 +89,7 @@ export async function writeRunSummary(args: WriteRunSummaryArgs): Promise<void> 
     period_sentiment_drivers: p ? { video_sentiment_counts: p.counts, videos_judged: p.judged } : null,
     consumer_intelligence_summary: ciSummary,
     executive_brief: executiveBrief ?? null,
+    say_vs_hear: sayVsHear ?? null,
     period: period ?? null,
     run_date: new Date().toISOString(),
   })

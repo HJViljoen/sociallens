@@ -197,6 +197,15 @@ async function main() {
   } else {
     console.log('  (none produced — dashboard will use the code-composed fallback)')
   }
+  if (d.sayVsHear?.length) {
+    console.log(`\n=== PASS D-a — say vs hear (${d.sayVsHear.length}) ===`)
+    for (const s of d.sayVsHear) {
+      console.log(`  [${s.audience}] you say: ${s.you_say}`)
+      console.log(`     they say: ${s.they_say ?? '(silent — the conversation doesn\'t engage with this)'}`)
+      console.log(`     gap: ${s.gap}`)
+    }
+  }
+
   console.log(`\n=== PASS D-b — recommendations (${d.recommendations.length}) ===`)
   for (const r of d.recommendations) {
     console.log(`  [${r.type} · ${r.priority}] ${r.title}`)
@@ -208,7 +217,7 @@ async function main() {
     await writeRunSummary({
       clientId: args.clientId, runId: args.runId!, metrics, videos,
       periodMetrics, periodVideos,
-      ciSummary: d.ciSummary, executiveBrief: d.executiveBrief, period: tc?.report_period ?? null,
+      ciSummary: d.ciSummary, executiveBrief: d.executiveBrief, sayVsHear: d.sayVsHear, period: tc?.report_period ?? null,
     })
     console.log('\nrun_summary written.')
   }
