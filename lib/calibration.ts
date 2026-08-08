@@ -103,6 +103,7 @@ export const GLOSSARY = {
   worth_considering: ['Worth considering', 'ranked below the top three this update'],
   new: ['New', 'this theme was not present in your previous update'],
   sentiment: ['Strongly positive → Strongly negative', 'fixed cutoffs on the measured share of rated conversations; Polarized = both sides above 30%'],
+  say_vs_hear: ['Say vs hear', "what your own videos claim (from their transcripts), set against what the tracked conversation actually says — 'not talked about yet' means the audience doesn't engage with the claim, not that it's wrong"],
 } as const
 
 export type GlossaryKey = keyof typeof GLOSSARY
