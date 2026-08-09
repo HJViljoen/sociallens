@@ -114,38 +114,59 @@ export const runPipeline = inngest.createFunction(
     let totalErrors = 0
     for (const platform of gatherPlatforms) {
       try {
+        // Searches dispatch in parallel waves (transcribe-fan-out precedent):
+        // searchOne is self-contained per keyword (own config load, one actor
+        // run, no cross-keyword writes) and the gate consumes the full set
+        // after the barrier, so only determinism needs the original order —
+        // Promise.all preserves it. Step IDs unchanged (search:P:keyword).
+        const tasks = plan.filter((t) => t.platform === platform)
         const searches: SearchResult[] = []
-        for (const task of plan.filter((t) => t.platform === platform)) {
-          try {
-            searches.push(
-              await step.run(`search:${platform}:${task.keyword}`, () =>
-                searchOne({
-                  clientId, runId, platform, keyword: task.keyword, bucket: task.bucket,
-                  maxVideos: options.maxVideos, period: options.period,
-                }),
-              ),
-            )
-          } catch {
-            totalErrors++
-            searches.push({ keyword: task.keyword, bucket: task.bucket, videos: [] })
-          }
+        for (let w = 0; w < tasks.length; w += SEARCH_PARALLEL) {
+          const wave = await Promise.all(
+            tasks.slice(w, w + SEARCH_PARALLEL).map(async (task): Promise<SearchResult> => {
+              try {
+                return await step.run(`search:${platform}:${task.keyword}`, () =>
+                  searchOne({
+                    clientId, runId, platform, keyword: task.keyword, bucket: task.bucket,
+                    maxVideos: options.maxVideos, period: options.period,
+                  }),
+                )
+              } catch {
+                totalErrors++
+                return { keyword: task.keyword, bucket: task.bucket, videos: [] }
+              }
+            }),
+          )
+          searches.push(...wave)
         }
         const gate = await step.run(`gate:${platform}`, () =>
           gatePlatform({ clientId, runId, platform, searches, videoLimit: options.videoLimit, period: options.period }),
         )
         totalVideos += gate.videosKept
         totalErrors += gate.errors.length
-        for (let i = 0; i < gate.eligible.length; i += COMMENT_BATCH) {
-          const refs = gate.eligible.slice(i, i + COMMENT_BATCH)
-          const batchNo = i / COMMENT_BATCH + 1
-          try {
-            const r = await step.run(`comments:${platform}:${batchNo}`, () =>
-              scrapeCommentsBatch({ clientId, runId, platform, refs }),
-            )
-            totalErrors += r.errors.length
-          } catch {
-            totalErrors++
-          }
+        // Comment batches dispatch in parallel waves — this loop is the run's
+        // wall-clock dominator (each video is its own Apify actor run, and the
+        // sequential version drove run 1's ~2.5h). Batches are disjoint video
+        // sets and scrapeCommentsBatch writes only its own refs' rows, so
+        // waves are safe. Step IDs unchanged (comments:P:N over the same
+        // batch numbering), so a mid-run replay skips completed batches.
+        const commentBatches = Array.from(
+          { length: Math.ceil(gate.eligible.length / COMMENT_BATCH) },
+          (_, i) => gate.eligible.slice(i * COMMENT_BATCH, (i + 1) * COMMENT_BATCH),
+        )
+        for (let w = 0; w < commentBatches.length; w += COMMENT_PARALLEL) {
+          await Promise.all(
+            commentBatches.slice(w, w + COMMENT_PARALLEL).map(async (refs, j) => {
+              try {
+                const r = await step.run(`comments:${platform}:${w + j + 1}`, () =>
+                  scrapeCommentsBatch({ clientId, runId, platform, refs }),
+                )
+                totalErrors += r.errors.length
+              } catch {
+                totalErrors++
+              }
+            }),
+          )
         }
         // Transcripts (flag-gated), fanned out like Pass A: a plan step chunks
         // this run's pending candidates signal-first (TRANSCRIBE_BATCH per
@@ -275,6 +296,17 @@ const PASS_A_BATCH = 12
  *  (~20-90s incl. actor startup — slower since comment_depth went 25→100), so
  *  3 stays inside the 300s Hobby cap even when every actor runs slow. */
 const COMMENT_BATCH = 3
+
+/** Keyword-search steps dispatched concurrently per wave. Search actors are
+ *  heavier than comment actors (a full hashtag/keyword crawl each), so the
+ *  wave stays small; a platform's whole keyword set is 5-10 tasks. */
+const SEARCH_PARALLEL = 3
+
+/** Comment-scrape steps dispatched concurrently per wave. Each step runs its
+ *  COMMENT_BATCH videos sequentially (one actor at a time), so a wave holds at
+ *  most COMMENT_PARALLEL concurrent Apify jobs — far under the Starter plan's
+ *  32-concurrent-jobs cap even stacked on a search or transcribe wave. */
+const COMMENT_PARALLEL = 4
 
 /** Pass A batches dispatched concurrently per wave. Step IDs are unchanged by
  *  this (still pass-a:N-of-M over the same memoized plan), so a mid-run deploy
