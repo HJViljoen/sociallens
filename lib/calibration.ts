@@ -88,8 +88,8 @@ export const SENTIMENT_TIER_RULE: Record<SentimentTier, string> = {
 
 // ---- Glossary — single source for chip tooltips + the page legend -----------
 // One reader-facing rule per calibrated term. Chips set it as their title
-// (hover explains the word where the confusion happens); CalibrationLegend
-// renders the same lines, so tooltip and legend can never drift apart.
+// (hover explains the word where the confusion happens); the how-to-read
+// floating card renders the same lines, so tooltip and legend can never drift.
 
 export const GLOSSARY = {
   conversations: ['Conversations', 'one video and the comments it sparked — the unit behind every "heard in…" and share figure; comments are always counted separately as comments'],
