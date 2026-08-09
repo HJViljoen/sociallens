@@ -13,8 +13,8 @@ import { sendInviteEmail } from '@/lib/email'
 export interface ActionState {
   ok: boolean
   message: string
-  // inviteMember surfaces the link so the owner can copy it even when no email
-  // provider is wired (the stub doesn't actually send).
+  // inviteMember surfaces the link so the owner can share it directly — the
+  // manual fallback when Resend isn't configured (or the email is missed).
   inviteUrl?: string
 }
 

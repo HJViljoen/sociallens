@@ -12,6 +12,7 @@ import { loadBrandClaims } from '@/lib/pipeline/claims'
 import { persistThemes, loadThemes } from '@/lib/pipeline/themes'
 import { writeRunSummary } from '@/lib/pipeline/run-summary'
 import { computeMetrics } from '@/lib/pipeline/metrics'
+import { sendAlertEmail } from '@/lib/email'
 import { CLUSTER_SIMILARITY_THRESHOLD, EVIDENCE_FLOOR, TRANSCRIBE_PARALLEL, transcriptsEnabled } from '@/lib/config'
 import type { Platform } from '@/lib/gather/types'
 import type { VideoRow, CommentRow } from '@/lib/pipeline/types'
@@ -70,6 +71,14 @@ export const runPipeline = inngest.createFunction(
       await admin.from('pipeline_runs')
         .update({ status: 'failed', error_message: message, completed_at: new Date().toISOString() })
         .eq('client_id', clientId).eq('status', 'running')
+      // Operator alert — before this, a dead run was only ever a DB row
+      // nobody was looking at (scheduled runs are unattended).
+      const { data: client } = await admin.from('clients')
+        .select('company_name').eq('id', clientId).maybeSingle()
+      await sendAlertEmail(
+        `Verbatim run FAILED — ${client?.company_name ?? clientId}`,
+        `Pipeline run failed after retries.\n\nClient: ${client?.company_name ?? '?'} (${clientId})\nError: ${message}\n\nResume lever: POST /api/admin/trigger-run with options {runId, skipGather:true}.`,
+      )
     },
   },
   async ({ event, step }) => {
@@ -225,6 +234,10 @@ export const runPipeline = inngest.createFunction(
           status: 'failed', videos_scraped: 0,
           error_message: 'gather produced no videos', completed_at: new Date().toISOString(),
         }).eq('id', runId)
+        await sendAlertEmail(
+          `Verbatim run FAILED — gather produced no videos`,
+          `Run ${runId} (client ${clientId}) closed as failed: gather produced no videos.`,
+        )
       })
       return { runId, status: 'failed', totalVideos: 0 }
     }

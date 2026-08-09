@@ -63,8 +63,8 @@ export default async function TeamPage() {
           <CardContent className="space-y-3">
             <InviteForm inviterRole={role} />
             <p className="text-[11px] text-muted-foreground/70">
-              No email is sent yet — copy the generated link and share it. The link signs the person in
-              and adds them to {client?.company_name ?? 'your workspace'}.
+              We email the invite link directly. You can also copy the generated link and share it
+              yourself — it signs the person in and adds them to {client?.company_name ?? 'your workspace'}.
             </p>
           </CardContent>
         </Card>

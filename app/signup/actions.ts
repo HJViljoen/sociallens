@@ -25,11 +25,12 @@ const isEmailTaken = (e: { code?: string; message?: string } | null) =>
 // Self-serve signup. Creates the auth account (email pre-confirmed — see note),
 // signs the user in, and sends them to /onboarding to set up their workspace.
 //
-// NOTE: accounts are created with email_confirm:true because there's no email
-// provider wired yet, so we can't send a verification email. A new account only
-// ever gets its own fresh, empty workspace via onboarding — it can't touch any
-// existing tenant — so the blast radius is "junk workspaces", not a data leak.
-// Harden before public launch: wire an email provider + require verification.
+// NOTE: accounts are created with email_confirm:true because no verification
+// flow is built (Resend IS wired for invites/reports — the missing piece is the
+// verify-email flow, not the provider). A new account only ever gets its own
+// fresh, empty workspace via onboarding — it can't touch any existing tenant —
+// so the blast radius is "junk workspaces", not a data leak.
+// Harden before public launch: require verification.
 export async function signUp(_prev: SignupState, formData: FormData): Promise<SignupState> {
   const parsed = schema.safeParse({
     full_name: formData.get('full_name'),
