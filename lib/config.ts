@@ -33,6 +33,18 @@ export const SYNTHESIS_REASONING_EFFORT = 'medium' as const
  */
 export const EVIDENCE_FLOOR = 2
 
+/**
+ * Mega-cluster tripwire (Step A2): a single theme spanning more than
+ * max(MIN, SHARE x the run's distinct insight-bearing videos) is flagged as
+ * suspected clustering chaining. Calibrated 2026-08-09 on the two known cases:
+ * the Sealand run-1 chaining blob (119 videos, well over 25% of any plausible
+ * denominator of that era) must warn; Ossur run 2's legitimate 64-video theme
+ * (64 of 385 distinct insight videos = 17%) must not. MIN keeps small corpora
+ * on the original absolute rule.
+ */
+export const MEGA_CLUSTER_MIN = 40
+export const MEGA_CLUSTER_SHARE = 0.25
+
 /** Sampling temperature for analysis calls. 0 for reproducible iteration. */
 export const ANALYSIS_TEMPERATURE = 0
 

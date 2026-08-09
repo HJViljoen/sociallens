@@ -49,7 +49,7 @@ function parseArgs(argv: string[]): Args {
 }
 
 async function debugMatrix(clientId: string, runId: string, threshold: number) {
-  const groups = await loadGroupedInsights(clientId, runId)
+  const { groups } = await loadGroupedInsights(clientId, runId)
   console.log(`\nSimilarity matrix — threshold ${threshold} (pairs >= it merge)\n`)
   for (const g of groups) {
     if (g.insights.length < 2) {
