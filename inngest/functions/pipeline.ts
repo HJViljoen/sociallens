@@ -3,7 +3,7 @@ import { inngest } from '@/inngest/client'
 import { createAdminClient, selectAll } from '@/lib/supabase-admin'
 import { planGatherSearches, searchOne, gatePlatform, scrapeCommentsBatch, transcribeBatch, planTranscribeBatches, resolveGatherWindow, inWindow, type SearchResult } from '@/lib/gather/gather'
 import { runPassA } from '@/lib/pipeline/pass-a'
-import { runStepA2 } from '@/lib/pipeline/step-a2'
+import { loadGroupedInsights, runStepA2Bucket, type StepA2BucketResult } from '@/lib/pipeline/step-a2'
 import { runPassB } from '@/lib/pipeline/pass-b'
 import { runPassC } from '@/lib/pipeline/pass-c'
 import { runPassD } from '@/lib/pipeline/pass-d'
@@ -30,7 +30,9 @@ import type { VideoRow, CommentRow } from '@/lib/pipeline/types'
 // step timed out at 300s on the first cloud run — the per-video Apify comment
 // scrape dominates); Pass A runs in batches of PASS_A_BATCH videos (the whole
 // corpus in one step was ~264 eligible videos ≈ 15-20 min of GPT calls); the
-// back half is two steps (themes, then synthesis) decoupled via the themes table.
+// back half is a per-bucket themes fan-out + pass-b + persist-themes (split
+// 2026-08-09 — the single 'themes' step survived run 2's 300s cap only via
+// retry), then one synthesis step decoupled via the themes table.
 
 export interface PipelineRunOptions {
   platforms?: Platform[]
@@ -259,9 +261,67 @@ export const runPipeline = inngest.createFunction(
     //    industry videos (deterministic regex, no GPT).
     const crossRef = await step.run('cross-reference', () => runCrossReference(clientId))
 
-    // 6. Back half, two steps decoupled via the themes table: Step A2 → Pass B
-    //    → persist themes, then Pass C → Pass D (a+b) → run_summary.
-    const themed = await step.run('themes', () => runThemesHalf(clientId, runId))
+    // 6. Back half. The themes stage fans out per entity bucket (the single
+    //    'themes' step — A2 + per-bucket gpt-5.4 merge + Pass B + persist —
+    //    measured ~112s for A2+merge alone at run-1 scale and survived run 2's
+    //    300s cap only via retry). Each bucket step reloads its own slice from
+    //    the DB; only aggregated theme rollups travel as step output. A bucket
+    //    step exhausting its retries fails the run (no per-step catch, unlike
+    //    transcribe): synthesis over a silently missing bucket would present
+    //    partial intelligence as complete — the analysis-only resume lever is
+    //    the recovery path, exactly as with the old single step.
+    const themePlan = await step.run('plan-themes', async () => {
+      const { groups, distinctVideoCount } = await loadGroupedInsights(clientId, runId)
+      return { buckets: groups.map((g) => g.bucket), distinctVideoCount }
+    })
+    const bucketResults: StepA2BucketResult[] = []
+    for (let w = 0; w < themePlan.buckets.length; w += THEMES_PARALLEL) {
+      const wave = await Promise.all(
+        themePlan.buckets.slice(w, w + THEMES_PARALLEL).map((bucket, j) =>
+          step.run(`themes:${bucket}`, () =>
+            runStepA2Bucket({
+              clientId, runId, bucket, callIndex: w + j + 1,
+              method: 'embedding', threshold: CLUSTER_SIMILARITY_THRESHOLD,
+              evidenceFloor: EVIDENCE_FLOOR, logCalls: true,
+            }),
+          ),
+        ),
+      )
+      bucketResults.push(...wave)
+    }
+
+    // Pass B labels BOTH tiers (early signals surface on the pages too); the
+    // cross-bucket strength sort happens here, where the buckets recombine.
+    const themed = await step.run('pass-b', async () => {
+      const admin = createAdminClient()
+      const { data: client } = await admin.from('clients')
+        .select('company_name').eq('id', clientId).maybeSingle()
+      const allThemes = bucketResults.flatMap((r) => r.themes)
+      allThemes.sort((a, b) => b.strengthScore - a.strengthScore)
+      console.log(`[themes] ${allThemes.length} themes from ${bucketResults.length} buckets, step payload ${JSON.stringify(allThemes).length} bytes`)
+      const b = await runPassB({ clientId, runId, themes: allThemes, brandName: client?.company_name ?? undefined, persist: true })
+      const mergeCostUsd = bucketResults.reduce((s, r) => s + r.mergeCostUsd, 0)
+      return {
+        allThemes,
+        summary: {
+          themes: allThemes.filter((t) => !t.singleSource).length,
+          earlySignals: allThemes.filter((t) => t.singleSource).length,
+          themeMerges: bucketResults.reduce((s, r) => s + r.mergesApplied.length, 0),
+          labelCost: b.costUsd + mergeCostUsd,
+        },
+      }
+    })
+
+    // Persist with first_seen from mini theme-matching — the themes table is
+    // the boundary the synthesis step reads back across.
+    const persisted = await step.run('persist-themes', () =>
+      persistThemes(clientId, runId, themed.allThemes),
+    )
+    const themedSummary = {
+      ...themed.summary,
+      newThemes: persisted.hadPreviousRun ? persisted.firstSeen : 0,
+    }
+
     const synth = await step.run('synthesize', () => runSynthesisHalf(clientId, runId))
 
     // 7. Close the run.
@@ -283,7 +343,7 @@ export const runPipeline = inngest.createFunction(
       })
     }
 
-    return { runId, status: totalErrors > 0 ? 'partial' : 'completed', totalVideos, ...passA, brandMentions: crossRef.mentionsFlagged, ...themed, ...synth }
+    return { runId, status: totalErrors > 0 ? 'partial' : 'completed', totalVideos, ...passA, brandMentions: crossRef.mentionsFlagged, ...themedSummary, ...synth }
   },
 )
 
@@ -313,6 +373,12 @@ const COMMENT_PARALLEL = 4
  *  replays completed batches instantly and fans out only the remainder. */
 const PASS_A_PARALLEL = 5
 
+/** Bucket theme steps dispatched concurrently per wave. Each step carries one
+ *  gpt-5.4 reasoning=medium merge call (the heavy part, ~95s total across
+ *  buckets at run-1 scale) plus a cheap embeddings call, so the wave stays
+ *  small for OpenAI headroom; a run has ~3-6 entity buckets. */
+const THEMES_PARALLEL = 2
+
 // Eligible video ids (raw comment count >= 5, richest first), chunked into
 // batches. Comments are scanned once and joined in memory — same URL-overflow
 // avoidance as everywhere else.
@@ -340,36 +406,8 @@ async function planPassABatches(clientId: string): Promise<string[][]> {
   return batches
 }
 
-// Back half, first step: Step A2 → Pass B labels → persist themes (with
-// first_seen matching). Output lands in the themes table, which the synthesis
-// step reads back — the step boundary sits exactly on the DB persistence.
-async function runThemesHalf(clientId: string, runId: string) {
-  const admin = createAdminClient()
-  const { data: client } = await admin.from('clients')
-    .select('company_name').eq('id', clientId).maybeSingle()
-
-  const a2 = await runStepA2({
-    clientId, runId, method: 'embedding',
-    threshold: CLUSTER_SIMILARITY_THRESHOLD, evidenceFloor: EVIDENCE_FLOOR,
-    logCalls: true,
-  })
-  // Pass B labels BOTH tiers (early signals surface on the pages too), then the
-  // labelled set is persisted with first_seen from mini theme-matching.
-  const allThemes = [...a2.themes, ...a2.earlySignals]
-  const b = await runPassB({ clientId, runId, themes: allThemes, brandName: client?.company_name ?? undefined, persist: true })
-  const persisted = await persistThemes(clientId, runId, allThemes)
-
-  return {
-    themes: a2.themes.length,
-    earlySignals: a2.earlySignals.length,
-    themeMerges: a2.mergesApplied.length,
-    newThemes: persisted.hadPreviousRun ? persisted.firstSeen : 0,
-    labelCost: b.costUsd + a2.mergeCostUsd,
-  }
-}
-
-// Back half, second step: metrics → Pass C → Pass D (a+b) → run_summary, over
-// the themes persisted by runThemesHalf. Mirrors scripts/run-cd.ts.
+// Back half, synthesis step: metrics → Pass C → Pass D (a+b) → run_summary,
+// over the themes persisted by the persist-themes step. Mirrors scripts/run-cd.ts.
 async function runSynthesisHalf(clientId: string, runId: string) {
   const admin = createAdminClient()
 
