@@ -58,6 +58,29 @@ export async function sendInviteEmail(invite: InviteEmail): Promise<{ sent: bool
   }
 }
 
+// Operator alert (run failures). Goes to ALERT_EMAIL — Heinrich, never a
+// client. Same optional posture as everything else here: unset var or no
+// provider = logged no-op, and a failed alert send must never mask the
+// failure it reports, so errors are swallowed to false.
+export async function sendAlertEmail(subject: string, text: string): Promise<{ sent: boolean }> {
+  const to = process.env.ALERT_EMAIL
+  if (!resend || !from || !to) {
+    console.log(`[email:stub] alert: ${subject}`)
+    return { sent: false }
+  }
+  try {
+    const { error } = await resend.emails.send({ from, to, subject, text })
+    if (error) {
+      console.error(`[email] alert send failed:`, error)
+      return { sent: false }
+    }
+    return { sent: true }
+  } catch (err) {
+    console.error(`[email] alert send threw:`, err)
+    return { sent: false }
+  }
+}
+
 export interface ReportEmail {
   to: string[]
   subject: string
