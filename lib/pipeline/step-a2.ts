@@ -101,12 +101,19 @@ function aggregate(cluster: InsightRow[], bucket: string): AggregatedTheme {
   }
 }
 
+/** A run's insight corpus: bucket groups plus the distinct-video count — the
+ *  corpus-scale denominator A2 consumers (mega-cluster tripwire) need. */
+export interface InsightCorpus {
+  groups: InsightGroup[]
+  distinctVideoCount: number
+}
+
 /**
  * Load a run's Pass A insights, attach each one's entity bucket (derived from
- * its source video), and group by (bucket, category). Shared by runStepA2 and
- * the debug inspector so both see identical grouping.
+ * its source video), and group by (bucket, category). Shared by runStepA2, the
+ * per-bucket pipeline step and the debug inspector so all see identical grouping.
  */
-export async function loadGroupedInsights(clientId: string, runId: string): Promise<InsightGroup[]> {
+export async function loadGroupedInsights(clientId: string, runId: string): Promise<InsightCorpus> {
   const admin = createAdminClient()
 
   // 1. Pull this run's insights (paginated past the 1000-row cap).
@@ -153,7 +160,65 @@ export async function loadGroupedInsights(clientId: string, runId: string): Prom
     if (g) g.insights.push(ins)
     else groups.set(bucket, { bucket, insights: [ins] })
   }
-  return [...groups.values()]
+  return { groups: [...groups.values()], distinctVideoCount: videoIds.length }
+}
+
+interface ProcessGroupOptions {
+  clientId: string
+  runId: string
+  method?: ClusterMethod
+  threshold?: number
+  evidenceFloor: number
+  merge: boolean
+  mergeModel?: string
+  logCalls?: boolean
+}
+
+interface ProcessGroupResult {
+  /** Both tiers, singleSource flagged; unsorted — callers sort across buckets. */
+  themes: AggregatedTheme[]
+  mergesApplied: StepA2Result['mergesApplied']
+  mergeCostUsd: number
+}
+
+// One bucket's slice of Step A2: cluster, label-merge same-concern clusters
+// (teardown defect 3 — embeddings alone leave the same finding fragmented),
+// roll up to aggregated themes, flag the evidence-floor tier. Shared by
+// runStepA2 and runStepA2Bucket so the whole-run and per-bucket-step paths
+// cannot drift.
+async function processGroup(
+  grp: InsightGroup,
+  callIndex: number,
+  opts: ProcessGroupOptions,
+): Promise<ProcessGroupResult> {
+  const { clientId, runId, method, threshold } = opts
+  let clusters = await clusterInsights(grp.insights, { method, threshold })
+  const mergesApplied: StepA2Result['mergesApplied'] = []
+  let mergeCostUsd = 0
+  if (opts.merge) {
+    const m = await mergeClusterLabels({
+      clientId, runId, bucket: grp.bucket, clusters,
+      model: opts.mergeModel, logCall: opts.logCalls, callIndex,
+    })
+    clusters = m.clusters
+    mergeCostUsd += m.costUsd
+    for (const a of m.applied) mergesApplied.push({ bucket: grp.bucket, ...a })
+  }
+  const themes: AggregatedTheme[] = []
+  for (const cluster of clusters) {
+    const theme = aggregate(cluster, grp.bucket)
+    // Grab-bag tripwire: no genuine single consumer concern spans this many
+    // videos in a weekly corpus. A hit means the clustering is chaining
+    // again (the 119-video run-1 blob) — investigate, don't ship quietly.
+    if (theme.evidenceCount > 40) {
+      console.warn(`[a2] suspicious mega-cluster: [${grp.bucket}] "${theme.theme}" spans ${theme.evidenceCount} videos / ${theme.memberThemes.length} member slugs`)
+    }
+    // Evidence floor as a TIER, not a cut (Spec §8): below-floor themes are
+    // flagged singleSource and surface as "Early signals".
+    theme.singleSource = theme.evidenceCount < opts.evidenceFloor
+    themes.push(theme)
+  }
+  return { themes, mergesApplied, mergeCostUsd }
 }
 
 export async function runStepA2(opts: RunStepA2Options): Promise<StepA2Result> {
@@ -161,46 +226,29 @@ export async function runStepA2(opts: RunStepA2Options): Promise<StepA2Result> {
   const floor = opts.evidenceFloor ?? EVIDENCE_FLOOR
   const merge = opts.merge ?? true
 
-  const groups = await loadGroupedInsights(clientId, runId)
+  const { groups } = await loadGroupedInsights(clientId, runId)
   const totalInsights = groups.reduce((s, g) => s + g.insights.length, 0)
 
-  // Cluster within each group, label-merge same-concern clusters (teardown
-  // defect 3 — embeddings alone leave the same finding fragmented), then roll
-  // up to aggregated themes. Merged singles clearing the evidence floor is the
-  // point: the finding was heard once per video, many times across the corpus.
+  // Per-bucket processing (processGroup); merged singles clearing the evidence
+  // floor is the point: the finding was heard once per video, many times
+  // across the corpus.
   const all: AggregatedTheme[] = []
   const mergesApplied: StepA2Result['mergesApplied'] = []
   let mergeCostUsd = 0
   let callIndex = 0
   for (const grp of groups) {
-    let clusters = await clusterInsights(grp.insights, { method, threshold })
-    if (merge) {
-      callIndex++
-      const m = await mergeClusterLabels({
-        clientId, runId, bucket: grp.bucket, clusters,
-        model: opts.mergeModel, logCall: opts.logCalls, callIndex,
-      })
-      clusters = m.clusters
-      mergeCostUsd += m.costUsd
-      for (const a of m.applied) mergesApplied.push({ bucket: grp.bucket, ...a })
-    }
-    for (const cluster of clusters) {
-      const theme = aggregate(cluster, grp.bucket)
-      // Grab-bag tripwire: no genuine single consumer concern spans this many
-      // videos in a weekly corpus. A hit means the clustering is chaining
-      // again (the 119-video run-1 blob) — investigate, don't ship quietly.
-      if (theme.evidenceCount > 40) {
-        console.warn(`[a2] suspicious mega-cluster: [${grp.bucket}] "${theme.theme}" spans ${theme.evidenceCount} videos / ${theme.memberThemes.length} member slugs`)
-      }
-      all.push(theme)
-    }
+    if (merge) callIndex++
+    const r = await processGroup(grp, callIndex, {
+      clientId, runId, method, threshold,
+      evidenceFloor: floor, merge, mergeModel: opts.mergeModel, logCalls: opts.logCalls,
+    })
+    all.push(...r.themes)
+    mergesApplied.push(...r.mergesApplied)
+    mergeCostUsd += r.mergeCostUsd
   }
 
-  // 5. Apply the evidence floor as a TIER, not a cut (Spec §8): below-floor
-  //    themes are flagged singleSource and surface as "Early signals"; only
-  //    floor-passing themes feed Pass C/D. Sort by strength desc.
+  // Only floor-passing themes feed Pass C/D. Sort by strength desc.
   all.sort((a, b) => b.strengthScore - a.strengthScore)
-  for (const t of all) t.singleSource = t.evidenceCount < floor
   const themes = all.filter((t) => !t.singleSource)
   const earlySignals = all.filter((t) => t.singleSource)
 
@@ -213,6 +261,48 @@ export async function runStepA2(opts: RunStepA2Options): Promise<StepA2Result> {
     mergesApplied,
     mergeCostUsd,
   }
+}
+
+export interface RunStepA2BucketOptions {
+  clientId: string
+  runId: string
+  /** Entity bucket this call owns (from the plan-themes step's bucket list). */
+  bucket: string
+  /** 1-based position in the run's bucket list — keeps ai_call_log's
+   *  theme_merge callIndex stable across the per-bucket fan-out. */
+  callIndex: number
+  method?: ClusterMethod
+  threshold?: number
+  evidenceFloor?: number
+  merge?: boolean
+  mergeModel?: string
+  logCalls?: boolean
+}
+
+export interface StepA2BucketResult {
+  bucket: string
+  insightCount: number
+  /** Both tiers, singleSource flagged; the cross-bucket strength sort happens
+   *  where the buckets recombine (the pass-b step). */
+  themes: AggregatedTheme[]
+  mergesApplied: StepA2Result['mergesApplied']
+  mergeCostUsd: number
+}
+
+/** One bucket's Step A2 — the per-bucket Inngest step body. Reloads the corpus
+ *  itself (cheap DB reads, no cross-step payload) so the step stays
+ *  self-contained and replayable; a bucket that vanished between plan and step
+ *  returns empty rather than failing the wave. */
+export async function runStepA2Bucket(opts: RunStepA2BucketOptions): Promise<StepA2BucketResult> {
+  const { groups } = await loadGroupedInsights(opts.clientId, opts.runId)
+  const grp = groups.find((g) => g.bucket === opts.bucket)
+  if (!grp) return { bucket: opts.bucket, insightCount: 0, themes: [], mergesApplied: [], mergeCostUsd: 0 }
+  const r = await processGroup(grp, opts.callIndex, {
+    clientId: opts.clientId, runId: opts.runId, method: opts.method, threshold: opts.threshold,
+    evidenceFloor: opts.evidenceFloor ?? EVIDENCE_FLOOR, merge: opts.merge ?? true,
+    mergeModel: opts.mergeModel, logCalls: opts.logCalls,
+  })
+  return { bucket: grp.bucket, insightCount: grp.insights.length, themes: r.themes, mergesApplied: r.mergesApplied, mergeCostUsd: r.mergeCostUsd }
 }
 
 export { CLUSTER_SIMILARITY_THRESHOLD }
