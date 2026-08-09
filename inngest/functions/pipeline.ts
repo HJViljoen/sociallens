@@ -24,7 +24,7 @@ import type { VideoRow, CommentRow } from '@/lib/pipeline/types'
 // resumes from the last completed step rather than re-scraping.
 //
 // Trigger: `pipeline/run.requested` { clientId, options? }. The cron dispatcher
-// (scheduler.ts) and the "Run now" button both emit this event.
+// (scheduler.ts) and the admin trigger-run route both emit this event.
 //
 // Timeout note: every stage is sized to fit the route's duration cap. Gather is
 // fanned out per keyword search + per comment batch (a whole platform in one

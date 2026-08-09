@@ -306,12 +306,14 @@ export interface StepA2BucketResult {
 
 /** One bucket's Step A2 — the per-bucket Inngest step body. Reloads the corpus
  *  itself (cheap DB reads, no cross-step payload) so the step stays
- *  self-contained and replayable; a bucket that vanished between plan and step
- *  returns empty rather than failing the wave. */
+ *  self-contained and replayable. A bucket missing on reload throws — the run
+ *  fails loudly rather than synthesizing over a silently smaller theme set
+ *  (unreachable with per-client concurrency 1; Inngest retries cover a
+ *  transient read first). */
 export async function runStepA2Bucket(opts: RunStepA2BucketOptions): Promise<StepA2BucketResult> {
   const { groups, distinctVideoCount } = await loadGroupedInsights(opts.clientId, opts.runId)
   const grp = groups.find((g) => g.bucket === opts.bucket)
-  if (!grp) return { bucket: opts.bucket, insightCount: 0, themes: [], mergesApplied: [], mergeCostUsd: 0 }
+  if (!grp) throw new Error(`[a2] bucket "${opts.bucket}" missing on reload for run ${opts.runId}`)
   const r = await processGroup(grp, distinctVideoCount, opts.callIndex, {
     clientId: opts.clientId, runId: opts.runId, method: opts.method, threshold: opts.threshold,
     evidenceFloor: opts.evidenceFloor ?? EVIDENCE_FLOOR, merge: opts.merge ?? true,
