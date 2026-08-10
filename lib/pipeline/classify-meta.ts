@@ -107,6 +107,23 @@ export function validateClassifyResponse(
 
 // ---- I/O runner (one Inngest step = one batch) ------------------------------
 
+/** Plan step: this run's discovered corpus, still-unclassified only. Run-scoped
+ *  (unlike Pass A's whole-client plan) — the batch exists for the Content
+ *  page's per-entity stats, which read the current gather. */
+export async function planClassifyMetaBatches(clientId: string, runId: string): Promise<string[][]> {
+  const admin = createAdminClient()
+  const videos = await selectAll<{ id: string; classified_type: string | null }>(() =>
+    admin
+      .from('videos')
+      .select('id, classified_type')
+      .eq('client_id', clientId)
+      .eq('run_id', runId)
+      .eq('source', 'discovered')
+      .order('id'),
+  )
+  return planClassifyBatches(videos)
+}
+
 export interface ClassifyMetaResult {
   requested: number
   classified: number

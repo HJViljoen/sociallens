@@ -164,6 +164,42 @@ function durationPerf(all: VideoRow[]) {
   }).filter((b) => b.count > 0)
 }
 
+/** Per-entity content playbook: top formats + hook style, with classification
+ *  coverage stated per row (the batch classifier covers most of a corpus, but
+ *  never all — "n of m" keeps thin slices honest). */
+interface EntityPlaybook {
+  label: string
+  total: number
+  classified: number
+  topFormats: { k: string; count: number }[]
+  topHook: { k: string; count: number } | null
+}
+
+function entityPlaybooks(all: VideoRow[]): EntityPlaybook[] {
+  const groups = new Map<string, VideoRow[]>()
+  for (const v of all) {
+    const key = v.is_client ? 'You' : v.is_competitor ? (v.competitor_name ?? 'Competitor') : 'Wider category'
+    groups.set(key, [...(groups.get(key) ?? []), v])
+  }
+  const top = (vids: VideoRow[], key: 'classified_type' | 'hook_style') => {
+    const counts = new Map<string, number>()
+    for (const v of vids) {
+      const k = v[key]
+      if (k) counts.set(k, (counts.get(k) ?? 0) + 1)
+    }
+    return [...counts.entries()].map(([k, count]) => ({ k, count })).sort((a, b) => b.count - a.count)
+  }
+  const rows = [...groups.entries()].map(([label, vids]) => ({
+    label,
+    total: vids.length,
+    classified: vids.filter((v) => v.classified_type != null).length,
+    topFormats: top(vids, 'classified_type').slice(0, 3),
+    topHook: top(vids, 'hook_style')[0] ?? null,
+  }))
+  const order = (r: EntityPlaybook) => (r.label === 'You' ? 0 : r.label === 'Wider category' ? 2 : 1)
+  return rows.sort((a, b) => order(a) - order(b) || b.total - a.total)
+}
+
 /** Sounds used by 2+ videos this update (TikTok/Instagram carry audio names;
  *  singletons are mostly per-video "original sound" noise). */
 function trendingSounds(all: VideoRow[]) {
@@ -229,6 +265,7 @@ export default async function ContentPage({
   const durations = durationPerf(all)
   const maxDurEng = Math.max(...durations.map((d) => d.avgEng ?? 0), 0)
   const sounds = trendingSounds(all)
+  const playbooks = entityPlaybooks(all).filter((p) => p.classified > 0)
 
   // ---- Top voices: the accounts driving the category conversation ----
   const byAccount = new Map<string, { videos: number; views: number; eng: number; engN: number; followers: number; entity: string }>()
@@ -335,7 +372,7 @@ export default async function ContentPage({
               <CardHeader className="pb-3">
                 <CardTitle className="flex items-center gap-2 text-base"><Zap className="size-4 text-primary" aria-hidden /> What hooks are working</CardTitle>
                 <p className="text-xs text-muted-foreground">
-                  Opening styles ranked by the engagement they earn — read from each video&rsquo;s caption and the conversation it sparked, not the footage.
+                  Opening styles ranked by the engagement they earn — read from each video&rsquo;s caption, its speech transcript when captured, and the conversation it sparked; never the footage.
                 </p>
               </CardHeader>
               <CardContent className="overflow-x-auto">
@@ -405,6 +442,56 @@ export default async function ContentPage({
             </Card>
           )}
         </div>
+      )}
+
+      {/* Per-entity content playbook — needs classification coverage */}
+      {playbooks.length > 1 && (
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="flex items-center gap-2 text-base"><Film className="size-4 text-primary" aria-hidden /> Content playbooks, side by side</CardTitle>
+            <p className="text-xs text-muted-foreground">What each player leans on this update — coverage shown per row, because not every video can be read confidently.</p>
+          </CardHeader>
+          <CardContent className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-muted-foreground text-xs uppercase border-b">
+                  <th className="pb-2 pr-3 text-left font-medium">Who</th>
+                  <th className="pb-2 pr-3 text-left font-medium">Leans on</th>
+                  <th className="pb-2 pr-3 text-left font-medium">Favourite hook</th>
+                  <th className="pb-2 text-right font-medium">Read from</th>
+                </tr>
+              </thead>
+              <tbody>
+                {playbooks.map((p) => (
+                  <tr key={p.label} className="border-b last:border-0 align-top">
+                    <td className="py-2.5 pr-3">
+                      <span className={`inline-block rounded-full px-2 py-0.5 text-xs font-medium ${
+                        p.label === 'You' ? 'bg-positive/12 text-positive'
+                        : p.label === 'Wider category' ? 'bg-muted text-muted-foreground'
+                        : 'bg-clay/10 text-clay'
+                      }`}>{p.label}</span>
+                    </td>
+                    <td className="py-2.5 pr-3">
+                      {p.topFormats.length > 0 ? (
+                        <span className="flex flex-wrap gap-1.5">
+                          {p.topFormats.map((f) => (
+                            <span key={f.k} className="inline-block rounded-full bg-muted px-2 py-0.5 text-xs capitalize">
+                              {pretty(f.k)} <span className="text-muted-foreground">×{f.count}</span>
+                            </span>
+                          ))}
+                        </span>
+                      ) : <span className="text-muted-foreground">—</span>}
+                    </td>
+                    <td className="py-2.5 pr-3 capitalize text-muted-foreground">
+                      {p.topHook ? `${pretty(p.topHook.k)} (${p.topHook.count})` : '—'}
+                    </td>
+                    <td className="py-2.5 text-right text-xs text-muted-foreground whitespace-nowrap">{p.classified} of {p.total} videos</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </CardContent>
+        </Card>
       )}
 
       {/* Duration sweet-spots + trending sounds */}
