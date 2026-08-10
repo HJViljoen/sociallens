@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { engageDeepLink, rankEngageCandidates, type EngageCandidate } from './engage'
+import { engageDeepLink, engageVocab, rankEngageCandidates, type EngageCandidate } from './engage'
 
 const WINDOW = '2026-08-02T00:00:00Z'
 
@@ -11,6 +11,7 @@ function cand(over: {
   commentDate?: string | null
   videoUrl?: string | null
   commentId?: string
+  text?: string
 }): EngageCandidate {
   n++
   return {
@@ -21,11 +22,12 @@ function cand(over: {
     comment: {
       id: over.commentId ?? `c${n}`,
       author: 'a',
-      text: 'text',
+      text: over.text ?? 'where can i actually buy one of these',
       likes: over.likes ?? 0,
       commentDate: over.commentDate === undefined ? '2026-08-05T10:00:00Z' : over.commentDate,
       platform: 'tiktok',
       videoUrl: over.videoUrl === undefined ? `https://t.example/${n}` : over.videoUrl,
+      account: null,
       platformCommentId: `p${n}`,
     },
   }
@@ -68,6 +70,30 @@ describe('rankEngageCandidates', () => {
     const d = cand({ videoUrl: url })
     const out = rankEngageCandidates([a, b, c, d], { windowStart: WINDOW })
     expect(out).toHaveLength(2)
+  })
+
+  it('hard-drops non-English and too-short comments — the digest must be actionable', () => {
+    const chinese = cand({ text: '好好看👍❤期待第八季🎉🎉🎉', likes: 900 })
+    const short = cand({ text: 'yes!!' })
+    const real = cand({ text: 'does this work for above-knee amputees too?' })
+    const out = rankEngageCandidates([chinese, short, real], { windowStart: WINDOW })
+    expect(out).toHaveLength(1)
+    expect(out[0]).toBe(real)
+  })
+
+  it('on-topic gate: pollution-video candidates drop, oblique-but-on-market ones stay', () => {
+    const vocab = engageVocab([['ossur'], ['ottobock'], ['prosthetic leg', 'amputee', '#runningblade']])
+    const junk = cand({ category: 'purchase_intent', strength: 9 })
+    junk.theme = 'Game item giveaway requests'
+    junk.videoTopics = ['gaming', 'Blox Fruits PvP', 'rage quit']
+    const genuine = cand({ category: 'question', strength: 5 })
+    genuine.theme = 'Fit and comfort questions'
+    genuine.videoTopics = ['amputee', 'dancing', 'balance']
+    const out = rankEngageCandidates([junk, genuine], { windowStart: WINDOW, vocab })
+    expect(out).toHaveLength(1)
+    expect(out[0]).toBe(genuine)
+    // No vocab configured → gate off, both survive.
+    expect(rankEngageCandidates([junk, genuine], { windowStart: WINDOW })).toHaveLength(2)
   })
 
   it('applies per-category and total caps', () => {

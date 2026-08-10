@@ -1,6 +1,13 @@
 import { createAdminClient } from './supabase-admin'
 import { sendReportEmail } from './email'
 import {
+  ENGAGE_CATEGORY_LABEL,
+  engageDeepLink,
+  engageVocab,
+  loadEngageCandidates,
+  rankEngageCandidates,
+} from './engage'
+import {
   computeRunDelta,
   loadRunSummary,
   readShare,
@@ -66,6 +73,14 @@ interface OwnedEventItem {
   heroQuote: string | null
 }
 
+interface EngageItem {
+  categoryLabel: string
+  text: string
+  author: string | null
+  platform: string
+  href: string | null
+}
+
 interface ReportData {
   companyName: string
   period: 'weekly' | 'monthly'
@@ -81,6 +96,9 @@ interface ReportData {
   rec: RecItem | null
   competitive: CompetitiveItem | null
   ownedEvents: OwnedEventItem[]
+  /** Top "worth a reply" comments (misinformation excluded by design — the
+   *  email never nudges anyone toward a public correction fight). */
+  engage: EngageItem[]
 }
 
 export interface ReportResult {
@@ -205,7 +223,7 @@ async function buildReportData(
 ): Promise<ReportData> {
   const [clientRes, cfgRes, summary] = await Promise.all([
     admin.from('clients').select('company_name').eq('id', clientId).maybeSingle(),
-    admin.from('tracking_configs').select('report_emails, report_period').eq('client_id', clientId).maybeSingle(),
+    admin.from('tracking_configs').select('report_emails, report_period, brand_keywords, competitor_keywords, industry_keywords').eq('client_id', clientId).maybeSingle(),
     loadRunSummary(admin, clientId, runId),
   ])
 
@@ -261,6 +279,23 @@ async function buildReportData(
     .map((e) => e.trim())
     .filter(Boolean)
 
+  // Top 3 "worth a reply" comments, same ranking + on-topic gate as the
+  // Content page section.
+  const engageCandidates = await loadEngageCandidates(admin, clientId, runId)
+  const vocab = engageVocab([
+    cfgRes.data?.brand_keywords, cfgRes.data?.competitor_keywords, cfgRes.data?.industry_keywords,
+  ])
+  const engage = rankEngageCandidates(
+    engageCandidates.filter((c) => c.category !== 'misinformation'),
+    { windowStart: start.toISOString(), totalCap: 3, vocab },
+  ).map((c) => ({
+    categoryLabel: ENGAGE_CATEGORY_LABEL[c.category] ?? c.category,
+    text: c.comment.text.length > 180 ? `${c.comment.text.slice(0, 180)}…` : c.comment.text,
+    author: c.comment.author,
+    platform: c.comment.platform,
+    href: engageDeepLink(c.comment).href,
+  }))
+
   return {
     companyName: (clientRes.data?.company_name as string) || 'your brand',
     period,
@@ -287,6 +322,7 @@ async function buildReportData(
       explanation: e.explanation,
       heroQuote: e.hero_quote,
     })),
+    engage,
   }
 }
 
@@ -508,6 +544,17 @@ function renderReportHtml(d: ReportData, subject: string): string {
       : ''
   const ownedHtml = ownedItems ? `${sectionTitle('On your account')}${ownedItems}` : ''
 
+  // "Worth a reply": fresh questions/buying signals with a link to the spot —
+  // the report's only outward-pointing section (off-platform on purpose).
+  const engageHtml = d.engage.length ? `
+    ${sectionTitle('Worth a reply')}
+    ${d.engage.map((e) => rowBlock({
+      label: e.categoryLabel,
+      text: `&ldquo;${escapeHtml(e.text)}&rdquo;${e.author ? ` <span style="color:${MUTED}">— @${escapeHtml(e.author)} · ${escapeHtml(platformLabel(e.platform))}</span>` : ` <span style="color:${MUTED}">· ${escapeHtml(platformLabel(e.platform))}</span>`}`,
+      href: e.href ?? undefined,
+      linkText: 'Join the conversation',
+    })).join('')}` : ''
+
   const compHtml = d.competitive ? `
     ${sectionTitle('Competitive signal')}
     ${rowBlock({
@@ -537,6 +584,7 @@ function renderReportHtml(d: ReportData, subject: string): string {
             ${lead.rows.map(rowBlock).join('')}
             ${ownedHtml}
             ${recHtml}
+            ${engageHtml}
             ${d.themes.length ? `${sectionTitle(d.delta ? 'Themes worth a look' : 'What your market is talking about')}${themeItems}` : ''}
             ${compHtml}
             <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:22px 0 4px">
@@ -580,6 +628,14 @@ function renderReportText(d: ReportData, subject: string): string {
   if (d.rec) {
     lines.push('THE ONE THING TO ACT ON', `- ${d.rec.title}`)
     if (d.rec.reasoning) lines.push(`  ${d.rec.reasoning}`)
+    lines.push('')
+  }
+  if (d.engage.length) {
+    lines.push('WORTH A REPLY')
+    for (const e of d.engage) {
+      lines.push(`- [${e.categoryLabel}] "${e.text}"${e.author ? ` — @${e.author}` : ''} (${e.platform})`)
+      if (e.href) lines.push(`  ${e.href}`)
+    }
     lines.push('')
   }
   if (d.themes.length) {

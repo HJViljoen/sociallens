@@ -23,7 +23,7 @@ const ENGLISH_WORDS = new Set([
   'need', 'want', 'so', 'not', 'no', 'on', 'in', 'at', 'as', 'if', 'just', 'really', 'still', 'more', 'than', 'about',
 ])
 const wordsOf = (s: string) => s.toLowerCase().match(/[a-z']+/g) ?? []
-const englishHits = (q: string) => wordsOf(q).reduce((n, w) => n + (ENGLISH_WORDS.has(w) ? 1 : 0), 0)
+export const englishHits = (q: string) => wordsOf(q).reduce((n, w) => n + (ENGLISH_WORDS.has(w) ? 1 : 0), 0)
 
 /** Whether a verbatim can carry a card as its lead quote — in card-length range
  *  and reads as English (the corpus is heavily multilingual; "Yo quiero 🙌🙌"
