@@ -4,6 +4,7 @@ import { getSessionContext } from '@/lib/auth'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { ProportionBar } from '@/components/proportion-bar'
 import { SENTIMENT_BADGE } from '@/lib/ui-colors'
+import { EngageSection } from './engage-section'
 
 // Content — "What content works in this niche?" (Redesign Spec §6). Four
 // layers over the latest update's videos: hook intelligence (hook_style ranked
@@ -181,7 +182,12 @@ function trendingSounds(all: VideoRow[]) {
     .slice(0, 6)
 }
 
-export default async function ContentPage() {
+export default async function ContentPage({
+  searchParams,
+}: {
+  searchParams?: Promise<{ detail?: string }>
+}) {
+  const sp = (await searchParams) ?? {}
   // Auth + tenant via the RLS-enforced session client. See lib/auth.ts.
   const { supabase, clientId } = await getSessionContext()
 
@@ -317,6 +323,9 @@ export default async function ContentPage() {
           </CardContent>
         </Card>
       )}
+
+      {/* Worth a reply — the engagement digest (own run anchor; see engage-section.tsx) */}
+      <EngageSection supabase={supabase} clientId={clientId} detail={sp.detail} />
 
       {/* Hook intelligence + content-type performance */}
       {(hookPerf.length > 0 || typePerf.length > 0) && (
