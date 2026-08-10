@@ -279,27 +279,41 @@ export const runPipeline = inngest.createFunction(
     //     unclassified and the page reports coverage honestly; it must never
     //     take down a run (unlike theme buckets, nothing downstream consumes
     //     this silently — themes/synthesis never read these columns).
-    const classifyBatches = await step.run('plan-classify', () => planClassifyMetaBatches(clientId, runId))
+    const classifyBatches = await step
+      .run('plan-classify', () => planClassifyMetaBatches(clientId, runId))
+      // Plan failure out of retries → skip classification, never the run
+      // (the ship-live decision rests on this contract).
+      .catch((e) => {
+        console.error(`[classify-meta] plan failed, skipping: ${e instanceof Error ? e.message : String(e)}`)
+        totalErrors++
+        return [] as string[][]
+      })
     const classify = { classified: 0, nulls: 0, cost: 0, errors: 0 }
     for (let w = 0; w < classifyBatches.length; w += CLASSIFY_PARALLEL) {
       const wave = await Promise.all(
         classifyBatches.slice(w, w + CLASSIFY_PARALLEL).map((videoIds, j) =>
-          step.run(`classify:${w + j + 1}-of-${classifyBatches.length}`, async () => {
-            try {
-              return await runClassifyMetaBatch(clientId, runId, videoIds, w + j + 1)
-            } catch (e) {
+          step
+            .run(`classify:${w + j + 1}-of-${classifyBatches.length}`, () =>
+              runClassifyMetaBatch(clientId, runId, videoIds, w + j + 1),
+            )
+            // Catch on the step promise (transcribe precedent): Inngest's
+            // retries run first; only an out-of-retries batch goes non-fatal,
+            // leaving its rows unclassified and the run status 'partial'.
+            .catch((e) => {
               const message = e instanceof Error ? e.message : String(e)
-              console.error(`[classify-meta] non-fatal: ${message}`)
+              console.error(`[classify-meta] batch out of retries: ${message}`)
               return { requested: videoIds.length, classified: 0, nulls: 0, costUsd: 0, error: message }
-            }
-          }),
+            }),
         ),
       )
       for (const r of wave) {
         classify.classified += r.classified
         classify.nulls += r.nulls
         classify.cost += r.costUsd
-        if (r.error) classify.errors++
+        if (r.error) {
+          classify.errors++
+          totalErrors++
+        }
       }
     }
 
@@ -371,18 +385,16 @@ export const runPipeline = inngest.createFunction(
     const synth = await step.run('synthesize', () => runSynthesisHalf(clientId, runId))
 
     // Keyword ROI bookkeeping — fills keyword_performance.insights_contributed
-    // for this run. Deliberately non-fatal: attribution failing must never take
-    // down a completed run; the error lands in the step result + logs instead.
-    await step.run('keyword-attribution', async () => {
-      try {
-        const admin = createAdminClient()
-        return await attributeRunKeywords(admin, clientId, runId)
-      } catch (e) {
-        const message = e instanceof Error ? e.message : String(e)
-        console.error(`[keyword-attribution] non-fatal: ${message}`)
-        return { error: message }
-      }
-    })
+    // for this run. Catch on the step promise (transcribe precedent): retries
+    // first, then non-fatal — a bookkeeping failure marks the run 'partial'
+    // and is repairable via scripts/backfill-keyword-insights.ts.
+    await step
+      .run('keyword-attribution', () => attributeRunKeywords(createAdminClient(), clientId, runId))
+      .catch((e) => {
+        console.error(`[keyword-attribution] out of retries: ${e instanceof Error ? e.message : String(e)}`)
+        totalErrors++
+        return null
+      })
 
     // 7. Close the run.
     await step.run('close-run', async () => {

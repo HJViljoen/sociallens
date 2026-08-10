@@ -1,9 +1,12 @@
 import { planClassifyMetaBatches, runClassifyMetaBatch } from '../lib/pipeline/classify-meta'
 
 // Operator run of the metadata-classification batch outside the pipeline —
-// backfill a past run's corpus, or verify the pass before a scheduled run
-// exercises it. COSTS OPENAI MONEY: ~$0.20 per ~400 unclassified videos
+// backfill a run's corpus, or verify the pass before a scheduled run
+// exercises it. COSTS OPENAI MONEY: ~$0.10 per ~400 unclassified videos
 // (gpt-4.1-mini). --plan-only previews the batch count for free.
+// CAVEAT for past runs: gather restamps videos.run_id on every re-find, so an
+// old run id only reaches videos not re-found since — partial by construction.
+// The latest run always covers its full corpus.
 //   node --env-file=.env.local --import tsx scripts/run-classify-meta.ts \
 //     --client <uuid> --run <uuid> [--max-batches N] [--plan-only]
 

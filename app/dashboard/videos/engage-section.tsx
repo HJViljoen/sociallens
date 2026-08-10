@@ -30,6 +30,16 @@ const CATEGORY_CHIP: Record<string, string> = {
 
 const quote = (text: string) => (text.length > 220 ? `${text.slice(0, 220)}…` : text)
 
+/** audience_insights.theme is a snake_case machine slug — humanize before it
+ *  reaches a client's eyes (dashboard-page precedent). */
+const prettyTheme = (slug: string) => {
+  const s = slug.replace(/_/g, ' ')
+  return s.charAt(0).toUpperCase() + s.slice(1)
+}
+
+const windowLabel = (days: number) =>
+  days === 7 ? 'the past week' : days === 30 ? 'the past month' : `the past ${days} days`
+
 export async function EngageSection({
   supabase,
   clientId,
@@ -86,8 +96,8 @@ export async function EngageSection({
           <MessageSquareReply className="size-4 text-primary" aria-hidden /> Worth a reply
         </CardTitle>
         <p className="text-xs text-muted-foreground">
-          Questions and buying signals from the past {windowDays === 7 ? 'week' : `${windowDays} days`}&rsquo;s
-          conversations — each links to where it happened, so your team can join in.
+          Questions and buying signals from conversations in {windowLabel(windowDays)} — each links
+          to where it happened, so your team can join in.
         </p>
       </CardHeader>
       <CardContent className="space-y-1.5">
@@ -114,7 +124,7 @@ export async function EngageSection({
                   scroll={false}
                   className="mt-0.5 inline-block text-xs text-muted-foreground underline-offset-2 hover:underline"
                 >
-                  Why it surfaced: {c.theme}
+                  Why it surfaced: {prettyTheme(c.theme)}
                 </Link>
               </div>
               {link.href && (
@@ -162,7 +172,7 @@ export async function EngageSection({
               <span className={`inline-block rounded-full px-2 py-0.5 text-xs font-medium ${CATEGORY_CHIP[detailInsight.category] ?? 'bg-muted text-muted-foreground'}`}>
                 {ENGAGE_CATEGORY_LABEL[detailInsight.category] ?? 'Flagged'}
               </span>
-              <h3 className="mt-2 font-semibold">{detailInsight.theme}</h3>
+              <h3 className="mt-2 font-semibold">{prettyTheme(detailInsight.theme)}</h3>
               {detailInsight.description && (
                 <p className="mt-1 text-sm text-muted-foreground">{detailInsight.description}</p>
               )}

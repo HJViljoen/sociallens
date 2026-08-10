@@ -62,11 +62,13 @@ export interface EngageCandidate {
   comment: EngageComment
 }
 
-/** Content words (≥4 chars, lowercased) of a set of phrases. */
+/** Content words (≥4 chars, lowercased, diacritics folded — "össur" and
+ *  "ossur" must meet) of a set of phrases. */
 const contentWords = (phrases: (string | null | undefined)[]): Set<string> => {
   const out = new Set<string>()
   for (const p of phrases) {
-    for (const w of (p ?? '').toLowerCase().match(/[a-z]{4,}/g) ?? []) out.add(w)
+    const folded = (p ?? '').toLowerCase().normalize('NFD').replace(/\p{M}/gu, '')
+    for (const w of folded.match(/[a-z]{4,}/g) ?? []) out.add(w)
   }
   return out
 }
@@ -163,15 +165,17 @@ export function engageDeepLink(comment: EngageComment): { href: string | null; c
 // the tenant session client (all three tables are tenant-SELECT under RLS) or
 // the admin client. Includes 'misinformation' — callers split it off.
 
+/** .in() in id-chunks of 100 (pass-d's retrieveQuotes precedent), each chunk
+ *  paged via selectAll — evidence rows per insight are unbounded, so a bare
+ *  select could silently cap at 1000 and hollow out the digest. Builders must
+ *  end with a stable .order(). */
 async function chunkedIn<T>(
-  fetchChunk: (ids: string[]) => PromiseLike<{ data: unknown; error: { message: string } | null }>,
+  buildChunk: (ids: string[]) => () => { range: (from: number, to: number) => PromiseLike<{ data: T[] | null; error: unknown }> },
   ids: string[],
 ): Promise<T[]> {
   const out: T[] = []
-  for (let i = 0; i < ids.length; i += 200) {
-    const { data, error } = await fetchChunk(ids.slice(i, i + 200))
-    if (error) throw new Error(error.message)
-    out.push(...((data ?? []) as T[]))
+  for (let i = 0; i < ids.length; i += 100) {
+    out.push(...(await selectAll<T>(buildChunk(ids.slice(i, i + 100)))))
   }
   return out
 }
@@ -195,11 +199,12 @@ export async function loadEngageCandidates(
   const byInsight = new Map(insights.map((i) => [i.id, i]))
 
   const evidence = await chunkedIn<{ audience_insight_id: string; comment_id: string }>(
-    (ids) =>
+    (ids) => () =>
       db.from('insight_evidence')
         .select('audience_insight_id, comment_id')
         .in('audience_insight_id', ids)
-        .eq('source', 'comment'),
+        .eq('source', 'comment')
+        .order('id'),
     insights.map((i) => i.id),
   )
 
@@ -207,10 +212,11 @@ export async function loadEngageCandidates(
     id: string; author: string | null; text: string; likes: number | null
     comment_date: string | null; platform: string; video_id: string; comment_id: string
   }>(
-    (ids) =>
+    (ids) => () =>
       db.from('comments')
         .select('id, author, text, likes, comment_date, platform, video_id, comment_id')
-        .in('id', ids),
+        .in('id', ids)
+        .order('id'),
     [...new Set(evidence.map((e) => e.comment_id))],
   )
   const byComment = new Map(comments.map((c) => [c.id, c]))
@@ -218,11 +224,12 @@ export async function loadEngageCandidates(
   const videos = await chunkedIn<{
     video_id: string; platform: string; video_url: string; account_name: string; topics: string[] | null
   }>(
-    (ids) =>
+    (ids) => () =>
       db.from('videos')
         .select('video_id, platform, video_url, account_name, topics')
         .eq('client_id', clientId)
-        .in('video_id', ids),
+        .in('video_id', ids)
+        .order('id'),
     [...new Set(comments.map((c) => c.video_id))],
   )
   const videoByKey = new Map(videos.map((v) => [`${v.platform}::${v.video_id}`, v]))

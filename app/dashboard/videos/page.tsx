@@ -305,7 +305,7 @@ export default async function ContentPage({
         <Card>
           <CardHeader className="pb-3">
             <CardTitle className="flex items-center gap-2 text-base"><LayoutGrid className="size-4 text-primary" aria-hidden /> The field this update</CardTitle>
-            <p className="text-xs text-muted-foreground">Your posting compared with competitors and the wider category conversation.</p>
+            <p className="text-xs text-muted-foreground">Your posting compared with competitors and the wider category conversation. Views are as platforms report them — Instagram doesn&rsquo;t share view counts, so Instagram-heavy rows undercount.</p>
           </CardHeader>
           <CardContent className="overflow-x-auto">
             <table className="w-full text-sm">
@@ -351,7 +351,7 @@ export default async function ContentPage({
                           </span>
                         ) : '—'}
                       </td>
-                      <td className="py-2.5 text-right text-muted-foreground">{fmt(r.views)}</td>
+                      <td className="py-2.5 text-right text-muted-foreground">{r.views > 0 ? fmt(r.views) : '—'}</td>
                     </tr>
                   )
                 })}

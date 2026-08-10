@@ -1,4 +1,4 @@
-import { createAdminClient } from '../lib/supabase-admin'
+import { createAdminClient, selectAll } from '../lib/supabase-admin'
 import { APIFY_COST_ESTIMATES } from '../lib/config'
 
 // Operator read of keyword ROI across every gathered run — the pruning tool.
@@ -52,13 +52,14 @@ function estRowCost(r: KpRow): number {
 
 async function reportClient(clientId: string) {
   const admin = createAdminClient()
-  const { data, error } = await admin
-    .from('keyword_performance')
-    .select('run_id, platform, keyword, bucket, videos_found, gate_survived, eligible_videos, insights_contributed, value_score, created_at')
-    .eq('client_id', clientId)
-    .order('created_at', { ascending: true })
-  if (error) throw new Error(error.message)
-  const rows = (data ?? []) as KpRow[]
+  const rows = await selectAll<KpRow>(() =>
+    admin
+      .from('keyword_performance')
+      .select('run_id, platform, keyword, bucket, videos_found, gate_survived, eligible_videos, insights_contributed, value_score, created_at')
+      .eq('client_id', clientId)
+      .order('created_at', { ascending: true })
+      .order('id', { ascending: true }),
+  )
   if (rows.length === 0) {
     console.log(`client ${clientId}: no keyword_performance rows — no gathered runs yet\n`)
     return
@@ -150,9 +151,10 @@ async function main() {
   if (clientId) return reportClient(clientId)
 
   const admin = createAdminClient()
-  const { data, error } = await admin.from('keyword_performance').select('client_id')
-  if (error) throw new Error(error.message)
-  const clients = [...new Set((data ?? []).map((r) => r.client_id as string))]
+  const data = await selectAll<{ client_id: string }>(() =>
+    admin.from('keyword_performance').select('client_id').order('id'),
+  )
+  const clients = [...new Set(data.map((r) => r.client_id))]
   if (clients.length === 0) {
     console.log('no keyword_performance rows anywhere — no gathered runs yet')
     return

@@ -1,4 +1,4 @@
-import { createAdminClient } from '../lib/supabase-admin'
+import { createAdminClient, selectAll } from '../lib/supabase-admin'
 import { attributeRunKeywords } from '../lib/pipeline/keyword-attribution'
 
 // One-off backfill of keyword_performance.insights_contributed for runs that
@@ -26,10 +26,11 @@ async function main() {
   const { clientId, persist } = parseArgs(process.argv.slice(2))
   const admin = createAdminClient()
 
-  const { data, error } = await admin.from('keyword_performance').select('client_id, run_id')
-  if (error) throw new Error(error.message)
+  const data = await selectAll<{ client_id: string; run_id: string }>(() =>
+    admin.from('keyword_performance').select('client_id, run_id').order('id'),
+  )
   const targets = new Map<string, Set<string>>()
-  for (const r of data ?? []) {
+  for (const r of data) {
     if (clientId && r.client_id !== clientId) continue
     const runs = targets.get(r.client_id) ?? new Set<string>()
     runs.add(r.run_id)
