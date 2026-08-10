@@ -208,6 +208,17 @@ export const APIFY_ACTORS = {
 /** Default min comments before a video is worth a comment scrape (TikTok/Instagram). */
 export const COMMENT_THRESHOLD = 5
 
+// Order-of-magnitude Apify spend per platform, for RANKING keywords in
+// scripts/keyword-roi.ts — never invoicing. Apify doesn't land per-actor cost
+// in our DB (runActor returns items only), so these are coarse constants
+// anchored to run ef1e28a3 (2026-08-09, $4.35 total; IG historically ~85% of
+// spend). Recalibrate against the Apify console when actors or depths change.
+export const APIFY_COST_ESTIMATES: Record<string, { search: number; perVideoComments: number }> = {
+  tiktok: { search: 0.03, perVideoComments: 0.02 },
+  instagram: { search: 0.02, perVideoComments: 0.12 },
+  youtube: { search: 0, perVideoComments: 0 }, // official Data API — free
+}
+
 // --- Delta-scraping (2026-07-16) ---------------------------------------------
 // Corpus measurement behind the re-check layer: ~73% of an IG video's lifetime
 // comments arrive within 7 days of upload, ~27% after — signal the one-shot

@@ -14,6 +14,9 @@
 // Pure function — the pipeline step and the backfill script supply the rows and
 // write the results. Tested in keyword-attribution.test.ts.
 
+import { selectAll } from '../supabase-admin'
+import type { SupabaseClient } from '@supabase/supabase-js'
+
 /** The audience_insights slice attribution needs. */
 export interface AttributionInsight {
   source_video_id: string | null
@@ -49,4 +52,66 @@ export function computeKeywordAttribution(
     }
   }
   return counts
+}
+
+/**
+ * Compute and persist insights_contributed for one run's keyword_performance
+ * rows. Rows whose (platform, keyword) produced nothing get an explicit 0 —
+ * "measured zero", distinct from the pre-attribution null. Used by the
+ * keyword-attribution pipeline step and the backfill script.
+ */
+export async function attributeRunKeywords(
+  admin: SupabaseClient,
+  clientId: string,
+  runId: string,
+  opts: { persist?: boolean } = {},
+): Promise<{ insights: number; videos: number; kpRows: number; attributed: number }> {
+  const insights = await selectAll<AttributionInsight>(() =>
+    admin
+      .from('audience_insights')
+      .select('source_video_id')
+      .eq('client_id', clientId)
+      .eq('run_id', runId)
+      .order('id'),
+  )
+
+  // Insights may cite videos from earlier gathers (Pass A plans over the whole
+  // client corpus), so fetch by id — chunked to keep the .in() filter sane.
+  const videoIds = [...new Set(insights.map((i) => i.source_video_id).filter(Boolean))] as string[]
+  const videos: AttributionVideo[] = []
+  for (let i = 0; i < videoIds.length; i += 200) {
+    const { data, error } = await admin
+      .from('videos')
+      .select('id, platform, source_keywords')
+      .in('id', videoIds.slice(i, i + 200))
+    if (error) throw new Error(`attribution videos fetch: ${error.message}`)
+    videos.push(...((data ?? []) as AttributionVideo[]))
+  }
+
+  const counts = computeKeywordAttribution(insights, videos)
+
+  const { data: kpData, error: kpError } = await admin
+    .from('keyword_performance')
+    .select('id, platform, keyword, insights_contributed')
+    .eq('client_id', clientId)
+    .eq('run_id', runId)
+  if (kpError) throw new Error(`attribution kp fetch: ${kpError.message}`)
+  const kpRows = kpData ?? []
+
+  let attributed = 0
+  if (opts.persist !== false) {
+    for (const row of kpRows) {
+      const n = counts.get(`${row.platform}::${row.keyword}`) ?? 0
+      if (n > 0) attributed++
+      const { error } = await admin
+        .from('keyword_performance')
+        .update({ insights_contributed: n })
+        .eq('id', row.id)
+      if (error) throw new Error(`attribution kp update: ${error.message}`)
+    }
+  } else {
+    attributed = kpRows.filter((r) => (counts.get(`${r.platform}::${r.keyword}`) ?? 0) > 0).length
+  }
+
+  return { insights: insights.length, videos: videos.length, kpRows: kpRows.length, attributed }
 }

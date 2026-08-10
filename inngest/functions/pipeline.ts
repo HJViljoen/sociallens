@@ -9,6 +9,7 @@ import { runPassC } from '@/lib/pipeline/pass-c'
 import { runPassD } from '@/lib/pipeline/pass-d'
 import { runCrossReference } from '@/lib/pipeline/cross-reference'
 import { loadBrandClaims } from '@/lib/pipeline/claims'
+import { attributeRunKeywords } from '@/lib/pipeline/keyword-attribution'
 import { persistThemes, loadThemes } from '@/lib/pipeline/themes'
 import { writeRunSummary } from '@/lib/pipeline/run-summary'
 import { computeMetrics } from '@/lib/pipeline/metrics'
@@ -336,6 +337,20 @@ export const runPipeline = inngest.createFunction(
     }
 
     const synth = await step.run('synthesize', () => runSynthesisHalf(clientId, runId))
+
+    // Keyword ROI bookkeeping — fills keyword_performance.insights_contributed
+    // for this run. Deliberately non-fatal: attribution failing must never take
+    // down a completed run; the error lands in the step result + logs instead.
+    await step.run('keyword-attribution', async () => {
+      try {
+        const admin = createAdminClient()
+        return await attributeRunKeywords(admin, clientId, runId)
+      } catch (e) {
+        const message = e instanceof Error ? e.message : String(e)
+        console.error(`[keyword-attribution] non-fatal: ${message}`)
+        return { error: message }
+      }
+    })
 
     // 7. Close the run.
     await step.run('close-run', async () => {
