@@ -13,6 +13,7 @@
 // then dedupe: one slot per comment, max 2 per video, category + total caps.
 
 import type { SupabaseClient } from '@supabase/supabase-js'
+import { selectAll } from './supabase-admin'
 import { cleanQuote, englishHits } from './quotes'
 
 export const ENGAGE_CATEGORIES = [
@@ -180,16 +181,16 @@ export async function loadEngageCandidates(
   clientId: string,
   runId: string,
 ): Promise<EngageCandidate[]> {
-  const { data: insightData, error: insightError } = await db
-    .from('audience_insights')
-    .select('id, category, theme, description, strength_score')
-    .eq('client_id', clientId)
-    .eq('run_id', runId)
-    .in('category', [...ENGAGE_CATEGORIES, 'misinformation'])
-  if (insightError) throw new Error(insightError.message)
-  const insights = (insightData ?? []) as {
+  const insights = await selectAll<{
     id: string; category: string; theme: string; description: string; strength_score: number | null
-  }[]
+  }>(() =>
+    db.from('audience_insights')
+      .select('id, category, theme, description, strength_score')
+      .eq('client_id', clientId)
+      .eq('run_id', runId)
+      .in('category', [...ENGAGE_CATEGORIES, 'misinformation'])
+      .order('id'),
+  )
   if (insights.length === 0) return []
   const byInsight = new Map(insights.map((i) => [i.id, i]))
 
