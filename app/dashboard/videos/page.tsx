@@ -1,8 +1,10 @@
-import { Zap, Film, Megaphone, Play } from 'lucide-react'
+import { Zap, Film, Megaphone, Play, Captions, LayoutGrid, Timer, Music } from 'lucide-react'
 import { selectAll } from '@/lib/supabase-admin'
 import { getSessionContext } from '@/lib/auth'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { ProportionBar } from '@/components/proportion-bar'
 import { SENTIMENT_BADGE } from '@/lib/ui-colors'
+import { EngageSection } from './engage-section'
 
 // Content — "What content works in this niche?" (Redesign Spec §6). Four
 // layers over the latest update's videos: hook intelligence (hook_style ranked
@@ -23,7 +25,12 @@ interface VideoRow {
   account_followers: number | null
   video_url: string
   views: number | null
+  likes: number | null
   engagement_rate: number | null
+  upload_date: string | null
+  duration_seconds: number | null
+  audio_name: string | null
+  transcript_status: string | null
   is_client: boolean
   is_competitor: boolean
   competitor_name: string | null
@@ -79,7 +86,144 @@ function perfBy(videos: VideoRow[], key: 'hook_style' | 'classified_type'): Perf
     .sort((a, b) => (b.avgEng ?? -1) - (a.avgEng ?? -1))
 }
 
-export default async function ContentPage() {
+// Literal Tailwind classes (ProportionBar rule — never interpolate).
+const PLATFORM_COLOR: Record<string, string> = {
+  tiktok: 'bg-chart-1',
+  youtube: 'bg-chart-2',
+  instagram: 'bg-chart-3',
+}
+
+const median = (nums: number[]): number | null => {
+  if (nums.length === 0) return null
+  const s = [...nums].sort((a, b) => a - b)
+  const mid = Math.floor(s.length / 2)
+  return s.length % 2 ? s[mid] : (s[mid - 1] + s[mid]) / 2
+}
+
+const durationLabel = (secs: number) => {
+  const m = Math.floor(secs / 60)
+  const s = Math.round(secs % 60)
+  return m > 0 ? `${m}:${String(s).padStart(2, '0')} min` : `${s}s`
+}
+
+/** One scoreboard row per entity: You / each competitor / the wider category. */
+interface EntityRow {
+  label: string
+  videos: number
+  platforms: Map<string, number>
+  medianDuration: number | null
+  avgEng: number | null
+  engN: number
+  views: number
+}
+
+function entityScoreboard(all: VideoRow[]): EntityRow[] {
+  const groups = new Map<string, VideoRow[]>()
+  for (const v of all) {
+    const key = v.is_client ? 'You' : v.is_competitor ? (v.competitor_name ?? 'Competitor') : 'Wider category'
+    groups.set(key, [...(groups.get(key) ?? []), v])
+  }
+  const rows = [...groups.entries()].map(([label, vids]) => {
+    const platforms = new Map<string, number>()
+    for (const v of vids) platforms.set(v.platform, (platforms.get(v.platform) ?? 0) + 1)
+    const withEng = vids.filter((v) => Number(v.engagement_rate) > 0)
+    return {
+      label,
+      videos: vids.length,
+      platforms,
+      medianDuration: median(vids.map((v) => Number(v.duration_seconds)).filter((d) => d > 0)),
+      avgEng: withEng.length > 0 ? withEng.reduce((s, v) => s + Number(v.engagement_rate), 0) / withEng.length : null,
+      engN: withEng.length,
+      views: vids.reduce((s, v) => s + Number(v.views ?? 0), 0),
+    }
+  })
+  const order = (r: EntityRow) => (r.label === 'You' ? 0 : r.label === 'Wider category' ? 2 : 1)
+  return rows.sort((a, b) => order(a) - order(b) || b.videos - a.videos)
+}
+
+const DURATION_BANDS: { label: string; min: number; max: number }[] = [
+  { label: 'Under 15s', min: 0, max: 15 },
+  { label: '15–30s', min: 15, max: 30 },
+  { label: '30–60s', min: 30, max: 60 },
+  { label: 'Over 1 min', min: 60, max: Infinity },
+]
+
+function durationPerf(all: VideoRow[]) {
+  return DURATION_BANDS.map((band) => {
+    const vids = all.filter((v) => {
+      const d = Number(v.duration_seconds)
+      return d > 0 && d >= band.min && d < band.max
+    })
+    const withEng = vids.filter((v) => Number(v.engagement_rate) > 0)
+    return {
+      label: band.label,
+      count: vids.length,
+      avgEng: withEng.length > 0 ? withEng.reduce((s, v) => s + Number(v.engagement_rate), 0) / withEng.length : null,
+      engN: withEng.length,
+    }
+  }).filter((b) => b.count > 0)
+}
+
+/** Per-entity content playbook: top formats + hook style, with classification
+ *  coverage stated per row (the batch classifier covers most of a corpus, but
+ *  never all — "n of m" keeps thin slices honest). */
+interface EntityPlaybook {
+  label: string
+  total: number
+  classified: number
+  topFormats: { k: string; count: number }[]
+  topHook: { k: string; count: number } | null
+}
+
+function entityPlaybooks(all: VideoRow[]): EntityPlaybook[] {
+  const groups = new Map<string, VideoRow[]>()
+  for (const v of all) {
+    const key = v.is_client ? 'You' : v.is_competitor ? (v.competitor_name ?? 'Competitor') : 'Wider category'
+    groups.set(key, [...(groups.get(key) ?? []), v])
+  }
+  const top = (vids: VideoRow[], key: 'classified_type' | 'hook_style') => {
+    const counts = new Map<string, number>()
+    for (const v of vids) {
+      const k = v[key]
+      if (k) counts.set(k, (counts.get(k) ?? 0) + 1)
+    }
+    return [...counts.entries()].map(([k, count]) => ({ k, count })).sort((a, b) => b.count - a.count)
+  }
+  const rows = [...groups.entries()].map(([label, vids]) => ({
+    label,
+    total: vids.length,
+    classified: vids.filter((v) => v.classified_type != null).length,
+    topFormats: top(vids, 'classified_type').slice(0, 3),
+    topHook: top(vids, 'hook_style')[0] ?? null,
+  }))
+  const order = (r: EntityPlaybook) => (r.label === 'You' ? 0 : r.label === 'Wider category' ? 2 : 1)
+  return rows.sort((a, b) => order(a) - order(b) || b.total - a.total)
+}
+
+/** Sounds used by 2+ videos this update (TikTok/Instagram carry audio names;
+ *  singletons are mostly per-video "original sound" noise). */
+function trendingSounds(all: VideoRow[]) {
+  const map = new Map<string, { count: number; views: number }>()
+  for (const v of all) {
+    if (!v.audio_name) continue
+    const g = map.get(v.audio_name) ?? { count: 0, views: 0 }
+    g.count++
+    g.views += Number(v.views ?? 0)
+    map.set(v.audio_name, g)
+  }
+  return [...map.entries()]
+    .filter(([, g]) => g.count >= 2)
+    .map(([name, g]) => ({ name, ...g }))
+    .sort((a, b) => b.count - a.count || b.views - a.views)
+    .slice(0, 6)
+}
+
+export default async function ContentPage({
+  searchParams,
+}: {
+  searchParams?: Promise<{ detail?: string }>
+}) {
+  const sp = (await searchParams) ?? {}
   // Auth + tenant via the RLS-enforced session client. See lib/auth.ts.
   const { supabase, clientId } = await getSessionContext()
 
@@ -107,7 +251,7 @@ export default async function ContentPage() {
   // (Owned-Data-Plan: "segment, never blend") and never mix into market content
   // intelligence.
   const all = await selectAll<VideoRow>(() => supabase.from('videos')
-    .select('id, platform, account_name, account_followers, video_url, views, engagement_rate, is_client, is_competitor, competitor_name, sentiment, classified_type, hook_style, hook_text, topics')
+    .select('id, platform, account_name, account_followers, video_url, views, likes, engagement_rate, upload_date, duration_seconds, audio_name, transcript_status, is_client, is_competitor, competitor_name, sentiment, classified_type, hook_style, hook_text, topics')
     .eq('client_id', clientId).eq('run_id', videoRunId).eq('source', 'discovered')
     .order('views', { ascending: false }).order('id', { ascending: true }))
 
@@ -116,6 +260,12 @@ export default async function ContentPage() {
   const typePerf = perfBy(analysed, 'classified_type')
   const maxHookEng = Math.max(...hookPerf.map((h) => h.avgEng ?? 0), 0)
   const maxTypeEng = Math.max(...typePerf.map((t) => t.avgEng ?? 0), 0)
+
+  const scoreboard = entityScoreboard(all)
+  const durations = durationPerf(all)
+  const maxDurEng = Math.max(...durations.map((d) => d.avgEng ?? 0), 0)
+  const sounds = trendingSounds(all)
+  const playbooks = entityPlaybooks(all).filter((p) => p.classified > 0)
 
   // ---- Top voices: the accounts driving the category conversation ----
   const byAccount = new Map<string, { videos: number; views: number; eng: number; engN: number; followers: number; entity: string }>()
@@ -150,6 +300,70 @@ export default async function ContentPage() {
 
       {all.length === 0 && <EmptyState>No videos in this update yet — the next one lands soon.</EmptyState>}
 
+      {/* Entity scoreboard — who posted what this update, side by side */}
+      {scoreboard.length > 1 && (
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="flex items-center gap-2 text-base"><LayoutGrid className="size-4 text-primary" aria-hidden /> The field this update</CardTitle>
+            <p className="text-xs text-muted-foreground">Your posting compared with competitors and the wider category conversation. Views are as platforms report them — Instagram doesn&rsquo;t share view counts, so Instagram-heavy rows undercount.</p>
+          </CardHeader>
+          <CardContent className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-muted-foreground text-xs uppercase border-b">
+                  <th className="pb-2 pr-3 text-left font-medium">Who</th>
+                  <th className="pb-2 pr-3 text-right font-medium">Videos</th>
+                  <th className="pb-2 pr-3 text-left font-medium">Where they post</th>
+                  <th className="pb-2 pr-3 text-right font-medium">Typical length</th>
+                  <th className="pb-2 pr-3 text-right font-medium">Avg engagement</th>
+                  <th className="pb-2 text-right font-medium">Views</th>
+                </tr>
+              </thead>
+              <tbody>
+                {scoreboard.map((r) => {
+                  const segments = [...r.platforms.entries()].map(([platform, count]) => ({
+                    label: platform,
+                    count,
+                    pct: Math.round((count / r.videos) * 100),
+                    color: PLATFORM_COLOR[platform] ?? 'bg-muted-foreground',
+                  }))
+                  return (
+                    <tr key={r.label} className="border-b last:border-0">
+                      <td className="py-2.5 pr-3">
+                        <span className={`inline-block rounded-full px-2 py-0.5 text-xs font-medium ${
+                          r.label === 'You' ? 'bg-positive/12 text-positive'
+                          : r.label === 'Wider category' ? 'bg-muted text-muted-foreground'
+                          : 'bg-clay/10 text-clay'
+                        }`}>{r.label}</span>
+                      </td>
+                      <td className="py-2.5 pr-3 text-right font-medium">{r.videos}</td>
+                      <td className="py-2.5 pr-3 min-w-40">
+                        <ProportionBar segments={segments} of="videos" />
+                        <div className="mt-1 text-[11px] text-muted-foreground capitalize">
+                          {segments.map((s) => `${s.label} ${s.pct}%`).join(' · ')}
+                        </div>
+                      </td>
+                      <td className="py-2.5 pr-3 text-right text-muted-foreground">{r.medianDuration != null ? durationLabel(r.medianDuration) : '—'}</td>
+                      <td className="py-2.5 pr-3 text-right">
+                        {r.avgEng != null ? (
+                          <span title={`across ${r.engN} of ${r.videos} videos with engagement data`}>
+                            {r.avgEng.toFixed(1)}% <span className="text-[11px] text-muted-foreground">({r.engN} videos)</span>
+                          </span>
+                        ) : '—'}
+                      </td>
+                      <td className="py-2.5 text-right text-muted-foreground">{r.views > 0 ? fmt(r.views) : '—'}</td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Worth a reply — the engagement digest (own run anchor; see engage-section.tsx) */}
+      <EngageSection supabase={supabase} clientId={clientId} detail={sp.detail} />
+
       {/* Hook intelligence + content-type performance */}
       {(hookPerf.length > 0 || typePerf.length > 0) && (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
@@ -158,7 +372,7 @@ export default async function ContentPage() {
               <CardHeader className="pb-3">
                 <CardTitle className="flex items-center gap-2 text-base"><Zap className="size-4 text-primary" aria-hidden /> What hooks are working</CardTitle>
                 <p className="text-xs text-muted-foreground">
-                  Opening styles ranked by the engagement they earn — read from each video&rsquo;s caption and the conversation it sparked, not the footage.
+                  Opening styles ranked by the engagement they earn — read from each video&rsquo;s caption, its speech transcript when captured, and the conversation it sparked; never the footage.
                 </p>
               </CardHeader>
               <CardContent className="overflow-x-auto">
@@ -230,6 +444,119 @@ export default async function ContentPage() {
         </div>
       )}
 
+      {/* Per-entity content playbook — needs classification coverage */}
+      {playbooks.length > 1 && (
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="flex items-center gap-2 text-base"><Film className="size-4 text-primary" aria-hidden /> Content playbooks, side by side</CardTitle>
+            <p className="text-xs text-muted-foreground">What each player leans on this update — coverage shown per row, because not every video can be read confidently.</p>
+          </CardHeader>
+          <CardContent className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-muted-foreground text-xs uppercase border-b">
+                  <th className="pb-2 pr-3 text-left font-medium">Who</th>
+                  <th className="pb-2 pr-3 text-left font-medium">Leans on</th>
+                  <th className="pb-2 pr-3 text-left font-medium">Favourite hook</th>
+                  <th className="pb-2 text-right font-medium">Read from</th>
+                </tr>
+              </thead>
+              <tbody>
+                {playbooks.map((p) => (
+                  <tr key={p.label} className="border-b last:border-0 align-top">
+                    <td className="py-2.5 pr-3">
+                      <span className={`inline-block rounded-full px-2 py-0.5 text-xs font-medium ${
+                        p.label === 'You' ? 'bg-positive/12 text-positive'
+                        : p.label === 'Wider category' ? 'bg-muted text-muted-foreground'
+                        : 'bg-clay/10 text-clay'
+                      }`}>{p.label}</span>
+                    </td>
+                    <td className="py-2.5 pr-3">
+                      {p.topFormats.length > 0 ? (
+                        <span className="flex flex-wrap gap-1.5">
+                          {p.topFormats.map((f) => (
+                            <span key={f.k} className="inline-block rounded-full bg-muted px-2 py-0.5 text-xs capitalize">
+                              {pretty(f.k)} <span className="text-muted-foreground">×{f.count}</span>
+                            </span>
+                          ))}
+                        </span>
+                      ) : <span className="text-muted-foreground">—</span>}
+                    </td>
+                    <td className="py-2.5 pr-3 capitalize text-muted-foreground">
+                      {p.topHook ? `${pretty(p.topHook.k)} (${p.topHook.count})` : '—'}
+                    </td>
+                    <td className="py-2.5 text-right text-xs text-muted-foreground whitespace-nowrap">{p.classified} of {p.total} videos</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Duration sweet-spots + trending sounds */}
+      {(durations.length > 0 || sounds.length > 0) && (
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          {durations.length > 0 && (
+            <Card>
+              <CardHeader className="pb-3">
+                <CardTitle className="flex items-center gap-2 text-base"><Timer className="size-4 text-primary" aria-hidden /> Video length that earns attention</CardTitle>
+                <p className="text-xs text-muted-foreground">Engagement by video length across this update — videos without a known length excluded.</p>
+              </CardHeader>
+              <CardContent className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="text-muted-foreground text-xs uppercase border-b">
+                      <th className="pb-2 pr-3 text-left font-medium">Length</th>
+                      <th className="pb-2 pr-3 text-left font-medium">Engagement</th>
+                      <th className="pb-2 text-right font-medium">Videos</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {durations.map((d) => (
+                      <tr key={d.label} className="border-b last:border-0">
+                        <td className="py-2.5 pr-3 font-medium">{d.label}</td>
+                        <td className="py-2.5 pr-3"><EngBar value={d.avgEng} max={maxDurEng} /></td>
+                        <td className="py-2.5 text-right text-muted-foreground">{d.count}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </CardContent>
+            </Card>
+          )}
+
+          {sounds.length > 0 && (
+            <Card>
+              <CardHeader className="pb-3">
+                <CardTitle className="flex items-center gap-2 text-base"><Music className="size-4 text-primary" aria-hidden /> Sounds gaining traction</CardTitle>
+                <p className="text-xs text-muted-foreground">Audio used by two or more videos this update — TikTok &amp; Instagram only; YouTube doesn&rsquo;t share sound data.</p>
+              </CardHeader>
+              <CardContent className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="text-muted-foreground text-xs uppercase border-b">
+                      <th className="pb-2 pr-3 text-left font-medium">Sound</th>
+                      <th className="pb-2 pr-3 text-right font-medium">Videos</th>
+                      <th className="pb-2 text-right font-medium">Views</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {sounds.map((s) => (
+                      <tr key={s.name} className="border-b last:border-0">
+                        <td className="py-2.5 pr-3 max-w-64 truncate" title={s.name}>{s.name}</td>
+                        <td className="py-2.5 pr-3 text-right font-medium">{s.count}</td>
+                        <td className="py-2.5 text-right text-muted-foreground">{fmt(s.views)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </CardContent>
+            </Card>
+          )}
+        </div>
+      )}
+
       {/* Top voices */}
       {voices.length > 0 && (
         <Card>
@@ -282,8 +609,8 @@ export default async function ContentPage() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="text-muted-foreground text-xs uppercase border-b">
-                  {['Platform', 'Account', 'Who', 'Views', 'Eng.', 'Sentiment', 'Format', 'Hook', 'Topics'].map((h) => (
-                    <th key={h} className={`pb-2 font-medium ${['Views', 'Eng.'].includes(h) ? 'text-right' : 'text-left'}`}>{h}</th>
+                  {['Platform', 'Account', 'Who', 'Posted', 'Length', 'Views', 'Likes', 'Eng.', 'Sentiment', 'Format', 'Hook', 'Topics'].map((h) => (
+                    <th key={h} className={`pb-2 font-medium ${['Views', 'Likes', 'Eng.'].includes(h) ? 'text-right' : 'text-left'}`}>{h}</th>
                   ))}
                 </tr>
               </thead>
@@ -293,11 +620,17 @@ export default async function ContentPage() {
                     <td className="py-2 capitalize">{v.platform}</td>
                     <td className="py-2">
                       <a href={v.video_url} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">@{v.account_name}</a>
+                      {v.transcript_status === 'ok' && (
+                        <Captions className="ml-1 inline size-3 align-[-1px] text-muted-foreground" aria-label="Speech transcript captured" />
+                      )}
                     </td>
                     <td className="py-2">
                       <span className={`inline-block rounded-full px-2 py-0.5 text-xs font-medium capitalize ${roleChip(roleOf(v))}`}>{roleOf(v)}</span>
                     </td>
+                    <td className="py-2 text-xs text-muted-foreground whitespace-nowrap">{v.upload_date ?? '—'}</td>
+                    <td className="py-2 text-xs text-muted-foreground whitespace-nowrap">{Number(v.duration_seconds) > 0 ? durationLabel(Number(v.duration_seconds)) : '—'}</td>
                     <td className="py-2 text-right">{v.views != null ? fmt(Number(v.views)) : '—'}</td>
+                    <td className="py-2 text-right text-muted-foreground">{v.likes != null ? fmt(Number(v.likes)) : '—'}</td>
                     <td className="py-2 text-right">{v.engagement_rate != null ? `${v.engagement_rate}%` : '—'}</td>
                     <td className="py-2">{v.sentiment ? <span className={`inline-block px-2 py-0.5 rounded-full text-xs font-medium capitalize ${SENTIMENT_BADGE[v.sentiment] ?? 'bg-muted text-muted-foreground'}`}>{v.sentiment}</span> : <span className="text-muted-foreground">—</span>}</td>
                     <td className="py-2 capitalize text-xs">{v.classified_type ? pretty(v.classified_type) : <span className="text-muted-foreground">—</span>}</td>

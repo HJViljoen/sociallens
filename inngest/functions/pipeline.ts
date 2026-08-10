@@ -9,6 +9,8 @@ import { runPassC } from '@/lib/pipeline/pass-c'
 import { runPassD } from '@/lib/pipeline/pass-d'
 import { runCrossReference } from '@/lib/pipeline/cross-reference'
 import { loadBrandClaims } from '@/lib/pipeline/claims'
+import { attributeRunKeywords } from '@/lib/pipeline/keyword-attribution'
+import { planClassifyMetaBatches, runClassifyMetaBatch } from '@/lib/pipeline/classify-meta'
 import { persistThemes, loadThemes } from '@/lib/pipeline/themes'
 import { writeRunSummary } from '@/lib/pipeline/run-summary'
 import { computeMetrics } from '@/lib/pipeline/metrics'
@@ -270,6 +272,51 @@ export const runPipeline = inngest.createFunction(
       }
     }
 
+    // 4b. Metadata classification — the videos Pass A skipped (<5 kept
+    //     comments, ~75% of a corpus) get format/hook/topics from caption +
+    //     transcript so the Content page's per-entity stats rest on the whole
+    //     gather. Non-fatal per batch: a failed batch leaves its rows
+    //     unclassified and the page reports coverage honestly; it must never
+    //     take down a run (unlike theme buckets, nothing downstream consumes
+    //     this silently — themes/synthesis never read these columns).
+    const classifyBatches = await step
+      .run('plan-classify', () => planClassifyMetaBatches(clientId, runId))
+      // Plan failure out of retries → skip classification, never the run
+      // (the ship-live decision rests on this contract).
+      .catch((e) => {
+        console.error(`[classify-meta] plan failed, skipping: ${e instanceof Error ? e.message : String(e)}`)
+        totalErrors++
+        return [] as string[][]
+      })
+    const classify = { classified: 0, nulls: 0, cost: 0, errors: 0 }
+    for (let w = 0; w < classifyBatches.length; w += CLASSIFY_PARALLEL) {
+      const wave = await Promise.all(
+        classifyBatches.slice(w, w + CLASSIFY_PARALLEL).map((videoIds, j) =>
+          step
+            .run(`classify:${w + j + 1}-of-${classifyBatches.length}`, () =>
+              runClassifyMetaBatch(clientId, runId, videoIds, w + j + 1),
+            )
+            // Catch on the step promise (transcribe precedent): Inngest's
+            // retries run first; only an out-of-retries batch goes non-fatal,
+            // leaving its rows unclassified and the run status 'partial'.
+            .catch((e) => {
+              const message = e instanceof Error ? e.message : String(e)
+              console.error(`[classify-meta] batch out of retries: ${message}`)
+              return { requested: videoIds.length, classified: 0, nulls: 0, costUsd: 0, error: message }
+            }),
+        ),
+      )
+      for (const r of wave) {
+        classify.classified += r.classified
+        classify.nulls += r.nulls
+        classify.cost += r.costUsd
+        if (r.error) {
+          classify.errors++
+          totalErrors++
+        }
+      }
+    }
+
     // 5. Cross-reference detection — client-brand mentions under competitor /
     //    industry videos (deterministic regex, no GPT).
     const crossRef = await step.run('cross-reference', () => runCrossReference(clientId))
@@ -337,6 +384,18 @@ export const runPipeline = inngest.createFunction(
 
     const synth = await step.run('synthesize', () => runSynthesisHalf(clientId, runId))
 
+    // Keyword ROI bookkeeping — fills keyword_performance.insights_contributed
+    // for this run. Catch on the step promise (transcribe precedent): retries
+    // first, then non-fatal — a bookkeeping failure marks the run 'partial'
+    // and is repairable via scripts/backfill-keyword-insights.ts.
+    await step
+      .run('keyword-attribution', () => attributeRunKeywords(createAdminClient(), clientId, runId))
+      .catch((e) => {
+        console.error(`[keyword-attribution] out of retries: ${e instanceof Error ? e.message : String(e)}`)
+        totalErrors++
+        return null
+      })
+
     // 7. Close the run.
     await step.run('close-run', async () => {
       const admin = createAdminClient()
@@ -356,7 +415,7 @@ export const runPipeline = inngest.createFunction(
       })
     }
 
-    return { runId, status: totalErrors > 0 ? 'partial' : 'completed', totalVideos, ...passA, brandMentions: crossRef.mentionsFlagged, ...themedSummary, ...synth }
+    return { runId, status: totalErrors > 0 ? 'partial' : 'completed', totalVideos, ...passA, classifyMeta: classify, brandMentions: crossRef.mentionsFlagged, ...themedSummary, ...synth }
   },
 )
 
@@ -385,6 +444,10 @@ const COMMENT_PARALLEL = 4
  *  this (still pass-a:N-of-M over the same memoized plan), so a mid-run deploy
  *  replays completed batches instantly and fans out only the remainder. */
 const PASS_A_PARALLEL = 5
+
+/** Classify-meta batches per wave — 25-video metadata-only calls run ~10-30s,
+ *  so 4 abreast stays far under the step cap. */
+const CLASSIFY_PARALLEL = 4
 
 /** Bucket theme steps dispatched concurrently per wave. Each step carries one
  *  gpt-5.4 reasoning=medium merge call (the heavy part, ~95s total across

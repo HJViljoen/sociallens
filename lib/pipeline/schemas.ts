@@ -35,6 +35,22 @@ export const JOURNEY_STAGES = [
   'awareness', 'consideration', 'purchase', 'ownership', 'advocacy',
 ] as const
 
+// Metadata-only classification batch (2026-08-10): classifies the videos Pass A
+// skips (<5 kept comments) from caption/hashtags/transcript alone, so per-entity
+// format/hook stats stop resting on the comment-rich minority. Every judgment
+// field is nullable — thin metadata earns an honest null, never a guess.
+export const classifyMetaItemSchema = z.object({
+  ref: z.string(), // [v1]-style block label — validated against the batch in code
+  classified_type: z.enum(CLASSIFIED_TYPES).nullable(),
+  hook_style: z.enum(HOOK_STYLES).nullable(),
+  hook_text: z.string().nullable(),
+  topics: z.array(z.string()),
+  sentiment: z.enum(VIDEO_SENTIMENTS).nullable(),
+})
+export const ClassifyMetaSchema = z.object({ videos: z.array(classifyMetaItemSchema) })
+export type ClassifyMetaItem = z.infer<typeof classifyMetaItemSchema>
+export type ClassifyMetaOutput = z.infer<typeof ClassifyMetaSchema>
+
 export const EMOTIONS = [
   'frustrated', 'excited', 'confused', 'angry', 'joyful', 'disappointed',
   'hopeful', 'curious', 'neutral',
