@@ -13,6 +13,7 @@ import { attributeRunKeywords } from '@/lib/pipeline/keyword-attribution'
 import { planClassifyMetaBatches, runClassifyMetaBatch } from '@/lib/pipeline/classify-meta'
 import { ingestOwnedPosts } from '@/lib/gather/owned'
 import { runStep2c } from '@/lib/pipeline/owned-events'
+import { persistRunNews } from '@/lib/news/persist'
 import { persistThemes, loadThemes } from '@/lib/pipeline/themes'
 import { writeRunSummary } from '@/lib/pipeline/run-summary'
 import { computeMetrics } from '@/lib/pipeline/metrics'
@@ -109,6 +110,18 @@ export const runPipeline = inngest.createFunction(
       if (error) throw new Error(`open run: ${error.message}`)
       return id
     })
+
+    // News context layer (Wave 2): free RSS fetch + ring-assign + store for
+    // the Trends panel. Zero corpus dependency, so it runs right after
+    // open-run. Non-fatal AND uncounted: a context-feed hiccup neither fails
+    // the run nor marks the intelligence 'partial' — the panel just stays on
+    // last week's items.
+    await step
+      .run('gather-news', () => persistRunNews(clientId, runId))
+      .catch((e) => {
+        console.error(`[gather-news] out of retries: ${e instanceof Error ? e.message : String(e)}`)
+        return { fetched: 0, stored: 0 }
+      })
 
     // 2. Plan the gather fan-out: one task per platform × keyword. An
     //    analysis-only resume skips gather — the corpus is already in the DB.

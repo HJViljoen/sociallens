@@ -95,7 +95,7 @@ export default async function TrendsPage() {
   // Auth + tenant via the RLS-enforced session client. See lib/auth.ts.
   const { supabase, clientId } = await getSessionContext()
 
-  const [{ data: client }, summariesRaw, themesRaw, { data: snapData }, { data: eventData }] = await Promise.all([
+  const [{ data: client }, summariesRaw, themesRaw, { data: snapData }, { data: eventData }, { data: newsData }] = await Promise.all([
     supabase.from('clients').select('company_name').eq('id', clientId).maybeSingle(),
     selectAll<RunSummary>(() =>
       supabase.from('run_summary')
@@ -113,6 +113,12 @@ export default async function TrendsPage() {
     supabase.from('account_events')
       .select('platform, metric, event_date, direction, severity, magnitude_label, explained, explanation, supporting_theme_labels, hero_quote')
       .eq('client_id', clientId).order('event_date', { ascending: false }),
+    // Rings 0-2 only (brand/competitors/category) — macro noise stays out.
+    supabase.from('news_items')
+      .select('title, url, source_ref, published_at, ring')
+      .eq('client_id', clientId).lte('ring', 2)
+      .order('published_at', { ascending: false, nullsFirst: false })
+      .limit(8),
   ])
 
   const brand = client?.company_name ?? 'Your brand'
@@ -376,6 +382,45 @@ export default async function TrendsPage() {
           <p className="text-[11px] text-muted-foreground">
             Prominence is how strongly a theme registered in each update (0–10), tracked across the updates it appeared in.
           </p>
+        </section>
+      )}
+
+      {/* In the news — published context, never a claimed cause */}
+      {(newsData ?? []).length > 0 && (
+        <section className="space-y-3">
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+            In the news
+          </h2>
+          <Card>
+            <CardHeader className="pb-2">
+              <p className="text-xs text-muted-foreground">
+                Coverage of your brand, competitors and category published recently — shown as
+                context alongside the conversation, not as a cause of anything you see above.
+              </p>
+            </CardHeader>
+            <CardContent className="divide-y">
+              {(newsData as { title: string; url: string; source_ref: string; published_at: string | null; ring: number }[]).map((n) => (
+                <div key={n.url} className="flex items-start justify-between gap-3 py-2.5 first:pt-0 last:pb-0">
+                  <div className="min-w-0">
+                    <a href={n.url} target="_blank" rel="noopener noreferrer" className="text-sm font-medium hover:underline">
+                      {n.title}
+                    </a>
+                    <div className="mt-0.5 text-xs text-muted-foreground">
+                      {n.source_ref}
+                      {n.published_at ? ` · ${n.published_at.slice(0, 10)}` : ''}
+                    </div>
+                  </div>
+                  <span className={`shrink-0 rounded-full px-2 py-0.5 text-xs font-medium ${
+                    n.ring === 0 ? 'bg-positive/12 text-positive'
+                    : n.ring === 1 ? 'bg-clay/10 text-clay'
+                    : 'bg-muted text-muted-foreground'
+                  }`}>
+                    {n.ring === 0 ? 'Your brand' : n.ring === 1 ? 'Competitors' : 'Category'}
+                  </span>
+                </div>
+              ))}
+            </CardContent>
+          </Card>
         </section>
       )}
 
