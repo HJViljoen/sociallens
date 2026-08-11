@@ -118,6 +118,7 @@ const DEFAULT_CONFIG: Omit<GatherConfig, 'platforms'> = {
   max_videos: 25,
   comment_depth: 50,
   report_period: 'weekly',
+  own_handles: {},
 }
 
 async function loadConfig(admin: Admin, clientId: string): Promise<GatherConfig> {
@@ -137,6 +138,7 @@ async function loadConfig(admin: Admin, clientId: string): Promise<GatherConfig>
     max_videos: data.max_videos ?? DEFAULT_CONFIG.max_videos,
     comment_depth: data.comment_depth ?? DEFAULT_CONFIG.comment_depth,
     report_period: data.report_period ?? DEFAULT_CONFIG.report_period,
+    own_handles: data.own_handles ?? {},
   }
 }
 

@@ -65,6 +65,7 @@ async function main() {
     max_videos: tc.max_videos ?? 25,
     comment_depth: tc.comment_depth ?? 50,
     report_period: tc.report_period ?? 'weekly',
+    own_handles: tc.own_handles ?? {},
   }
 
   const videos = (await selectAll<StoredVideo>(() =>
