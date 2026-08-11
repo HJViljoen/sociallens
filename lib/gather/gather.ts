@@ -524,6 +524,9 @@ export async function scrapeCommentsBatch(opts: {
   platform: Platform
   refs: VideoRef[]
   dryRun?: boolean
+  /** Stamp rows as the client's own-post comments (owned layer). Default
+   *  omits the column → DB default 'discovered'. */
+  source?: 'owned'
 }): Promise<{ comments: number; errors: string[] }> {
   const admin = createAdminClient()
   const config = await loadConfig(admin, opts.clientId)
@@ -549,7 +552,7 @@ export async function scrapeCommentsBatch(opts: {
           .map((r) => adapter.normaliseComment(r, ref, ctx))
           .filter((c): c is CommentInsert => c !== null),
         (c) => c.comment_id,
-      )
+      ).map((c) => (opts.source ? { ...c, source: opts.source } : c))
       if (!opts.dryRun && comments.length) {
         const { error } = await admin
           .from('comments')

@@ -1,5 +1,6 @@
 import { runActor } from './apify'
-import { APIFY_ACTORS } from '../config'
+import { createAdminClient } from '../supabase-admin'
+import { APIFY_ACTORS, COMMENT_THRESHOLD } from '../config'
 import type { GatherConfig, RawItem, VideoInsert } from './types'
 import { getPath, first, num, str } from './util'
 
@@ -281,4 +282,51 @@ export function ownedPlatforms(config: GatherConfig): { platform: string; handle
   return Object.entries(config.own_handles)
     .filter(([platform, handle]) => handle && ['instagram', 'tiktok', 'youtube'].includes(platform))
     .map(([platform, handle]) => ({ platform, handle }))
+}
+
+/** Own posts new/fresh enough to be worth a paid comment scrape this run:
+ *  in the report window (or undated), above the comment threshold. Pure. */
+export function ownedCommentRefs(
+  posts: VideoInsert[],
+  opts: { windowStart: string | null; threshold: number | null },
+): { video_id: string; video_url: string; comments_count: number }[] {
+  return posts
+    .filter((p) => {
+      if (opts.threshold != null && p.comments_count < opts.threshold) return false
+      if (!opts.windowStart) return true
+      return !p.upload_date || p.upload_date >= opts.windowStart.slice(0, 10)
+    })
+    .map((p) => ({ video_id: p.video_id, video_url: p.video_url, comments_count: p.comments_count }))
+}
+
+/**
+ * Weekly own-post ingestion for one platform (pipeline step body): profile
+ * read → upsert recent posts stamped source:'owned' (sticky — a discovered
+ * re-gather never touches the column) → return the refs worth a comment
+ * scrape this window. YouTube's comment fetch is quota-cheap, so it takes
+ * every commented post; TT/IG apply the paid-scrape threshold.
+ */
+export async function ingestOwnedPosts(opts: {
+  clientId: string
+  runId: string
+  platform: string
+  handle: string
+  windowStart: string | null
+}): Promise<{ video_id: string; video_url: string; comments_count: number }[]> {
+  const profile = await fetchOwnProfile(opts.platform, opts.handle, {
+    clientId: opts.clientId,
+    runId: opts.runId,
+  })
+  if (profile.recentPosts.length) {
+    const admin = createAdminClient()
+    const rows = profile.recentPosts.map((p) => ({ ...p, source: 'owned' as const }))
+    const { error } = await admin
+      .from('videos')
+      .upsert(rows, { onConflict: 'client_id,platform,video_id' })
+    if (error) throw new Error(`owned posts upsert (${opts.platform}): ${error.message}`)
+  }
+  return ownedCommentRefs(profile.recentPosts, {
+    windowStart: opts.windowStart,
+    threshold: opts.platform === 'youtube' ? 1 : COMMENT_THRESHOLD,
+  })
 }

@@ -5,6 +5,7 @@ import { SYNTHESIS_MODEL, estimateCost } from '../config'
 import { Step2cSchema, type Step2cOutput } from './schemas'
 import { logAiCall } from './ai-log'
 import { CALIBRATED_PROSE_RULE } from './prose-rules'
+import { followerFloorPct } from '../gather/owned'
 
 // Step 2c — owned-account events (Architecture/Owned-Data-Plan 2026-07-08).
 // "Code rates, AI explains", a third time: code detects events on the client's
@@ -86,6 +87,26 @@ function followerSeverity(absPct: number): 1 | 2 | 3 {
  * the median of that platform's earlier deltas. Post events: an owned post in
  * the window whose engagement is a multiple of the account's earlier median.
  */
+/**
+ * Compress a (possibly daily) snapshot series to weekly anchor points: walk
+ * back from the latest snapshot keeping only points ≥6.5 days apart. On an
+ * already-weekly series this returns the input unchanged, so pre-Wave-2
+ * behavior is preserved exactly.
+ */
+export function weeklyAnchors(sortedAsc: SnapshotRow[]): SnapshotRow[] {
+  if (sortedAsc.length < 2) return sortedAsc
+  const picked: SnapshotRow[] = []
+  let anchorT = Infinity
+  for (let i = sortedAsc.length - 1; i >= 0; i--) {
+    const t = Date.parse(sortedAsc[i].snapshot_date)
+    if (anchorT - t >= 6.5 * 86_400_000 || picked.length === 0) {
+      picked.push(sortedAsc[i])
+      anchorT = t
+    }
+  }
+  return picked.reverse()
+}
+
 export function detectAccountEvents(args: {
   snapshots: SnapshotRow[]
   ownedVideos: OwnedVideoRow[]
@@ -107,7 +128,10 @@ export function detectAccountEvents(args: {
     byPlatform.set(s.platform, arr)
   }
   for (const [platform, rows] of byPlatform) {
-    const series = rows.sort((a, b) => a.snapshot_date.localeCompare(b.snapshot_date))
+    // Daily snapshots (Wave 2 cron) would make consecutive deltas day-over-day
+    // — meaningless against the weekly floor. Compress to weekly anchors first:
+    // on a weekly series this is the identity.
+    const series = weeklyAnchors(rows.sort((a, b) => a.snapshot_date.localeCompare(b.snapshot_date)))
     if (series.length < 2) continue
     const last = series[series.length - 1]
     if (!inWindow(last.snapshot_date)) continue // no fresh snapshot this window
@@ -119,10 +143,18 @@ export function detectAccountEvents(args: {
     }
     const latest = deltasPct[deltasPct.length - 1]
     const baseline = deltasPct.slice(0, -1).map(Math.abs)
-    if (baseline.length < MIN_BASELINE_POINTS) continue // too little history to judge
+    if (baseline.length < MIN_BASELINE_POINTS) {
+      console.log(`[step2c] audit ${platform}: weekly points=${series.length} baseline=${baseline.length} — too little history to judge`)
+      continue
+    }
 
     const typical = Math.max(median(baseline), 0.2)
-    if (Math.abs(latest) < FOLLOWER_PCT_FLOOR || Math.abs(latest) < typical * FOLLOWER_BASELINE_MULTIPLE) continue
+    // YouTube's subscriberCount rounds to 3 sig figs — the floor must clear
+    // two rounding steps or rounding noise fakes an event on small channels.
+    const floor = followerFloorPct(platform, last.followers!, FOLLOWER_PCT_FLOOR)
+    const fires = Math.abs(latest) >= floor && Math.abs(latest) >= typical * FOLLOWER_BASELINE_MULTIPLE
+    console.log(`[step2c] audit ${platform}: latest=${round1(latest)}% typical=${round1(typical)}% floor=${round1(floor)}% → ${fires ? 'FIRES' : 'no event'}`)
+    if (!fires) continue
 
     const prevFollowers = series[series.length - 2].followers!
     const diff = last.followers! - prevFollowers
@@ -322,14 +354,31 @@ export async function runStep2c(args: {
   ])
   const themes = ((themeRows ?? []) as ThemeLite[]).slice(0, 30)
   const eventPlatforms = [...new Set(detected.map((e) => e.platform))]
-  const { data: ocRows } = await admin
+  // Prefer THIS window's owned comments — an event should be explained by the
+  // conversation around it, not a greatest-hit from months ago. Widen to
+  // all-time only when the window is too thin to ground anything.
+  const windowedQ = admin
     .from('comments')
     .select('text, likes, platform')
     .eq('client_id', clientId).eq('source', 'owned')
     .in('platform', eventPlatforms)
     .order('likes', { ascending: false })
     .limit(40)
-  const commentPool = ((ocRows ?? []) as OwnedCommentRow[])
+  const { data: winRows } = windowStart
+    ? await windowedQ.gt('comment_date', windowStart)
+    : await windowedQ
+  let pool = (winRows ?? []) as OwnedCommentRow[]
+  if (pool.length < 10) {
+    const { data: allRows } = await admin
+      .from('comments')
+      .select('text, likes, platform')
+      .eq('client_id', clientId).eq('source', 'owned')
+      .in('platform', eventPlatforms)
+      .order('likes', { ascending: false })
+      .limit(40)
+    pool = (allRows ?? []) as OwnedCommentRow[]
+  }
+  const commentPool = pool
     .map((c) => (c.text ?? '').replace(/\s+/g, ' ').trim())
     .filter((t) => t.length > 0)
 

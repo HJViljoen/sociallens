@@ -3,6 +3,7 @@ import { inngest } from '@/inngest/client'
 import { runPipeline } from '@/inngest/functions/pipeline'
 import { scheduledPipelineDispatcher } from '@/inngest/functions/scheduler'
 import { sendWeeklyReport } from '@/inngest/functions/report'
+import { ownedSnapshotsDaily } from '@/inngest/functions/owned-snapshots'
 
 // Inngest endpoint. Inngest Cloud calls this route (GET to sync, PUT to
 // register, POST to invoke) using its own signing-key auth — it carries no
@@ -16,5 +17,5 @@ export const maxDuration = 300
 
 export const { GET, POST, PUT } = serve({
   client: inngest,
-  functions: [runPipeline, scheduledPipelineDispatcher, sendWeeklyReport],
+  functions: [runPipeline, scheduledPipelineDispatcher, sendWeeklyReport, ownedSnapshotsDaily],
 })

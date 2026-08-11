@@ -11,6 +11,8 @@ import { runCrossReference } from '@/lib/pipeline/cross-reference'
 import { loadBrandClaims } from '@/lib/pipeline/claims'
 import { attributeRunKeywords } from '@/lib/pipeline/keyword-attribution'
 import { planClassifyMetaBatches, runClassifyMetaBatch } from '@/lib/pipeline/classify-meta'
+import { ingestOwnedPosts } from '@/lib/gather/owned'
+import { runStep2c } from '@/lib/pipeline/owned-events'
 import { persistThemes, loadThemes } from '@/lib/pipeline/themes'
 import { writeRunSummary } from '@/lib/pipeline/run-summary'
 import { computeMetrics } from '@/lib/pipeline/metrics'
@@ -117,6 +119,29 @@ export const runPipeline = inngest.createFunction(
         )
     const gatherPlatforms = [...new Set(plan.map((t) => t.platform))]
 
+    // Owned layer inputs (Wave 2): the client's own handles + the report
+    // window start for scoping which own posts earn a comment scrape.
+    // Analysis-only resumes skip gather AND owned ingestion together.
+    const ownedPlan = plan.length
+      ? await step
+          .run('plan-owned', async () => {
+            const admin = createAdminClient()
+            const { data } = await admin
+              .from('tracking_configs')
+              .select('own_handles, report_period')
+              .eq('client_id', clientId)
+              .maybeSingle()
+            const period = (data?.report_period as string | null) ?? 'weekly'
+            const window = await resolveGatherWindow(clientId, runId, period)
+            return {
+              handles: (data?.own_handles ?? {}) as Record<string, string>,
+              windowStart: window.since,
+            }
+          })
+          .catch(() => ({ handles: {} as Record<string, string>, windowStart: null as string | null }))
+      : { handles: {} as Record<string, string>, windowStart: null as string | null }
+    const ownedHandles = ownedPlan.handles
+
     // 3. Gather, fanned out: per-keyword search steps → one gate step per
     //    platform (merge + relevance/attribution + video upsert) → comment
     //    scrapes in batches of COMMENT_BATCH (each video is its own Apify actor
@@ -210,6 +235,31 @@ export const runPipeline = inngest.createFunction(
             }
           } catch {
             totalErrors++
+          }
+        }
+
+        // Owned layer (Wave 2): the client's own recent posts + their comments,
+        // stamped source:'owned' — feeds Step 2c, never the discovered-corpus
+        // metrics (SoV guard). Non-fatal: catch on the step promise.
+        if (ownedHandles[platform]) {
+          const ownedRefs = await step
+            .run(`owned-posts:${platform}`, () =>
+              ingestOwnedPosts({ clientId, runId, platform, handle: ownedHandles[platform], windowStart: ownedPlan.windowStart }),
+            )
+            .catch((e) => {
+              console.error(`[owned-posts:${platform}] out of retries: ${e instanceof Error ? e.message : String(e)}`)
+              totalErrors++
+              return [] as { video_id: string; video_url: string; comments_count: number }[]
+            })
+          for (let w = 0; w < ownedRefs.length; w += COMMENT_BATCH) {
+            await step
+              .run(`owned-comments:${platform}:${Math.floor(w / COMMENT_BATCH) + 1}`, () =>
+                scrapeCommentsBatch({ clientId, runId, platform: platform as Platform, refs: ownedRefs.slice(w, w + COMMENT_BATCH), source: 'owned' }),
+              )
+              .catch(() => {
+                totalErrors++
+                return { comments: 0, errors: ['owned comment scrape failed'] }
+              })
           }
         }
       } catch {
@@ -381,6 +431,17 @@ export const runPipeline = inngest.createFunction(
       ...themed.summary,
       newThemes: persisted.hadPreviousRun ? persisted.firstSeen : 0,
     }
+
+    // Step 2c — account-event detection + explanation on the owned layer
+    // (Wave 2: first pipeline wiring; previously script-only). After themes so
+    // explanations can ground in this run's theme set. Non-fatal.
+    await step
+      .run('owned-events', () => runStep2c({ clientId, runId }))
+      .catch((e) => {
+        console.error(`[owned-events] out of retries: ${e instanceof Error ? e.message : String(e)}`)
+        totalErrors++
+        return null
+      })
 
     const synth = await step.run('synthesize', () => runSynthesisHalf(clientId, runId))
 
