@@ -26,7 +26,7 @@ function OwnAccountsCard({ handles }: { handles: Record<string, string> }) {
         {entries.map(([platform, handle]) => (
           <span key={platform} className="inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-sm">
             <span className="font-medium">{PLATFORM_LABEL[platform] ?? platform}</span>
-            {!handle.startsWith('UC') && <span className="text-muted-foreground">@{handle}</span>}
+            {platform !== 'youtube' && <span className="text-muted-foreground">@{handle}</span>}
           </span>
         ))}
       </CardContent>

@@ -1,7 +1,7 @@
 import { runActor } from './apify'
 import { createAdminClient } from '../supabase-admin'
 import { APIFY_ACTORS, COMMENT_THRESHOLD } from '../config'
-import type { GatherConfig, RawItem, VideoInsert } from './types'
+import type { RawItem, VideoInsert } from './types'
 import { getPath, first, num, str } from './util'
 
 // Owned-account scrape interim (Wave 2, 2026-08-11). Official platform APIs
@@ -50,29 +50,6 @@ export function acceptSnapshot(
     if (step > 0.2) return { ok: false, reason: `jump-${(step * 100).toFixed(0)}pct` }
   }
   return { ok: true }
-}
-
-/**
- * Week-over-week follower delta from a daily (or sparser) series: latest
- * point vs the newest point at least ~6.5 days older. Daily deltas must NOT
- * feed the event floor (1.5% per WEEK) — at daily cadence that floor would
- * be nonsense. Returns null until the series is deep enough.
- */
-export function weekOverWeekDelta(
-  rows: { snapshot_date: string; followers: number }[],
-): { pct: number; vsDate: string } | null {
-  if (rows.length < 2) return null
-  const sorted = [...rows].sort((a, b) => a.snapshot_date.localeCompare(b.snapshot_date))
-  const latest = sorted[sorted.length - 1]
-  const latestT = Date.parse(latest.snapshot_date)
-  const anchor = [...sorted]
-    .reverse()
-    .find((r) => latestT - Date.parse(r.snapshot_date) >= 6.5 * 86_400_000)
-  if (!anchor || anchor.followers <= 0) return null
-  return {
-    pct: ((latest.followers - anchor.followers) / anchor.followers) * 100,
-    vsDate: anchor.snapshot_date,
-  }
 }
 
 /**
@@ -277,13 +254,6 @@ export async function fetchOwnProfile(
   throw new Error(`no own-profile fetcher for platform: ${platform}`)
 }
 
-/** Platforms the owned layer supports, intersected with the tenant's config. */
-export function ownedPlatforms(config: GatherConfig): { platform: string; handle: string }[] {
-  return Object.entries(config.own_handles)
-    .filter(([platform, handle]) => handle && ['instagram', 'tiktok', 'youtube'].includes(platform))
-    .map(([platform, handle]) => ({ platform, handle }))
-}
-
 /** Own posts new/fresh enough to be worth a paid comment scrape this run:
  *  in the report window (or undated), above the comment threshold. Pure. */
 export function ownedCommentRefs(
@@ -319,7 +289,21 @@ export async function ingestOwnedPosts(opts: {
   })
   if (profile.recentPosts.length) {
     const admin = createAdminClient()
-    const rows = profile.recentPosts.map((p) => ({ ...p, source: 'owned' as const }))
+    // A client post the keyword gather ALREADY discovered stays 'discovered' —
+    // it has been part of the SoV series since it was found, and flipping it
+    // out would fake a share decline (metric continuity beats layer purity).
+    // Only posts new to us get source:'owned'.
+    const { data: existing, error: exErr } = await admin
+      .from('videos')
+      .select('video_id')
+      .eq('client_id', opts.clientId)
+      .eq('platform', opts.platform)
+      .in('video_id', profile.recentPosts.map((p) => p.video_id))
+    if (exErr) throw new Error(`owned posts existing check (${opts.platform}): ${exErr.message}`)
+    const known = new Set((existing ?? []).map((r) => r.video_id as string))
+    const rows = profile.recentPosts.map((p) =>
+      known.has(p.video_id) ? p : { ...p, source: 'owned' as const },
+    )
     const { error } = await admin
       .from('videos')
       .upsert(rows, { onConflict: 'client_id,platform,video_id' })

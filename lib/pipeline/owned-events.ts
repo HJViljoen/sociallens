@@ -1,5 +1,5 @@
 import { zodResponseFormat } from 'openai/helpers/zod'
-import { createAdminClient } from '../supabase-admin'
+import { createAdminClient, selectAll } from '../supabase-admin'
 import { openai, samplingParams } from '../openai'
 import { SYNTHESIS_MODEL, estimateCost } from '../config'
 import { Step2cSchema, type Step2cOutput } from './schemas'
@@ -51,6 +51,10 @@ export interface OwnedVideoRow {
   views: number | null
   likes: number | null
   comments_count: number | null
+  /** The post's actual date. Preferred over run dating — owned ingestion
+   *  restamps run_id on every weekly refresh, so run dating would re-date
+   *  months-old posts "this window" and re-fire their events forever. */
+  upload_date: string | null
 }
 
 export interface DetectedEvent {
@@ -176,7 +180,7 @@ export function detectAccountEvents(args: {
   // ---- post-performance events, per platform ----
   const engagement = (v: OwnedVideoRow) => (Number(v.likes) || 0) + (Number(v.comments_count) || 0)
   const dated = ownedVideos
-    .map((v) => ({ v, date: v.run_id ? runDates.get(v.run_id) ?? null : null }))
+    .map((v) => ({ v, date: v.upload_date ?? (v.run_id ? runDates.get(v.run_id) ?? null : null) }))
     .filter((x): x is { v: OwnedVideoRow; date: string } => x.date != null)
   for (const platform of new Set(dated.map((x) => x.v.platform))) {
     const mine = dated.filter((x) => x.v.platform === platform)
@@ -316,12 +320,17 @@ export async function runStep2c(args: {
     .order('completed_at', { ascending: false }).limit(1).maybeSingle()
   const windowStart = (prevRun?.completed_at as string | undefined) ?? null
 
-  const [{ data: snapRows }, { data: ownedRows }, { data: runRows }] = await Promise.all([
-    admin.from('account_snapshots')
-      .select('platform, snapshot_date, followers')
-      .eq('client_id', clientId).order('snapshot_date', { ascending: true }),
+  // selectAll: daily snapshots cross PostgREST's 1000-row cap in ~11 months
+  // (3 platforms × 365 days) — a bare select would silently drop the NEWEST
+  // rows and detection would die mutely.
+  const [snapRows, { data: ownedRows }, { data: runRows }] = await Promise.all([
+    selectAll<SnapshotRow>(() =>
+      admin.from('account_snapshots')
+        .select('platform, snapshot_date, followers')
+        .eq('client_id', clientId).order('snapshot_date', { ascending: true }).order('platform', { ascending: true }),
+    ),
     admin.from('videos')
-      .select('id, run_id, platform, caption, views, likes, comments_count')
+      .select('id, run_id, platform, caption, views, likes, comments_count, upload_date')
       .eq('client_id', clientId).eq('source', 'owned'),
     admin.from('pipeline_runs')
       .select('id, started_at, completed_at')
@@ -333,7 +342,7 @@ export async function runStep2c(args: {
   )
 
   const detected = detectAccountEvents({
-    snapshots: (snapRows ?? []) as SnapshotRow[],
+    snapshots: snapRows,
     ownedVideos: (ownedRows ?? []) as OwnedVideoRow[],
     runDates,
     windowStart,

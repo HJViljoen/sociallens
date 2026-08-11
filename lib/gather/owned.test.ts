@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { acceptSnapshot, followerFloorPct, weekOverWeekDelta } from './owned'
+import { acceptSnapshot, followerFloorPct } from './owned'
 
 describe('acceptSnapshot', () => {
   it('rejects null/zero glitch reads', () => {
@@ -16,33 +16,6 @@ describe('acceptSnapshot', () => {
 
   it('accepts any positive first reading (no prior)', () => {
     expect(acceptSnapshot(null, 12500)).toEqual({ ok: true })
-  })
-})
-
-describe('weekOverWeekDelta', () => {
-  const row = (d: string, f: number) => ({ snapshot_date: d, followers: f })
-
-  it('pairs the latest point with the newest point ≥~7 days older, not yesterday', () => {
-    const rows = [
-      row('2026-08-01', 60000),
-      row('2026-08-04', 60500), // 7 days before latest — the anchor
-      row('2026-08-10', 61200),
-      row('2026-08-11', 61234),
-    ]
-    const d = weekOverWeekDelta(rows)
-    expect(d?.vsDate).toBe('2026-08-04')
-    expect(d?.pct).toBeCloseTo(((61234 - 60500) / 60500) * 100, 5)
-  })
-
-  it('returns null when the series is too shallow for a weekly comparison', () => {
-    expect(weekOverWeekDelta([row('2026-08-10', 61200), row('2026-08-11', 61234)])).toBeNull()
-    expect(weekOverWeekDelta([row('2026-08-11', 61234)])).toBeNull()
-  })
-
-  it('works on a sparse weekly series (exactly 7 days apart)', () => {
-    const d = weekOverWeekDelta([row('2026-08-02', 60000), row('2026-08-09', 61200)])
-    expect(d?.vsDate).toBe('2026-08-02')
-    expect(d?.pct).toBeCloseTo(2, 1)
   })
 })
 

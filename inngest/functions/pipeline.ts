@@ -534,8 +534,10 @@ const THEMES_PARALLEL = 2
 // avoidance as everywhere else.
 async function planPassABatches(clientId: string): Promise<string[][]> {
   const admin = createAdminClient()
+  // Discovered corpus only — owned posts must never enter Pass A (their fans'
+  // comments would contaminate audience themes; Step 2c is their consumer).
   const videos = await selectAll<{ id: string; platform: string; video_id: string }>(() =>
-    admin.from('videos').select('id, platform, video_id').eq('client_id', clientId).order('id', { ascending: true }),
+    admin.from('videos').select('id, platform, video_id').eq('client_id', clientId).eq('source', 'discovered').order('id', { ascending: true }),
   )
   const counts = new Map<string, number>()
   const comments = await selectAll<{ platform: string; video_id: string }>(() =>

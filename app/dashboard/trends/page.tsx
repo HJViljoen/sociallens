@@ -95,7 +95,7 @@ export default async function TrendsPage() {
   // Auth + tenant via the RLS-enforced session client. See lib/auth.ts.
   const { supabase, clientId } = await getSessionContext()
 
-  const [{ data: client }, summariesRaw, themesRaw, { data: snapData }, { data: eventData }, { data: newsData }] = await Promise.all([
+  const [{ data: client }, summariesRaw, themesRaw, snapData, { data: eventData }, { data: newsData }] = await Promise.all([
     supabase.from('clients').select('company_name').eq('id', clientId).maybeSingle(),
     selectAll<RunSummary>(() =>
       supabase.from('run_summary')
@@ -107,9 +107,13 @@ export default async function TrendsPage() {
         .select('run_id, label, category, bucket, strength_score, evidence_count, first_seen')
         .eq('client_id', clientId).order('run_id', { ascending: true }),
     ),
-    supabase.from('account_snapshots')
-      .select('platform, snapshot_date, followers')
-      .eq('client_id', clientId).order('snapshot_date', { ascending: true }),
+    // selectAll: daily snapshots (3 platforms) cross the 1000-row cap in
+    // ~11 months — a bare select would freeze the charts at the cap.
+    selectAll<{ platform: string; snapshot_date: string; followers: number | null }>(() =>
+      supabase.from('account_snapshots')
+        .select('platform, snapshot_date, followers')
+        .eq('client_id', clientId).order('snapshot_date', { ascending: true }).order('platform', { ascending: true }),
+    ),
     supabase.from('account_events')
       .select('platform, metric, event_date, direction, severity, magnitude_label, explained, explanation, supporting_theme_labels, hero_quote')
       .eq('client_id', clientId).order('event_date', { ascending: false }),
@@ -232,7 +236,7 @@ export default async function TrendsPage() {
   // Numbers come from account_snapshots; events from Step 2c (code measures,
   // one AI pass explains — or honestly doesn't). The section self-gates on
   // owned data existing, so tenants without connected accounts never see it.
-  const snapshots = ((snapData ?? []) as SnapshotRow[]).filter((s) => s.followers != null)
+  const snapshots = (snapData as SnapshotRow[]).filter((s) => s.followers != null)
   const accountEvents = (eventData ?? []) as AccountEventRow[]
   const snapsByPlatform = new Map<string, SnapshotRow[]>()
   for (const s of snapshots) {

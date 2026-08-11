@@ -72,11 +72,26 @@ export const ownedSnapshotsDaily = inngest.createFunction(
             if (error) throw new Error(`snapshot upsert: ${error.message}`)
             return { wrote: true as const }
           })
-          .catch((e) => ({
-            wrote: false as const,
-            reason: e instanceof Error ? e.message : String(e),
-            lastDate: undefined as string | undefined,
-          }))
+          .catch(async (e) => {
+            // A hard failure (out of retries) must not fake ">2 days stale" —
+            // look up when the last accepted snapshot actually landed.
+            let lastDate: string | undefined
+            try {
+              const admin = createAdminClient()
+              const { data } = await admin
+                .from('account_snapshots')
+                .select('snapshot_date')
+                .eq('client_id', clientId).eq('platform', platform)
+                .order('snapshot_date', { ascending: false })
+                .limit(1).maybeSingle()
+              lastDate = (data?.snapshot_date as string | undefined) ?? undefined
+            } catch { /* leave undefined — alert errs loud, not silent */ }
+            return {
+              wrote: false as const,
+              reason: e instanceof Error ? e.message : String(e),
+              lastDate,
+            }
+          })
 
         if (result.wrote) written++
         else {
