@@ -1,6 +1,38 @@
+import { AtSign } from 'lucide-react'
 import { getSessionContext, canManageTenant } from '@/lib/auth'
-import { Card, CardContent } from '@/components/ui/card'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { SettingsForm, type TrackingConfig } from './settings-form'
+
+const PLATFORM_LABEL: Record<string, string> = { tiktok: 'TikTok', youtube: 'YouTube', instagram: 'Instagram' }
+
+/** Read-only "your connected accounts" card (own_handles is operator-set —
+ *  facts, not knobs). YouTube stores a channel ID, not a readable handle, so
+ *  it shows as the platform name alone. */
+function OwnAccountsCard({ handles }: { handles: Record<string, string> }) {
+  const entries = Object.entries(handles).filter(([, v]) => v)
+  if (entries.length === 0) return null
+  return (
+    <Card>
+      <CardHeader className="pb-3">
+        <CardTitle className="flex items-center gap-2 text-base">
+          <AtSign className="size-4 text-primary" aria-hidden /> Your accounts
+        </CardTitle>
+        <p className="text-xs text-muted-foreground">
+          The public profiles we follow for your own posting and audience — measured from what the
+          platforms show publicly.
+        </p>
+      </CardHeader>
+      <CardContent className="flex flex-wrap gap-2">
+        {entries.map(([platform, handle]) => (
+          <span key={platform} className="inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-sm">
+            <span className="font-medium">{PLATFORM_LABEL[platform] ?? platform}</span>
+            {platform !== 'youtube' && <span className="text-muted-foreground">@{handle}</span>}
+          </span>
+        ))}
+      </CardContent>
+    </Card>
+  )
+}
 
 // Settings — edit the client's tracking_configs (what gather scrapes + report
 // schedule). Owners/admins can save; members get a read-only form. Authorization
@@ -34,7 +66,10 @@ export default async function SettingsPage() {
           No tracking config for this client — gather has nothing to scrape until this is set.
         </CardContent></Card>
       ) : (
-        <SettingsForm cfg={c} canEdit={canEdit} />
+        <>
+          <OwnAccountsCard handles={(c as TrackingConfig & { own_handles?: Record<string, string> }).own_handles ?? {}} />
+          <SettingsForm cfg={c} canEdit={canEdit} />
+        </>
       )}
     </div>
   )

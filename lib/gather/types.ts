@@ -15,6 +15,9 @@ export interface GatherConfig {
   max_videos: number
   comment_depth: number
   report_period: string // 'daily' | 'weekly' | 'monthly'
+  /** Client's own public profiles per platform (YouTube value = channel ID).
+   *  Empty = owned layer off for this tenant. */
+  own_handles: Record<string, string>
 }
 
 /** A row ready to upsert into `videos`. Only gather-owned columns — Pass A

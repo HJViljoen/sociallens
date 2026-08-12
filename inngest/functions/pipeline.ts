@@ -11,6 +11,9 @@ import { runCrossReference } from '@/lib/pipeline/cross-reference'
 import { loadBrandClaims } from '@/lib/pipeline/claims'
 import { attributeRunKeywords } from '@/lib/pipeline/keyword-attribution'
 import { planClassifyMetaBatches, runClassifyMetaBatch } from '@/lib/pipeline/classify-meta'
+import { ingestOwnedPosts } from '@/lib/gather/owned'
+import { runStep2c } from '@/lib/pipeline/owned-events'
+import { persistRunNews } from '@/lib/news/persist'
 import { persistThemes, loadThemes } from '@/lib/pipeline/themes'
 import { writeRunSummary } from '@/lib/pipeline/run-summary'
 import { computeMetrics } from '@/lib/pipeline/metrics'
@@ -108,6 +111,18 @@ export const runPipeline = inngest.createFunction(
       return id
     })
 
+    // News context layer (Wave 2): free RSS fetch + ring-assign + store for
+    // the Trends panel. Zero corpus dependency, so it runs right after
+    // open-run. Non-fatal AND uncounted: a context-feed hiccup neither fails
+    // the run nor marks the intelligence 'partial' — the panel just stays on
+    // last week's items.
+    await step
+      .run('gather-news', () => persistRunNews(clientId, runId))
+      .catch((e) => {
+        console.error(`[gather-news] out of retries: ${e instanceof Error ? e.message : String(e)}`)
+        return { fetched: 0, stored: 0 }
+      })
+
     // 2. Plan the gather fan-out: one task per platform × keyword. An
     //    analysis-only resume skips gather — the corpus is already in the DB.
     const plan = options.skipGather
@@ -116,6 +131,29 @@ export const runPipeline = inngest.createFunction(
           planGatherSearches(clientId, options.platforms?.length ? options.platforms : undefined),
         )
     const gatherPlatforms = [...new Set(plan.map((t) => t.platform))]
+
+    // Owned layer inputs (Wave 2): the client's own handles + the report
+    // window start for scoping which own posts earn a comment scrape.
+    // Analysis-only resumes skip gather AND owned ingestion together.
+    const ownedPlan = plan.length
+      ? await step
+          .run('plan-owned', async () => {
+            const admin = createAdminClient()
+            const { data } = await admin
+              .from('tracking_configs')
+              .select('own_handles, report_period')
+              .eq('client_id', clientId)
+              .maybeSingle()
+            const period = (data?.report_period as string | null) ?? 'weekly'
+            const window = await resolveGatherWindow(clientId, runId, period)
+            return {
+              handles: (data?.own_handles ?? {}) as Record<string, string>,
+              windowStart: window.since,
+            }
+          })
+          .catch(() => ({ handles: {} as Record<string, string>, windowStart: null as string | null }))
+      : { handles: {} as Record<string, string>, windowStart: null as string | null }
+    const ownedHandles = ownedPlan.handles
 
     // 3. Gather, fanned out: per-keyword search steps → one gate step per
     //    platform (merge + relevance/attribution + video upsert) → comment
@@ -210,6 +248,31 @@ export const runPipeline = inngest.createFunction(
             }
           } catch {
             totalErrors++
+          }
+        }
+
+        // Owned layer (Wave 2): the client's own recent posts + their comments,
+        // stamped source:'owned' — feeds Step 2c, never the discovered-corpus
+        // metrics (SoV guard). Non-fatal: catch on the step promise.
+        if (ownedHandles[platform]) {
+          const ownedRefs = await step
+            .run(`owned-posts:${platform}`, () =>
+              ingestOwnedPosts({ clientId, runId, platform, handle: ownedHandles[platform], windowStart: ownedPlan.windowStart }),
+            )
+            .catch((e) => {
+              console.error(`[owned-posts:${platform}] out of retries: ${e instanceof Error ? e.message : String(e)}`)
+              totalErrors++
+              return [] as { video_id: string; video_url: string; comments_count: number }[]
+            })
+          for (let w = 0; w < ownedRefs.length; w += COMMENT_BATCH) {
+            await step
+              .run(`owned-comments:${platform}:${Math.floor(w / COMMENT_BATCH) + 1}`, () =>
+                scrapeCommentsBatch({ clientId, runId, platform: platform as Platform, refs: ownedRefs.slice(w, w + COMMENT_BATCH), source: 'owned' }),
+              )
+              .catch(() => {
+                totalErrors++
+                return { comments: 0, errors: ['owned comment scrape failed'] }
+              })
           }
         }
       } catch {
@@ -382,6 +445,17 @@ export const runPipeline = inngest.createFunction(
       newThemes: persisted.hadPreviousRun ? persisted.firstSeen : 0,
     }
 
+    // Step 2c — account-event detection + explanation on the owned layer
+    // (Wave 2: first pipeline wiring; previously script-only). After themes so
+    // explanations can ground in this run's theme set. Non-fatal.
+    await step
+      .run('owned-events', () => runStep2c({ clientId, runId }))
+      .catch((e) => {
+        console.error(`[owned-events] out of retries: ${e instanceof Error ? e.message : String(e)}`)
+        totalErrors++
+        return null
+      })
+
     const synth = await step.run('synthesize', () => runSynthesisHalf(clientId, runId))
 
     // Keyword ROI bookkeeping — fills keyword_performance.insights_contributed
@@ -460,8 +534,10 @@ const THEMES_PARALLEL = 2
 // avoidance as everywhere else.
 async function planPassABatches(clientId: string): Promise<string[][]> {
   const admin = createAdminClient()
+  // Discovered corpus only — owned posts must never enter Pass A (their fans'
+  // comments would contaminate audience themes; Step 2c is their consumer).
   const videos = await selectAll<{ id: string; platform: string; video_id: string }>(() =>
-    admin.from('videos').select('id, platform, video_id').eq('client_id', clientId).order('id', { ascending: true }),
+    admin.from('videos').select('id, platform, video_id').eq('client_id', clientId).eq('source', 'discovered').order('id', { ascending: true }),
   )
   const counts = new Map<string, number>()
   const comments = await selectAll<{ platform: string; video_id: string }>(() =>
