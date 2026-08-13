@@ -232,6 +232,27 @@
   font-family: var(--font-newsreader), Georgia, serif;
 }
 
+/* One easing curve for the whole marketing surface (DESIGN.md): a strong
+   ease-out. Tailwind's default `transition` curve is ease-in-out, which reads
+   soft on press; this is applied via `ease-site` wherever motion is used. */
+.site-theme .ease-site,
+.ease-site {
+  transition-timing-function: cubic-bezier(0.23, 1, 0.32, 1);
+}
+
+/* Focus: one language across the page. The UA's auto-outline is invisible on
+   the deep-green fill, so every interactive element gets the same ring. */
+.site-theme a:focus-visible,
+.site-theme button:focus-visible,
+.site-theme input:focus-visible,
+.site-theme textarea:focus-visible {
+  outline: none;
+  box-shadow:
+    0 0 0 2px var(--background),
+    0 0 0 4px var(--ring);
+  border-radius: var(--radius-md);
+}
+
 /* The researcher's highlighter — the signature element. Functional only:
    marks the phrase that matters. box-decoration-break keeps the sweep intact
    across line wraps. */

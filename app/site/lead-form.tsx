@@ -6,7 +6,7 @@ import { submitLead, type LeadState } from './actions'
 const idle: LeadState = { status: 'idle', message: '' }
 
 const inputClass =
-  'w-full rounded-lg border border-input bg-white/70 px-3.5 py-2.5 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:border-transparent transition'
+  'w-full rounded-lg border border-input bg-white/70 px-3.5 py-3 text-sm text-foreground transition focus:border-transparent focus:outline-none focus:ring-2 focus:ring-ring'
 
 export function LeadForm() {
   const [state, formAction, pending] = useActionState(submitLead, idle)
@@ -34,32 +34,72 @@ export function LeadForm() {
 
       <div className="grid gap-4 sm:grid-cols-2">
         <div>
-          <label className="mb-1.5 block text-sm font-medium">Name</label>
-          <input type="text" name="name" required disabled={pending} className={inputClass} />
+          <label htmlFor="lead-name" className="mb-1.5 block text-sm font-medium">
+            Name
+          </label>
+          <input
+            id="lead-name"
+            type="text"
+            name="name"
+            autoComplete="name"
+            required
+            disabled={pending}
+            className={inputClass}
+          />
         </div>
         <div>
-          <label className="mb-1.5 block text-sm font-medium">Work email</label>
-          <input type="email" name="email" required disabled={pending} className={inputClass} />
+          <label htmlFor="lead-email" className="mb-1.5 block text-sm font-medium">
+            Work email
+          </label>
+          <input
+            id="lead-email"
+            type="email"
+            name="email"
+            autoComplete="email"
+            required
+            disabled={pending}
+            className={inputClass}
+          />
         </div>
       </div>
       <div>
-        <label className="mb-1.5 block text-sm font-medium">Brand</label>
-        <input type="text" name="company" required disabled={pending} className={inputClass} />
+        <label htmlFor="lead-company" className="mb-1.5 block text-sm font-medium">
+          Brand
+        </label>
+        <input
+          id="lead-company"
+          type="text"
+          name="company"
+          autoComplete="organization"
+          required
+          disabled={pending}
+          className={inputClass}
+        />
       </div>
       <div>
-        <label className="mb-1.5 block text-sm font-medium">
+        <label htmlFor="lead-interest" className="mb-1.5 block text-sm font-medium">
           What would you want to know about your market?{' '}
           <span className="font-normal text-muted-foreground">(optional)</span>
         </label>
-        <textarea name="interest" rows={3} disabled={pending} className={inputClass} />
+        <textarea
+          id="lead-interest"
+          name="interest"
+          rows={3}
+          disabled={pending}
+          className={inputClass}
+        />
       </div>
 
-      {state.message && <p className="text-sm text-destructive">{state.message}</p>}
+      {/* Announced to assistive tech, and sits directly above the control that
+          triggered it. */}
+      <p role="alert" aria-live="polite" className="text-sm text-destructive empty:hidden">
+        {state.message}
+      </p>
 
       <button
         type="submit"
         disabled={pending}
-        className="w-full rounded-lg bg-primary py-2.5 text-sm font-semibold text-primary-foreground transition duration-200 hover:brightness-110 active:scale-[0.98] disabled:opacity-50"
+        className="w-full cursor-pointer rounded-lg bg-primary py-3 text-sm font-semibold text-primary-foreground transition duration-200 ease-site hover:brightness-110 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background active:scale-[0.98] disabled:opacity-50"
       >
         {pending ? 'Sending…' : 'Request early access'}
       </button>
