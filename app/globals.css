@@ -199,3 +199,64 @@
   -webkit-mask-image: linear-gradient(to bottom, transparent 0%, rgba(0, 0, 0, 0.35) 8%, #000 34%, #000 100%);
   mask-image: linear-gradient(to bottom, transparent 0%, rgba(0, 0, 0, 0.35) 8%, #000 34%, #000 100%);
 }
+
+/* Marketing-site variant: same artwork, but alive — crowd-live.svg carries its
+   own internal animations (per-figure sway/bob, drifting speech bubbles). Kept
+   as a separate asset so the app shell stays still. */
+.crowd-bg--live {
+  background-image: url("/crowd-live.svg");
+  opacity: 0.18;
+}
+
+/* ── Marketing theme (see DESIGN.md, "Annotated transcript") ─────────────────
+   Scoped token overrides for app/site/*: sage-cast paper + green-black ink,
+   Newsreader display, marker-yellow highlight. The app keeps the 2026-07 cream
+   tokens; migrating it toward DESIGN.md is a future explicit decision. */
+.site-theme {
+  --background: #F1F2EC;
+  --foreground: #0D2117;
+  --card: #F8F8F3;
+  --card-foreground: #0D2117;
+  --muted: #E6E8DF;
+  --muted-foreground: #5C685C;
+  --border: #DDE0D3;
+  --input: #D3D7C8;
+  --marker: #F7D046;
+  --pine: #0B2E20;
+}
+
+/* The @theme-inline `font-heading` utility compiles to var(--font-jakarta)
+   directly, so a variable override can't retarget it — this unlayered rule
+   outranks the layered utility and gives marketing its Newsreader display. */
+.site-theme .font-heading {
+  font-family: var(--font-newsreader), Georgia, serif;
+}
+
+/* The researcher's highlighter — the signature element. Functional only:
+   marks the phrase that matters. box-decoration-break keeps the sweep intact
+   across line wraps. */
+.marker {
+  background-image: linear-gradient(
+    100deg,
+    color-mix(in oklab, var(--marker) 92%, transparent),
+    color-mix(in oklab, var(--marker) 68%, transparent)
+  );
+  background-repeat: no-repeat;
+  background-size: 100% 0.55em;
+  background-position: 0 82%;
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
+  padding: 0 0.08em;
+  margin: 0 -0.08em;
+}
+/* Hero variant draws itself in after the text settles — the page's single
+   orchestrated moment (with the staggered reveal it caps). */
+@media (prefers-reduced-motion: no-preference) {
+  .marker--draw {
+    animation: marker-draw 0.6s cubic-bezier(0.23, 1, 0.32, 1) 1.15s both;
+  }
+}
+@keyframes marker-draw {
+  from { background-size: 0% 0.55em; }
+  to { background-size: 100% 0.55em; }
+}

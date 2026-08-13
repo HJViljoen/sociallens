@@ -2,6 +2,49 @@ import { createServerClient } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
 
 export async function proxy(request: NextRequest) {
+  // Static assets (crowd.svg, favicon.ico, …) are never auth-gated or
+  // rewritten, on any host. Without this, an unauthenticated request for a
+  // public/ file 307s to /login — which silently broke the crowd artwork on
+  // the login page itself.
+  if (/\.[^/]+$/.test(request.nextUrl.pathname)) {
+    return NextResponse.next()
+  }
+
+  // ── Marketing site (apex domain) ─────────────────────────────────────────
+  // verbatimintel.com serves the public marketing pages (app/site/*) and never
+  // touches Supabase; the product lives on app.verbatimintel.com. Host-based
+  // rewrite keeps both in one project sharing one design system.
+  const host = (request.headers.get('host') ?? '').toLowerCase()
+  const isMarketingHost = host === 'verbatimintel.com' || host === 'www.verbatimintel.com'
+  if (isMarketingHost) {
+    const url = request.nextUrl.clone()
+    url.port = ''
+    // Canonical host: www → apex.
+    if (host === 'www.verbatimintel.com') {
+      url.host = 'verbatimintel.com'
+      return NextResponse.redirect(url, 308)
+    }
+    // Old apex links to app paths (the apex used to 307 to the app) keep working.
+    const appPaths = ['/login', '/signup', '/invite', '/dashboard', '/onboarding']
+    if (appPaths.some((p) => url.pathname.startsWith(p))) {
+      url.host = 'app.verbatimintel.com'
+      return NextResponse.redirect(url, 308)
+    }
+    if (!url.pathname.startsWith('/site')) {
+      url.pathname = url.pathname === '/' ? '/site' : `/site${url.pathname}`
+      return NextResponse.rewrite(url)
+    }
+    return NextResponse.next()
+  }
+  // The app host never serves the marketing pages under their internal path.
+  if (host === 'app.verbatimintel.com' && request.nextUrl.pathname.startsWith('/site')) {
+    const url = request.nextUrl.clone()
+    url.host = 'verbatimintel.com'
+    url.port = ''
+    url.pathname = request.nextUrl.pathname.replace(/^\/site/, '') || '/'
+    return NextResponse.redirect(url, 308)
+  }
+
   let supabaseResponse = NextResponse.next({ request })
 
   const supabase = createServerClient(
@@ -33,7 +76,10 @@ export async function proxy(request: NextRequest) {
   const isPublic =
     pathname.startsWith('/login') ||
     pathname.startsWith('/signup') ||
-    pathname.startsWith('/invite')
+    pathname.startsWith('/invite') ||
+    // Marketing pages need no session — reachable directly in local dev, where
+    // the host isn't the apex and the rewrite above doesn't apply.
+    pathname.startsWith('/site')
 
   if (!user && !isPublic) {
     const url = request.nextUrl.clone()

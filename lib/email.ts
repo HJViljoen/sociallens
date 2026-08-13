@@ -81,6 +81,50 @@ export async function sendAlertEmail(subject: string, text: string): Promise<{ s
   }
 }
 
+export interface LeadEmail {
+  name: string
+  email: string
+  company: string
+  interest?: string
+}
+
+// Early-access lead from the marketing site's form. Goes to ALERT_EMAIL —
+// Heinrich is the whole sales team, and there is no business mailbox yet, so
+// operator email is the lead inbox. replyTo is set to the lead so a reply from
+// the alert inbox starts the actual conversation.
+export async function sendLeadEmail(lead: LeadEmail): Promise<{ sent: boolean }> {
+  const to = process.env.ALERT_EMAIL
+  if (!resend || !from || !to) {
+    console.log(`[email:stub] lead: ${lead.name} <${lead.email}> (${lead.company})`)
+    return { sent: false }
+  }
+  const text = [
+    `New early-access request from the marketing site.`,
+    ``,
+    `Name:    ${lead.name}`,
+    `Email:   ${lead.email}`,
+    `Company: ${lead.company}`,
+    ...(lead.interest ? [``, `What they want to know:`, lead.interest] : []),
+  ].join('\n')
+  try {
+    const { error } = await resend.emails.send({
+      from,
+      to,
+      replyTo: lead.email,
+      subject: `Verbatim lead: ${lead.company}`,
+      text,
+    })
+    if (error) {
+      console.error('[email] lead send failed:', error)
+      return { sent: false }
+    }
+    return { sent: true }
+  } catch (err) {
+    console.error('[email] lead send threw:', err)
+    return { sent: false }
+  }
+}
+
 export interface ReportEmail {
   to: string[]
   subject: string
