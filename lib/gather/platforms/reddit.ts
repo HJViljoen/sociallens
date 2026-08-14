@@ -1,6 +1,6 @@
 import type { PlatformAdapter } from '../types'
-import { APIFY_ACTORS, COMMENT_THRESHOLD, REDDIT_COMMENT_DEPTH_CAP } from '../../config'
-import { num, str, first, getPath, toDateOnly } from '../util'
+import { APIFY_ACTORS, REDDIT_COMMENT_DEPTH_CAP, passAMinComments } from '../../config'
+import { num, str, first, toDateOnly } from '../util'
 import { tagVideo } from '../tagging'
 
 // Reddit adapter (Wave 3). A subreddit post maps onto a "video" and its comment
@@ -163,12 +163,19 @@ export const reddit: PlatformAdapter = {
     }
   },
 
-  // Reddit reports commentsCount reliably (unlike YouTube), so gate like
-  // TikTok/IG: skip the comment scrape on threads under 5 comments — here that
-  // also dodges a $0.02 actor start for almost no text. COMMENT_THRESHOLD = 5.
+  // Reddit reports commentsCount reliably (unlike YouTube), so it gates like
+  // TikTok/IG — but at the PASS A FLOOR, not the global scrape threshold.
+  //
+  // These two have to agree or the lower floor is dead letter: comments that are
+  // never scraped can't be counted, so with the default threshold of 5 a 3-4
+  // comment thread would be skipped at gather and never reach the Pass A gate
+  // that was lowered to admit it. Deriving it from passAMinComments keeps them
+  // from drifting apart. Cost of the extra threads is init-dominated (~$0.026 for
+  // a 3-comment scrape) and accepted: on Reddit three real comments are three
+  // paragraphs, which is the whole reason the platform is worth having.
   //
   // NOTE: no fetchCommentCounts. The free /api/info route died with the rest of
   // the public JSON API, and on an Apify platform a count check costs the same
   // as the scrape it would save — so Reddit gets no delta re-check, by design.
-  commentThreshold: COMMENT_THRESHOLD,
+  commentThreshold: passAMinComments('reddit'),
 }

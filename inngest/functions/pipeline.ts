@@ -18,7 +18,7 @@ import { persistThemes, loadThemes } from '@/lib/pipeline/themes'
 import { writeRunSummary } from '@/lib/pipeline/run-summary'
 import { computeMetrics } from '@/lib/pipeline/metrics'
 import { sendAlertEmail } from '@/lib/email'
-import { CLUSTER_SIMILARITY_THRESHOLD, EVIDENCE_FLOOR, TRANSCRIBE_PARALLEL, transcriptsEnabled } from '@/lib/config'
+import { CLUSTER_SIMILARITY_THRESHOLD, EVIDENCE_FLOOR, TRANSCRIBE_PARALLEL, passAMinComments, transcriptsEnabled } from '@/lib/config'
 import type { Platform } from '@/lib/gather/types'
 import type { VideoRow, CommentRow } from '@/lib/pipeline/types'
 
@@ -549,9 +549,11 @@ async function planPassABatches(clientId: string): Promise<string[][]> {
     const key = `${c.platform}::${c.video_id}`
     counts.set(key, (counts.get(key) ?? 0) + 1)
   }
+  // Per-platform floor: Reddit threads run short but dense, so a single global
+  // 5 would skip most of the platform (lib/config.ts passAMinComments).
   const eligible = videos
-    .map((v) => ({ id: v.id, n: counts.get(`${v.platform}::${v.video_id}`) ?? 0 }))
-    .filter((v) => v.n >= 5)
+    .map((v) => ({ id: v.id, platform: v.platform, n: counts.get(`${v.platform}::${v.video_id}`) ?? 0 }))
+    .filter((v) => v.n >= passAMinComments(v.platform))
     .sort((a, b) => b.n - a.n)
   const batches: string[][] = []
   for (let i = 0; i < eligible.length; i += PASS_A_BATCH) {

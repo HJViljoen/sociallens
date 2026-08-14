@@ -222,6 +222,24 @@ export const REDDIT_COMMENT_DEPTH_CAP = 40
 /** Default min comments before a video is worth a comment scrape (TikTok/Instagram). */
 export const COMMENT_THRESHOLD = 5
 
+/**
+ * Min comments before a video is worth a Pass A GPT call, per platform.
+ *
+ * One global floor of 5 was tuned for TikTok/Instagram, where a thread with
+ * four comments really is noise. Reddit threads in our segment run 3–8 comments
+ * and are far denser per comment (paragraphs, not emoji), so the same floor
+ * would skip most of the platform. Falls back to 5 for anything unlisted.
+ *
+ * Applied at BOTH gates: the plan step (raw counts, inngest/functions/pipeline.ts)
+ * and runPassA itself (kept counts, after the spam filter).
+ */
+export const PASS_A_MIN_COMMENTS_BY_PLATFORM: Record<string, number> = { reddit: 3 }
+export const PASS_A_MIN_COMMENTS_DEFAULT = 5
+
+export function passAMinComments(platform: string): number {
+  return PASS_A_MIN_COMMENTS_BY_PLATFORM[platform] ?? PASS_A_MIN_COMMENTS_DEFAULT
+}
+
 // Order-of-magnitude Apify spend per platform, for RANKING keywords in
 // scripts/keyword-roi.ts — never invoicing. Apify doesn't land per-actor cost
 // in our DB (runActor returns items only), so these are coarse constants
