@@ -1,7 +1,7 @@
 import { inngest } from '@/inngest/client'
 import { createAdminClient } from '@/lib/supabase-admin'
 import { sendAlertEmail } from '@/lib/email'
-import { acceptSnapshot, fetchOwnProfile } from '@/lib/gather/owned'
+import { acceptSnapshot, fetchOwnProfile, supportsOwnedProfile } from '@/lib/gather/owned'
 
 // Daily owned-account snapshots (Wave 2, 2026-08-11). Runs at 05:30 SAST —
 // before the 06:00 pipeline dispatcher — so a scheduled run's Step 2c always
@@ -30,7 +30,16 @@ export const ownedSnapshotsDaily = inngest.createFunction(
       return ((data ?? []) as { client_id: string; own_handles: Record<string, string> }[])
         .map((r) => ({
           clientId: r.client_id,
-          handles: Object.entries(r.own_handles ?? {}).filter(([, h]) => h),
+          // Drop handles for platforms with no owned-profile concept (Reddit) —
+          // otherwise this daily cron would throw for that tenant every morning.
+          handles: Object.entries(r.own_handles ?? {}).filter(([p, h]) => {
+            if (!h) return false
+            if (!supportsOwnedProfile(p)) {
+              console.log(`[owned-snapshots] skipping ${p} for ${r.client_id}: no owned-profile concept`)
+              return false
+            }
+            return true
+          }),
         }))
         .filter((r) => r.handles.length > 0)
     })

@@ -1,5 +1,23 @@
 import { describe, expect, it } from 'vitest'
-import { acceptSnapshot, followerFloorPct } from './owned'
+import { acceptSnapshot, followerFloorPct, supportsOwnedProfile } from './owned'
+
+describe('supportsOwnedProfile', () => {
+  it('covers the three scraped platforms', () => {
+    expect(supportsOwnedProfile('instagram')).toBe(true)
+    expect(supportsOwnedProfile('tiktok')).toBe(true)
+    expect(supportsOwnedProfile('youtube')).toBe(true)
+  })
+
+  it('excludes Reddit — a subreddit is not a brand-owned account', () => {
+    // Wave 3: own_handles.reddit must be SKIPPED, not thrown. The daily
+    // snapshot cron would otherwise fail for that tenant every morning.
+    expect(supportsOwnedProfile('reddit')).toBe(false)
+  })
+
+  it('excludes unknown platforms', () => {
+    expect(supportsOwnedProfile('facebook')).toBe(false)
+  })
+})
 
 describe('acceptSnapshot', () => {
   it('rejects null/zero glitch reads', () => {

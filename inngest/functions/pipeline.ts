@@ -11,7 +11,7 @@ import { runCrossReference } from '@/lib/pipeline/cross-reference'
 import { loadBrandClaims } from '@/lib/pipeline/claims'
 import { attributeRunKeywords } from '@/lib/pipeline/keyword-attribution'
 import { planClassifyMetaBatches, runClassifyMetaBatch } from '@/lib/pipeline/classify-meta'
-import { ingestOwnedPosts } from '@/lib/gather/owned'
+import { ingestOwnedPosts, supportsOwnedProfile } from '@/lib/gather/owned'
 import { runStep2c } from '@/lib/pipeline/owned-events'
 import { persistRunNews } from '@/lib/news/persist'
 import { persistThemes, loadThemes } from '@/lib/pipeline/themes'
@@ -254,7 +254,9 @@ export const runPipeline = inngest.createFunction(
         // Owned layer (Wave 2): the client's own recent posts + their comments,
         // stamped source:'owned' — feeds Step 2c, never the discovered-corpus
         // metrics (SoV guard). Non-fatal: catch on the step promise.
-        if (ownedHandles[platform]) {
+        // supportsOwnedProfile: Reddit has no owned-account concept, so an
+        // own_handles.reddit entry is skipped rather than thrown (Wave 3).
+        if (ownedHandles[platform] && supportsOwnedProfile(platform)) {
           const ownedRefs = await step
             .run(`owned-posts:${platform}`, () =>
               ingestOwnedPosts({ clientId, runId, platform, handle: ownedHandles[platform], windowStart: ownedPlan.windowStart }),

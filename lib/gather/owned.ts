@@ -16,6 +16,21 @@ import { getPath, first, num, str } from './util'
 //       videos.list (all ~1 quota unit; subscriberCount ROUNDS to 3 sig figs)
 // Pure guards below are tested in owned.test.ts; fetchers are I/O.
 
+/** Platforms with a meaningful "the client's own account" to read.
+ *
+ *  Reddit is deliberately absent (Wave 3). A subreddit is a community, not a
+ *  brand-owned account — nobody's follower count on r/amputee belongs to Össur,
+ *  and Reddit presence is other people talking ABOUT the brand, which is the
+ *  discovered corpus by definition. So an own_handles.reddit entry is a
+ *  known-unsupported key, not an error: callers filter on this and log a skip.
+ *  fetchOwnProfile still throws for a genuinely unknown platform — that is a
+ *  programming error and should stay loud. */
+export const OWNED_PROFILE_PLATFORMS = ['tiktok', 'youtube', 'instagram'] as const
+
+export function supportsOwnedProfile(platform: string): boolean {
+  return (OWNED_PROFILE_PLATFORMS as readonly string[]).includes(platform)
+}
+
 /** One platform's profile read: the snapshot numbers + recent own posts
  *  (already shaped as VideoInsert rows, WITHOUT source — the orchestrator
  *  stamps source:'owned' + is_client:true on write). */
