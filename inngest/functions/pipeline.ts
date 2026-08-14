@@ -1,7 +1,7 @@
 import { randomUUID } from 'crypto'
 import { inngest } from '@/inngest/client'
 import { createAdminClient, selectAll } from '@/lib/supabase-admin'
-import { planGatherSearches, searchOne, gatePlatform, scrapeCommentsBatch, transcribeBatch, planTranscribeBatches, resolveGatherWindow, inWindow, type SearchResult } from '@/lib/gather/gather'
+import { planGatherSearches, searchOne, gatePlatform, scrapeCommentsBatch, transcribeBatch, planTranscribeBatches, resolveGatherWindow, inWindow, loadGatherConfig, type SearchResult } from '@/lib/gather/gather'
 import { runPassA } from '@/lib/pipeline/pass-a'
 import { loadGroupedInsights, runStepA2Bucket, type StepA2BucketResult } from '@/lib/pipeline/step-a2'
 import { runPassB } from '@/lib/pipeline/pass-b'
@@ -12,13 +12,15 @@ import { loadBrandClaims } from '@/lib/pipeline/claims'
 import { attributeRunKeywords } from '@/lib/pipeline/keyword-attribution'
 import { planClassifyMetaBatches, runClassifyMetaBatch } from '@/lib/pipeline/classify-meta'
 import { ingestOwnedPosts, supportsOwnedProfile } from '@/lib/gather/owned'
+import { discoverSubreddits } from '@/lib/gather/subreddit-discovery'
+import { activeSubreddits } from '@/lib/gather/subreddits'
 import { runStep2c } from '@/lib/pipeline/owned-events'
 import { persistRunNews } from '@/lib/news/persist'
 import { persistThemes, loadThemes } from '@/lib/pipeline/themes'
 import { writeRunSummary } from '@/lib/pipeline/run-summary'
 import { computeMetrics } from '@/lib/pipeline/metrics'
 import { sendAlertEmail } from '@/lib/email'
-import { CLUSTER_SIMILARITY_THRESHOLD, EVIDENCE_FLOOR, TRANSCRIBE_PARALLEL, passAMinComments, transcriptsEnabled } from '@/lib/config'
+import { CLUSTER_SIMILARITY_THRESHOLD, EVIDENCE_FLOOR, TRANSCRIBE_PARALLEL, passAMinComments, redditDiscoveryEnabled, transcriptsEnabled } from '@/lib/config'
 import type { Platform } from '@/lib/gather/types'
 import type { VideoRow, CommentRow } from '@/lib/pipeline/types'
 
@@ -122,6 +124,34 @@ export const runPipeline = inngest.createFunction(
         console.error(`[gather-news] out of retries: ${e instanceof Error ? e.message : String(e)}`)
         return { fetched: 0, stored: 0 }
       })
+
+    // Reddit subreddit discovery (Wave 3): propose communities, probe each
+    // against the live relevance gate, persist the survivors. Runs before
+    // plan-gather so a newly-promoted community is available to this run.
+    //
+    // Non-fatal AND uncounted, like gather-news: Reddit is a degradable
+    // platform by decision, and a failed discovery leaves the tenant's existing
+    // subreddit list untouched — nothing downstream is silently wrong, so this
+    // must not mark a run 'partial'. Skipped entirely on an analysis-only
+    // resume (no gather → nothing to discover for).
+    if (!options.skipGather && redditDiscoveryEnabled()) {
+      await step
+        .run('discover-subreddits', async () => {
+          const config = await loadGatherConfig(clientId)
+          if (!config.platforms.includes('reddit')) return { skipped: 'reddit not enabled for tenant' }
+          const merged = await discoverSubreddits({
+            clientId,
+            runId,
+            config,
+            today: new Date().toISOString().slice(0, 10),
+          })
+          return { subreddits: merged.length, active: activeSubreddits(merged).length }
+        })
+        .catch((e) => {
+          console.error(`[discover-subreddits] out of retries: ${e instanceof Error ? e.message : String(e)}`)
+          return { skipped: 'failed' }
+        })
+    }
 
     // 2. Plan the gather fan-out: one task per platform × keyword. An
     //    analysis-only resume skips gather — the corpus is already in the DB.

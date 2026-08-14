@@ -124,6 +124,12 @@ const DEFAULT_CONFIG: Omit<GatherConfig, 'platforms'> = {
   subreddits: [],
 }
 
+/** The tenant's gather config. Exported for the discovery step, which needs the
+ *  same view of tracking_configs (including subreddits) before gather planning. */
+export async function loadGatherConfig(clientId: string): Promise<GatherConfig> {
+  return loadConfig(createAdminClient(), clientId)
+}
+
 async function loadConfig(admin: Admin, clientId: string): Promise<GatherConfig> {
   const { data, error } = await admin
     .from('tracking_configs')

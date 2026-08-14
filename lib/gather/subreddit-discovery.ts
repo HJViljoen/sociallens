@@ -5,6 +5,7 @@ import { ANALYSIS_MODEL, ANALYSIS_TEMPERATURE } from '../config'
 import { logAiCall } from '../pipeline/ai-log'
 import { SubredditProposalSchema, type SubredditProposalOutput } from '../pipeline/schemas'
 import { subredditKey, knownSubreddits } from './subreddits'
+import { probeSubreddits } from './subreddit-probe'
 import type { GatherConfig, SubredditEntry } from './types'
 
 // Subreddit auto-discovery, step 1 of 2: PROPOSE.
@@ -128,4 +129,53 @@ export async function proposeSubreddits(opts: {
   })
 
   return candidates
+}
+
+/**
+ * Full discovery pass for one tenant: propose → probe → persist.
+ *
+ * Returns the tenant's subreddit list AFTER discovery. Safe to call on every
+ * run: proposals exclude everything already known, so a settled tenant proposes
+ * nothing and probes nothing, and the whole pass costs one cheap GPT call.
+ *
+ * Caller must treat this as non-fatal — Reddit is a degradable platform.
+ */
+export async function discoverSubreddits(opts: {
+  clientId: string
+  runId: string
+  config: GatherConfig
+  today: string
+}): Promise<SubredditEntry[]> {
+  const admin = createAdminClient()
+  const candidates = await proposeSubreddits(opts)
+  if (!candidates.length) {
+    console.log('[reddit] discovery: no new candidates')
+    return opts.config.subreddits
+  }
+
+  const resolved = await probeSubreddits({
+    clientId: opts.clientId,
+    runId: opts.runId,
+    config: opts.config,
+    candidates,
+    today: opts.today,
+  })
+
+  // Merge by canonical name; existing entries win over a re-proposal of the
+  // same community so a probe result is never silently downgraded.
+  const merged = [...opts.config.subreddits]
+  const known = knownSubreddits(opts.config.subreddits)
+  for (const entry of resolved) if (!known.has(entry.name)) merged.push(entry)
+
+  const { error } = await admin
+    .from('tracking_configs')
+    .update({ subreddits: merged })
+    .eq('client_id', opts.clientId)
+  if (error) throw new Error(`persist subreddits: ${error.message}`)
+
+  const active = resolved.filter((e) => e.status === 'active').map((e) => e.name)
+  console.log(
+    `[reddit] discovery: ${candidates.length} probed → ${active.length} active${active.length ? ` (${active.join(', ')})` : ''}`,
+  )
+  return merged
 }

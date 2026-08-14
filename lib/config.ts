@@ -62,6 +62,16 @@ export function transcriptsEnabled(): boolean {
   return v === '1' || v === 'true'
 }
 
+/** Reddit subreddit auto-discovery (Wave 3). OFF unless explicitly enabled, so
+ *  merging the branch cannot change any run's behaviour or spend until it is
+ *  switched on deliberately in Vercel. Note this gates DISCOVERY (the GPT
+ *  proposal + paid probes), not the adapter — a tenant with active subreddits
+ *  already in config is unaffected by this flag. */
+export function redditDiscoveryEnabled(): boolean {
+  const v = process.env.REDDIT_DISCOVERY_ENABLED
+  return v === '1' || v === 'true'
+}
+
 /** OpenAI transcription model for videos without a usable caption track. */
 export const TRANSCRIBE_MODEL = 'whisper-1'
 
