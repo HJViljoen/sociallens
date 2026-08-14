@@ -219,6 +219,26 @@ export const APIFY_ACTORS = {
  *  segment run 3–8 comments. */
 export const REDDIT_COMMENT_DEPTH_CAP = 40
 
+// --- Subreddit discovery probe (Wave 3) --------------------------------------
+// A GPT-proposed subreddit is only a candidate. Before it can be searched on
+// real runs it must survive a live sample judged by the existing relevance gate
+// — the structural answer to the Poler/Patagonia homonym lesson, where a name
+// matching a brand word proved nothing about the customers being there.
+
+/** Posts sampled per candidate. Each probe is one actor run: $0.02 start +
+ *  $0.002/post ≈ $0.044 here, so this is a spend lever. Big enough that one
+ *  off-topic post doesn't sink a good community. */
+export const SUBREDDIT_PROBE_SAMPLE = 12
+
+/** Share of the sample the relevance gate must KEEP for a candidate to go
+ *  active. Deliberately not a majority: a genuinely useful community (r/amputee)
+ *  carries plenty of off-category daily chatter around the product talk. */
+export const SUBREDDIT_PROBE_MIN_RATIO = 0.34
+
+/** …and an absolute floor, so a tiny or half-empty sample can't pass on ratio
+ *  alone (2 of 4 is 50% and proves nothing). */
+export const SUBREDDIT_PROBE_MIN_KEPT = 3
+
 /** Default min comments before a video is worth a comment scrape (TikTok/Instagram). */
 export const COMMENT_THRESHOLD = 5
 

@@ -1,8 +1,9 @@
 import { createAdminClient, selectAll } from '../supabase-admin'
-import { periodWindowDays, RECHECK_MIN_GROWTH, RECHECK_CAP, RECHECK_WINDOW_DAYS, TRANSCRIBE_CAP, TRANSCRIBE_BATCH, TRANSCRIBE_MODEL, CONTENT_GATE_MODEL, WHISPER_PER_MINUTE, estimateCost, transcriptsEnabled } from '../config'
+import { ANALYSIS_MODEL, periodWindowDays, RECHECK_MIN_GROWTH, RECHECK_CAP, RECHECK_WINDOW_DAYS, TRANSCRIBE_CAP, TRANSCRIBE_BATCH, TRANSCRIBE_MODEL, CONTENT_GATE_MODEL, WHISPER_PER_MINUTE, estimateCost, transcriptsEnabled } from '../config'
 import { runActor } from './apify'
 import { adapters } from './platforms'
 import { parseSubreddits } from './subreddits'
+import { logAiCall } from '../pipeline/ai-log'
 import { resolveTranscript } from './transcript'
 import { dedupeBy, round2 } from './util'
 import { classifyRelevance, type RelevanceMethod } from './relevance'
@@ -359,9 +360,36 @@ export async function gatePlatform(opts: {
   // viral human-interest, news) never enters the corpus or burns a comment
   // scrape. Fails open — kept videos are everything not explicitly dropped.
   const method = opts.relevance ?? 'gpt'
-  const { verdicts } = await classifyRelevance(videos, { method, config })
+  const gateStartedAt = Date.now()
+  const gateResult = await classifyRelevance(videos, { method, config })
+  const { verdicts } = gateResult
   const kept = videos.filter((v) => verdicts.get(v.video_id)?.relevant !== false)
   const dropped = videos.length - kept.length
+
+  // The gate's GPT spend used to be discarded here — it ran on every platform of
+  // every run and appeared in no cost report, so per-keyword ROI understated
+  // what a keyword actually cost. Logging failure must never sink a gather.
+  if (!opts.dryRun && gateResult.promptTokens + gateResult.completionTokens > 0) {
+    try {
+      await logAiCall(admin, {
+        clientId: opts.clientId,
+        runId: opts.runId,
+        pass: 'relevance_gate',
+        callIndex: 1,
+        model: ANALYSIS_MODEL,
+        promptVersion: `relevance_${method}`,
+        systemPrompt: `relevance gate (${method})`,
+        userPrompt: `${adapter.platform} — ${videos.length} candidates`,
+        response: { platform: adapter.platform, judged: videos.length, kept: kept.length, dropped },
+        error: null,
+        usage: { prompt_tokens: gateResult.promptTokens, completion_tokens: gateResult.completionTokens },
+        durationMs: Date.now() - gateStartedAt,
+        validationStatus: 'ok',
+      })
+    } catch (e) {
+      console.warn(`[${adapter.platform}] relevance gate cost log failed: ${e instanceof Error ? e.message : String(e)}`)
+    }
+  }
   if (dropped > 0) {
     const reasons = videos
       .filter((v) => verdicts.get(v.video_id)?.relevant === false)
