@@ -203,7 +203,21 @@ export const APIFY_ACTORS = {
     // expiring media url for transcription) has to go through this one.
     post: process.env.APIFY_IG_POST_ACTOR ?? 'shu8hvrXbJbY3Eb9W',
   },
+  // Reddit (Wave 3): one actor drives both search and per-post comments, like
+  // Instagram's flagship. Env-swappable because every Reddit actor is ToS-grey
+  // post-lockdown and may break without notice — prodiger~reddit-scraper is the
+  // researched fallback. Pay-per-event: $0.02/start + $0.002/result.
+  reddit: {
+    video: process.env.APIFY_REDDIT_ACTOR ?? 'harshmaur~reddit-scraper',
+    comment: process.env.APIFY_REDDIT_ACTOR ?? 'harshmaur~reddit-scraper',
+  },
 } as const
+
+/** Max comments scraped per Reddit post. The actor bills per saved result and
+ *  the spine scrapes one post per actor run, so an unusually fat thread would
+ *  otherwise dominate a run's Reddit spend. Rarely binds: Reddit threads in our
+ *  segment run 3–8 comments. */
+export const REDDIT_COMMENT_DEPTH_CAP = 40
 
 /** Default min comments before a video is worth a comment scrape (TikTok/Instagram). */
 export const COMMENT_THRESHOLD = 5
@@ -217,6 +231,11 @@ export const APIFY_COST_ESTIMATES: Record<string, { search: number; perVideoComm
   tiktok: { search: 0.03, perVideoComments: 0.02 },
   instagram: { search: 0.02, perVideoComments: 0.12 },
   youtube: { search: 0, perVideoComments: 0 }, // official Data API — free
+  // Reddit: pay-per-event, so this one is arithmetic rather than a guess.
+  // search = $0.02 start + 50 posts x $0.002; comments = $0.02 start + a ~15
+  // comment thread x $0.002. Measured against the actor's published pricing
+  // 2026-08-13; recheck if the actor changes.
+  reddit: { search: 0.12, perVideoComments: 0.05 },
 }
 
 // --- Delta-scraping (2026-07-16) ---------------------------------------------

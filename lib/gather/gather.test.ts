@@ -38,13 +38,16 @@ describe('periodWindowDays', () => {
   })
 })
 
-// The Reddit adapter's normalisers — the only Reddit-specific logic (search /
-// comment fetching is thin HTTP over the official API). Locks the post→video and
-// comment→comment field mapping: subreddit as the "account", null views/engagement,
-// upvotes→likes, epoch→date, tombstone drop, and parent_id→is_reply.
+// The Reddit adapter's normalisers — the only Reddit-specific logic (search and
+// comment fetching are Apify actor calls). Fixtures below are REAL output from a
+// live harshmaur/reddit-scraper run on 2026-08-13, not hand-written: the actor
+// renames raw Reddit JSON to camelCase, so these lock the rename. Covers the
+// post→video and comment→comment mapping, subreddit-as-account, null
+// views/engagement, upvotes→likes, ISO dates, tombstone drop, depth→is_reply,
+// and the shared-dataset dataType guard.
 
 const config: GatherConfig = {
-  brand_keywords: ['sealand'],
+  brand_keywords: ['ossur'],
   competitor_keywords: [],
   competitor_names: [],
   industry_keywords: [],
@@ -55,84 +58,129 @@ const config: GatherConfig = {
   own_handles: {}, // Reddit has no owned-profile concept — see lib/gather/owned.ts
 }
 const ctx: NormaliseCtx = { clientId: 'c1', runId: 'r1', config }
-const videoRef: VideoRef = { video_id: 'abc123', video_url: 'https://www.reddit.com/r/x/comments/abc123/', comments_count: 57 }
+const videoRef: VideoRef = { video_id: '1vln07j', video_url: 'https://www.reddit.com/r/Prosthetics/comments/1vln07j/', comments_count: 16 }
 
 describe('reddit.normaliseVideo', () => {
+  // Real item, trimmed to the fields the normaliser reads.
   const post = {
-    id: 'abc123',
-    permalink: '/r/BuyItForLife/comments/abc123/great_bag/',
-    url: 'https://www.reddit.com/r/BuyItForLife/comments/abc123/great_bag/',
-    subreddit: 'BuyItForLife',
-    subreddit_subscribers: 21000,
-    author: 'someuser',
-    title: 'This Sealand bag has lasted me 5 years',
-    selftext: 'Bought it in 2021 and it still looks new.',
-    score: 342,
-    num_comments: 57,
-    created_utc: 1700000000,
-    is_self: true,
+    dataType: 'post',
+    id: 't3_1vln07j',
+    parsedId: '1vln07j',
+    postUrl: 'https://www.reddit.com/r/Prosthetics/comments/1vln07j/wearing_flip_flops/',
+    communityName: 'r/Prosthetics',
+    subredditSubscribers: 8686,
+    authorName: 'ncalor',
+    title: 'Wearing flip flops with a prosthetic foot',
+    body: 'I am a below knee amputee and i have an ossur foot cover.',
+    score: 7,
+    upVotes: 7,
+    commentsCount: 16,
+    createdAt: '2026-08-11T16:52:46.000Z',
+    isSelf: true,
+    postType: 'text',
   }
 
   it('maps a post onto a VideoInsert (subreddit as account, null views/engagement)', () => {
     const v = reddit.normaliseVideo(post, ctx)!
     expect(v).not.toBeNull()
     expect(v.platform).toBe('reddit')
-    expect(v.video_id).toBe('abc123')
-    expect(v.video_url).toBe('https://www.reddit.com/r/BuyItForLife/comments/abc123/great_bag/')
-    expect(v.account_name).toBe('r/BuyItForLife')
-    expect(v.account_followers).toBe(21000)
-    expect(v.caption).toBe('This Sealand bag has lasted me 5 years\n\nBought it in 2021 and it still looks new.')
+    expect(v.video_id).toBe('1vln07j') // bare id, not the t3_ fullname
+    expect(v.video_url).toBe('https://www.reddit.com/r/Prosthetics/comments/1vln07j/wearing_flip_flops/')
+    expect(v.account_name).toBe('r/Prosthetics') // actor already prefixes it
+    expect(v.account_followers).toBe(8686)
+    expect(v.caption).toBe('Wearing flip flops with a prosthetic foot\n\nI am a below knee amputee and i have an ossur foot cover.')
     expect(v.hashtags).toEqual([])
     expect(v.content_format).toBe('text')
     expect(v.views).toBeNull()
-    expect(v.likes).toBe(342)
+    expect(v.likes).toBe(7)
     expect(v.shares).toBe(0)
-    expect(v.comments_count).toBe(57)
+    expect(v.comments_count).toBe(16)
     expect(v.engagement_rate).toBeNull()
-    expect(v.upload_date).toBe('2023-11-14')
-    // brand keyword 'sealand' in the caption → client-tagged via tagVideo
+    expect(v.upload_date).toBe('2026-08-11') // ISO string, not an epoch
+    // brand keyword 'ossur' in the body → client-tagged via tagVideo
     expect(v.is_client).toBe(true)
   })
 
+  it('falls back to stripping t3_ when parsedId is absent (actor drift)', () => {
+    const v = reddit.normaliseVideo({ ...post, parsedId: undefined }, ctx)!
+    expect(v.video_id).toBe('1vln07j')
+  })
+
+  it('returns null for a comment riding along in the same dataset', () => {
+    expect(reddit.normaliseVideo({ dataType: 'comment', id: 'p32nf5i' }, ctx)).toBeNull()
+  })
+
   it('returns null when the post has no id', () => {
-    expect(reddit.normaliseVideo({ permalink: '/r/x/comments//' }, ctx)).toBeNull()
+    expect(reddit.normaliseVideo({ dataType: 'post', postUrl: 'https://reddit.com/x' }, ctx)).toBeNull()
   })
 })
 
 describe('reddit.normaliseComment', () => {
-  it('maps a top-level comment (upvotes→likes, parent t3_→not a reply)', () => {
+  it('maps a top-level comment (upvotes→likes, depth 0 → not a reply)', () => {
     const c = reddit.normaliseComment(
-      { id: 'def456', body: 'Holds up great on trails.', author: 'hiker22', score: 12, created_utc: 1700100000, parent_id: 't3_abc123', replies: '' },
+      {
+        dataType: 'comment', id: 'p32nf5i', postId: 't3_1vln07j', parentId: 't3_1vln07j',
+        authorName: 'rickinmcchickin', body: 'Velcro strip on the bottom of your foot soft part.',
+        score: 5, depth: 0, commentCreatedAt: '2026-08-11T17:08:31.000Z',
+      },
       videoRef,
       ctx,
     )!
     expect(c).not.toBeNull()
     expect(c.platform).toBe('reddit')
-    expect(c.video_id).toBe('abc123')
-    expect(c.comment_id).toBe('def456')
-    expect(c.text).toBe('Holds up great on trails.')
-    expect(c.author).toBe('hiker22')
-    expect(c.likes).toBe(12)
-    expect(c.reply_count).toBe(0)
+    expect(c.video_id).toBe('1vln07j')
+    expect(c.comment_id).toBe('p32nf5i')
+    expect(c.text).toBe('Velcro strip on the bottom of your foot soft part.')
+    expect(c.author).toBe('rickinmcchickin')
+    expect(c.likes).toBe(5)
+    expect(c.reply_count).toBe(0) // actor flattens the tree — placeholder, not a measurement
     expect(c.is_reply).toBe(false)
-    expect(c.comment_date).toBe('2023-11-16')
+    expect(c.comment_date).toBe('2026-08-11')
   })
 
-  it('flags replies via parent_id and counts nested replies', () => {
+  it('flags a nested reply via depth', () => {
     const c = reddit.normaliseComment(
       {
-        id: 'ghi789', body: 'Same here.', author: 'u2', score: 3, created_utc: 1700100000, parent_id: 't1_def456',
-        replies: { kind: 'Listing', data: { children: [{ kind: 't1', data: { id: 'x' } }] } },
+        dataType: 'comment', id: 'p33hcwd', postId: 't3_1vln07j', parentId: 't1_p32nf5i',
+        authorName: 'eml_raleigh', body: 'I have not tried this.', score: 2, depth: 1,
+        commentCreatedAt: '2026-08-11T19:14:25.000Z',
       },
       videoRef,
       ctx,
     )!
     expect(c.is_reply).toBe(true)
-    expect(c.reply_count).toBe(1)
+  })
+
+  it('drops the post that rides along in the comment dataset', () => {
+    expect(reddit.normaliseComment({ dataType: 'post', id: '1vln07j', body: 'post body' }, videoRef, ctx)).toBeNull()
   })
 
   it('drops removed/deleted tombstones', () => {
-    expect(reddit.normaliseComment({ id: 'a', body: '[deleted]', parent_id: 't3_abc123' }, videoRef, ctx)).toBeNull()
-    expect(reddit.normaliseComment({ id: 'b', body: '[removed]', parent_id: 't3_abc123' }, videoRef, ctx)).toBeNull()
+    expect(reddit.normaliseComment({ dataType: 'comment', id: 'a', body: '[deleted]', depth: 0 }, videoRef, ctx)).toBeNull()
+    expect(reddit.normaliseComment({ dataType: 'comment', id: 'b', body: '[removed]', depth: 0 }, videoRef, ctx)).toBeNull()
+  })
+})
+
+describe('reddit.commentScrape', () => {
+  it('caps comment depth so one fat thread cannot run up the bill', () => {
+    // config.comment_depth is 50; the Reddit cap is 40.
+    const { input } = reddit.commentScrape!(videoRef, config)
+    expect(input.maxCommentsPerPost).toBe(40)
+    expect(input.startUrls).toEqual([{ url: videoRef.video_url }])
+  })
+
+  it('respects a tenant depth below the cap', () => {
+    const { input } = reddit.commentScrape!(videoRef, { ...config, comment_depth: 10 })
+    expect(input.maxCommentsPerPost).toBe(10)
+  })
+})
+
+describe('reddit.videoSearch', () => {
+  it('does not buy comments during search — the gate sits in between', () => {
+    const { input } = reddit.videoSearch!(config, ['ossur prosthetic'], 50)
+    expect(input.crawlCommentsPerPost).toBe(false)
+    expect(input.searchTerms).toEqual(['ossur prosthetic'])
+    expect(input.maxPostsCount).toBe(50)
+    expect(input.searchTime).toBe('week') // weekly report period
   })
 })
