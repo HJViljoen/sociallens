@@ -52,6 +52,7 @@ const config: GatherConfig = {
   max_videos: 25,
   comment_depth: 50,
   report_period: 'weekly',
+  own_handles: {}, // Reddit has no owned-profile concept — see lib/gather/owned.ts
 }
 const ctx: NormaliseCtx = { clientId: 'c1', runId: 'r1', config }
 const videoRef: VideoRef = { video_id: 'abc123', video_url: 'https://www.reddit.com/r/x/comments/abc123/', comments_count: 57 }

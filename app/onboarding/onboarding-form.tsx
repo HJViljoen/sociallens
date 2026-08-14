@@ -3,7 +3,7 @@
 import { useActionState } from 'react'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
-import { PLATFORMS } from '@/app/dashboard/settings/constants'
+import { SELECTABLE_PLATFORMS } from '@/app/dashboard/settings/constants'
 import { createWorkspace, type OnboardingState } from './actions'
 
 const idleOnboarding: OnboardingState = { ok: false, message: '' }
@@ -41,7 +41,7 @@ export function OnboardingForm() {
         <div className="space-y-1.5">
           <span className="text-sm font-medium">Platforms to track</span>
           <div className="flex flex-wrap gap-4 pt-1">
-            {PLATFORMS.map((p) => (
+            {SELECTABLE_PLATFORMS.map((p) => (
               <label key={p} className="flex items-center gap-2 text-sm">
                 <input
                   type="checkbox"
