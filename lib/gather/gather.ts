@@ -614,7 +614,9 @@ export function orderAndChunkPending(
  *  unbounded read. */
 export async function planTranscribeBatches(clientId: string, runId: string, platform: Platform): Promise<string[][]> {
   const admin = createAdminClient()
-  if (!adapters[platform]?.extractMedia) return [] // YouTube: deferred
+  // YouTube: deferred (no media route). Reddit takes the extractTranscript path.
+  const a = adapters[platform]
+  if (!a?.extractMedia && !a?.extractTranscript) return []
   const rawIds = (
     await selectAll<{ video_id: string }>(() =>
       admin
@@ -657,7 +659,8 @@ export async function transcribeBatch(opts: {
   const admin = createAdminClient()
   const adapter = adapters[opts.platform]
   const errors: string[] = []
-  if (!adapter?.extractMedia) return { transcribed: 0, skipped: 0, errors } // YouTube: deferred
+  // YouTube: deferred (no media route). Reddit resolves from the raw item itself.
+  if (!adapter?.extractMedia && !adapter?.extractTranscript) return { transcribed: 0, skipped: 0, errors }
   const startedAt = Date.now()
 
   const rawRows = await selectAll<{ video_id: string; raw: RawItem }>(() => {
@@ -701,7 +704,11 @@ export async function transcribeBatch(opts: {
   const statusCounts: Record<string, number> = {}
   for (const row of pending) {
     try {
-      const t = await resolveTranscript(adapter.extractMedia!(row.raw))
+      // Text-native platforms (Reddit) resolve straight from the stored item —
+      // no fetch, no Whisper, no cost. Everything else goes via media/captions.
+      const t = adapter.extractTranscript
+        ? (adapter.extractTranscript(row.raw) ?? { text: '', lang: null, source: null, status: 'no_media' as const })
+        : await resolveTranscript(adapter.extractMedia!(row.raw))
       // Spend happened the moment Whisper/the gate ran — accumulate BEFORE the
       // persist attempt so a failed update can't under-log real cost.
       whisperMinutes += t.whisperMinutes ?? 0

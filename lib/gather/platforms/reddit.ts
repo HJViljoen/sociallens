@@ -26,6 +26,10 @@ import { tagVideo } from '../tagging'
 // threads and depth dominates on fat ones. Comment depth is capped (see
 // REDDIT_COMMENT_DEPTH_CAP) so one viral thread can't run up the bill.
 
+/** Below this, a selftext is a stub (or absent — a link/image post) rather than
+ *  the OP actually saying something. Same spirit as the Whisper letter gate. */
+const SELFTEXT_MIN_CHARS = 40
+
 /** report_period → the actor's searchTime enum. */
 function periodToTimeFilter(period: string): string {
   return period === 'daily' ? 'day' : period === 'monthly' ? 'month' : 'week'
@@ -98,6 +102,26 @@ export const reddit: PlatformAdapter = {
       duration_seconds: 0, // text-first medium; video posts are rare and not our signal
       ...tagVideo({ account_name, caption, hashtags }, ctx.config),
     }
+  },
+
+  // A Reddit post's selftext IS the OP's own words — the same thing a transcript
+  // is on the video platforms. Routing it through `transcript` rather than
+  // leaving it in `caption` means an OP who is a customer flows through the
+  // existing claims/evidence machinery with zero Pass A changes.
+  //
+  // Free: no fetch, no Whisper. So Reddit contributes 0 to the transcribe cost
+  // log, and TRANSCRIBE_CAP never binds on it in practice.
+  extractTranscript(raw) {
+    const r = raw as Record<string, unknown>
+    if (str(r.dataType) === 'comment') return null
+    const text = str(r.body)
+    // Link/image posts carry no OP words. 'no_speech' is the honest status —
+    // marking them 'ok' would put empty transcripts in front of Pass A, and
+    // usableTranscript() would wave them through.
+    if (text.length < SELFTEXT_MIN_CHARS) {
+      return { text: '', lang: null, source: null, status: 'no_speech' }
+    }
+    return { text, lang: null, source: 'reddit_selftext', status: 'ok' }
   },
 
   commentScrape(video, config) {

@@ -99,7 +99,7 @@ export interface MediaRef {
 export interface TranscriptResult {
   text: string
   lang: string | null
-  source: 'tiktok_caption' | 'whisper' | null
+  source: 'tiktok_caption' | 'whisper' | 'reddit_selftext' | null
   status: 'ok' | 'no_speech' | 'lyrics' | 'garbled' | 'no_media' | 'failed'
   /** Whisper audio minutes billed for this video (absent: caption/no-media path). */
   whisperMinutes?: number
@@ -175,6 +175,16 @@ export interface PlatformAdapter {
    * transcribe step skips it.
    */
   extractMedia?(raw: RawItem): MediaRef
+  /**
+   * Transcript resolvable from the raw item ALONE — no media fetch, no Whisper,
+   * no cost. Reddit uses it: a post's selftext is the OP's own words, which is
+   * exactly what a transcript is on the video platforms, so it flows through the
+   * existing claims/evidence machinery with no Pass A changes.
+   *
+   * Tried BEFORE `extractMedia` in the transcribe step. A platform implements one
+   * or the other, never both. `null` = this item carries no usable text.
+   */
+  extractTranscript?(raw: RawItem): TranscriptResult | null
   /** Raw actor item → VideoInsert. null = skip (unparseable / no url). */
   normaliseVideo(raw: RawItem, ctx: NormaliseCtx): VideoInsert | null
   /** Raw actor item → CommentInsert. null = skip. */

@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest'
 import { inWindow } from './gather'
 import { periodWindowDays } from '../config'
 import { reddit } from './platforms/reddit'
+import { usableTranscript } from '../pipeline/transcript-input'
 import type { GatherConfig, NormaliseCtx, VideoRef } from './types'
 
 // The baseline-vs-flow window rule (teardown §Run 1, defect 6). The invariant
@@ -182,5 +183,43 @@ describe('reddit.videoSearch', () => {
     expect(input.searchTerms).toEqual(['ossur prosthetic'])
     expect(input.maxPostsCount).toBe(50)
     expect(input.searchTime).toBe('week') // weekly report period
+  })
+})
+
+describe('reddit.extractTranscript', () => {
+  // Selftext-as-transcript: a post body is the OP's own words, so it rides the
+  // existing transcript machinery (Pass A grounding, claims, evidence) unchanged.
+  it('promotes a real selftext to an ok transcript', () => {
+    const t = reddit.extractTranscript!({
+      dataType: 'post',
+      body: 'I am a below knee amputee and i have an ossur foot cover. i have so many issues with flip flops.',
+    })!
+    expect(t.status).toBe('ok')
+    expect(t.source).toBe('reddit_selftext')
+    expect(t.text).toContain('ossur foot cover')
+    expect(t.whisperMinutes).toBeUndefined() // free — nothing to bill
+  })
+
+  it('marks a link/image post no_speech rather than faking an empty transcript', () => {
+    // usableTranscript() only accepts status 'ok', so this is what keeps empty
+    // bodies out of Pass A instead of grounding it on nothing.
+    for (const body of ['', 'nice', undefined]) {
+      const t = reddit.extractTranscript!({ dataType: 'post', body })!
+      expect(t.status).toBe('no_speech')
+      expect(t.text).toBe('')
+      expect(t.source).toBeNull()
+    }
+  })
+
+  it('ignores comments riding along in the same dataset', () => {
+    expect(reddit.extractTranscript!({ dataType: 'comment', body: 'a'.repeat(80) })).toBeNull()
+  })
+
+  it('lands on the right side of usableTranscript — the gate Pass A actually reads', () => {
+    const ok = reddit.extractTranscript!({ dataType: 'post', body: 'My Ossur foot cover frays every few months and I keep replacing it.' })!
+    const stub = reddit.extractTranscript!({ dataType: 'post', body: '' })!
+    // usableTranscript is what stands between a transcript and Pass A grounding.
+    expect(usableTranscript({ transcript: ok.text, transcript_status: ok.status })).toContain('Ossur foot cover')
+    expect(usableTranscript({ transcript: stub.text, transcript_status: stub.status })).toBeNull()
   })
 })
