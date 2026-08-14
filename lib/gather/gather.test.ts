@@ -57,6 +57,7 @@ const config: GatherConfig = {
   comment_depth: 50,
   report_period: 'weekly',
   own_handles: {}, // Reddit has no owned-profile concept — see lib/gather/owned.ts
+  subreddits: [],
 }
 const ctx: NormaliseCtx = { clientId: 'c1', runId: 'r1', config }
 const videoRef: VideoRef = { video_id: '1vln07j', video_url: 'https://www.reddit.com/r/Prosthetics/comments/1vln07j/', comments_count: 16 }

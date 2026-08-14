@@ -5,6 +5,17 @@
 
 export type Platform = 'tiktok' | 'youtube' | 'instagram' | 'reddit'
 
+/** One row of tracking_configs.subreddits (Wave 3). `name` is bare and
+ *  lowercase — no 'r/' prefix; the display layer adds it. */
+export interface SubredditEntry {
+  name: string
+  /** candidate = proposed, unprobed · active = probe passed · rejected = probe failed. */
+  status: 'candidate' | 'active' | 'rejected'
+  discovered_at: string
+  /** What the relevance probe saw, when it ran. Absent on unprobed candidates. */
+  probe?: { sampled: number; kept: number; at: string }
+}
+
 /** The tracking_configs subset gather needs. */
 export interface GatherConfig {
   brand_keywords: string[]
@@ -18,6 +29,9 @@ export interface GatherConfig {
   /** Client's own public profiles per platform (YouTube value = channel ID).
    *  Empty = owned layer off for this tenant. */
   own_handles: Record<string, string>
+  /** Reddit communities this tenant searches, with how each earned its place.
+   *  Empty = discovery has never run. See lib/gather/subreddits.ts. */
+  subreddits: SubredditEntry[]
 }
 
 /** A row ready to upsert into `videos`. Only gather-owned columns — Pass A

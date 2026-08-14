@@ -2,6 +2,7 @@ import { createAdminClient, selectAll } from '../supabase-admin'
 import { periodWindowDays, RECHECK_MIN_GROWTH, RECHECK_CAP, RECHECK_WINDOW_DAYS, TRANSCRIBE_CAP, TRANSCRIBE_BATCH, TRANSCRIBE_MODEL, CONTENT_GATE_MODEL, WHISPER_PER_MINUTE, estimateCost, transcriptsEnabled } from '../config'
 import { runActor } from './apify'
 import { adapters } from './platforms'
+import { parseSubreddits } from './subreddits'
 import { resolveTranscript } from './transcript'
 import { dedupeBy, round2 } from './util'
 import { classifyRelevance, type RelevanceMethod } from './relevance'
@@ -119,6 +120,7 @@ const DEFAULT_CONFIG: Omit<GatherConfig, 'platforms'> = {
   comment_depth: 50,
   report_period: 'weekly',
   own_handles: {},
+  subreddits: [],
 }
 
 async function loadConfig(admin: Admin, clientId: string): Promise<GatherConfig> {
@@ -139,6 +141,7 @@ async function loadConfig(admin: Admin, clientId: string): Promise<GatherConfig>
     comment_depth: data.comment_depth ?? DEFAULT_CONFIG.comment_depth,
     report_period: data.report_period ?? DEFAULT_CONFIG.report_period,
     own_handles: data.own_handles ?? {},
+    subreddits: parseSubreddits(data.subreddits),
   }
 }
 
