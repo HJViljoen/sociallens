@@ -1,18 +1,8 @@
 import type { NextConfig } from "next";
 
-const nextConfig: NextConfig = {
-  async redirects() {
-    return [
-      // Apex redirects to the app for now; temporary (307) so browsers don't
-      // cache it once the marketing site takes over verbatimintel.com.
-      {
-        source: "/:path*",
-        has: [{ type: "host", value: "verbatimintel.com" }],
-        destination: "https://app.verbatimintel.com/:path*",
-        permanent: false,
-      },
-    ];
-  },
-};
+// The apex used to 307 here to the app. It now serves the marketing site,
+// routed by host in proxy.ts. Config-level redirects run BEFORE the proxy, so
+// this file must stay out of the way of that routing.
+const nextConfig: NextConfig = {};
 
 export default nextConfig;
