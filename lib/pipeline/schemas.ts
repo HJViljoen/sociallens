@@ -335,3 +335,14 @@ const accountEventExplanationSchema = z.object({
 
 export const Step2cSchema = z.object({ events: z.array(accountEventExplanationSchema) })
 export type Step2cOutput = z.infer<typeof Step2cSchema>
+
+// Reddit subreddit discovery (Wave 3). GPT proposes candidate communities from
+// the tenant's tracking config; a live relevance probe decides which survive, so
+// this output is a SHORTLIST TO TEST, never a decision.
+const subredditProposalSchema = z.object({
+  name: z.string(),
+  reason: z.string(),
+})
+export const SubredditProposalSchema = z.object({ subreddits: z.array(subredditProposalSchema) })
+export type SubredditProposal = z.infer<typeof subredditProposalSchema>
+export type SubredditProposalOutput = z.infer<typeof SubredditProposalSchema>
