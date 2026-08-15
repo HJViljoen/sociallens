@@ -30,6 +30,19 @@ import { tagVideo } from '../tagging'
  *  the OP actually saying something. Same spirit as the Whisper letter gate. */
 const SELFTEXT_MIN_CHARS = 40
 
+/** How much selftext rides along in `caption`.
+ *
+ *  The body is ALSO stored as the transcript, and Pass A prints caption and
+ *  transcript separately — so every char here is paid twice per video. The
+ *  transcript copy is already clipped (TRANSCRIPT_PROMPT_CHARS); captions are
+ *  not clipped anywhere, and Reddit selftexts reach tens of thousands of chars
+ *  where a TikTok caption is one line.
+ *
+ *  It can't drop out of the caption entirely: tagVideo and the relevance gate
+ *  both read caption, and a brand mention often sits in the body ("i have an
+ *  ossur foot cover"), so removing it would silently stop tagging those posts. */
+const CAPTION_SELFTEXT_MAX_CHARS = 600
+
 /** report_period → the actor's searchTime enum. */
 function periodToTimeFilter(period: string): string {
   return period === 'daily' ? 'day' : period === 'monthly' ? 'month' : 'week'
@@ -76,7 +89,7 @@ export const reddit: PlatformAdapter = {
     const community = str(first(v.communityName, v.parsedCommunityName))
     const account_name = community || str(v.authorName)
     const title = str(v.title)
-    const selftext = str(v.body)
+    const selftext = str(v.body).slice(0, CAPTION_SELFTEXT_MAX_CHARS)
     const caption = [title, selftext].filter(Boolean).join('\n\n')
     const hashtags: string[] = [] // Reddit has no hashtags
 

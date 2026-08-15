@@ -4,7 +4,7 @@ import { z } from 'zod'
 import { redirect } from 'next/navigation'
 import { requireUser } from '@/lib/auth'
 import { createAdminClient } from '@/lib/supabase-admin'
-import { PLATFORMS } from '@/app/dashboard/settings/constants'
+import { SELECTABLE_PLATFORMS } from '@/app/dashboard/settings/constants'
 
 // State shape (a type) — idle value lives in the client form; a 'use server'
 // module may only export async functions.
@@ -20,7 +20,7 @@ const schema = z.object({
   company_name: z.string().trim().min(1, 'enter your company name'),
   industry_keywords: z.array(z.string()).min(1, 'add at least one industry keyword'),
   competitor_names: z.array(z.string()),
-  platforms: z.array(z.enum(PLATFORMS)).min(1, 'pick at least one platform'),
+  platforms: z.array(z.enum(SELECTABLE_PLATFORMS)).min(1, 'pick at least one platform'),
 })
 
 const TRIAL_DAYS = 14

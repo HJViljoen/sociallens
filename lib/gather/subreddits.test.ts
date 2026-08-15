@@ -92,3 +92,20 @@ describe('activeSubreddits / knownSubreddits', () => {
     expect(knownSubreddits(entries)).toEqual(new Set(['amputee', 'prosthetics', 'running']))
   })
 })
+
+describe('subredditKey — user profiles in actor form', () => {
+  it('rejects the underscore profile form Reddit actually returns', () => {
+    // Reddit exposes profiles as 'u/spez' in URLs but 'u_spez' as the real
+    // subreddit name in API/actor output — the underscore form is the one that
+    // reaches us, so matching only 'u/' would miss every real case and report
+    // fake communities in per-subreddit ROI.
+    expect(subredditKey('u_spez')).toBe('')
+    expect(subredditKey('r/u_spez')).toBe('')
+    expect(subredditKey('U_SomeUser')).toBe('')
+  })
+
+  it('does not over-reject real communities starting with u', () => {
+    expect(subredditKey('unitedkingdom')).toBe('unitedkingdom')
+    expect(subredditKey('r/UpliftingNews')).toBe('upliftingnews')
+  })
+})

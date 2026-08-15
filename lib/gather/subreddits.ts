@@ -17,9 +17,12 @@ export function subredditKey(raw: string): string {
   // Pull the name out of a URL if that's what we were handed.
   const fromUrl = s.match(/reddit\.com\/r\/([^/?#\s]+)/i)?.[1]
   const bare = (fromUrl ?? s).replace(/^\/?r\//i, '').replace(/\/+$/, '').trim()
-  // A user profile ('u/someone') is not a community — the search returns those
-  // too, and counting them as subreddits would corrupt per-subreddit ROI.
-  if (!bare || /^u\//i.test(s.replace(/^\//, ''))) return ''
+  // A user profile is not a community — the search returns those too, and
+  // counting them as subreddits would corrupt per-subreddit ROI. Reddit exposes
+  // them in TWO forms: 'u/spez' in URLs and display, and 'u_spez' as the actual
+  // subreddit name in API/actor output. The underscore form is the one that
+  // reaches us, so matching only 'u/' would miss every real case.
+  if (!bare || /^u\//i.test(s.replace(/^\//, '')) || /^u_/i.test(bare)) return ''
   return /^[A-Za-z0-9_]{2,21}$/.test(bare) ? bare.toLowerCase() : ''
 }
 

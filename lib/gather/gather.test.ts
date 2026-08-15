@@ -224,3 +224,21 @@ describe('reddit.extractTranscript', () => {
     expect(usableTranscript({ transcript: stub.text, transcript_status: stub.status })).toBeNull()
   })
 })
+
+describe('reddit caption vs transcript duplication', () => {
+  it('caps the selftext carried in caption — Pass A prints both', () => {
+    // The body is stored as the transcript too, so every char in caption is
+    // paid twice per video. Reddit selftexts run to tens of thousands of chars.
+    const long = 'x'.repeat(5000)
+    const v = reddit.normaliseVideo({ dataType: 'post', parsedId: 'p1', postUrl: 'https://reddit.com/r/x/comments/p1/', communityName: 'r/x', title: 'T', body: long }, ctx)!
+    expect(v.caption.length).toBeLessThan(700)
+    // …but the full body still reaches analysis, via the transcript.
+    expect(reddit.extractTranscript!({ dataType: 'post', body: long })!.text).toHaveLength(5000)
+  })
+
+  it('still tags a brand mentioned in the body', () => {
+    // tagVideo reads caption, so the body cannot vanish from it entirely.
+    const v = reddit.normaliseVideo({ dataType: 'post', parsedId: 'p2', postUrl: 'https://reddit.com/r/x/comments/p2/', communityName: 'r/x', title: 'Foot covers', body: 'i have an ossur foot cover and it frays' }, ctx)!
+    expect(v.is_client).toBe(true)
+  })
+})

@@ -49,17 +49,21 @@ async function main() {
   if (!clientId) throw new Error('--client <uuid> is required')
   const admin = createAdminClient()
 
-  let q = admin
-    .from('videos')
-    .select('id, platform, account_name, video_url, transcript, transcript_status, is_client, is_competitor')
-    .eq('client_id', clientId)
-    .eq('transcript_status', 'ok')
-  if (runId) q = q.eq('run_id', runId)
+  // selectAll requires a FRESH query per call — .order() appends rather than
+  // replaces, so a reused builder accumulates duplicate order clauses per page.
+  const buildQuery = () => {
+    const q = admin
+      .from('videos')
+      .select('id, platform, account_name, video_url, transcript, transcript_status, is_client, is_competitor')
+      .eq('client_id', clientId)
+      .eq('transcript_status', 'ok')
+    return (runId ? q.eq('run_id', runId) : q).order('id', { ascending: true })
+  }
   const rows = await selectAll<{
     id: string; platform: string; account_name: string; video_url: string
     transcript: string | null; transcript_status: string | null
     is_client: boolean; is_competitor: boolean
-  }>(() => q.order('id', { ascending: true }))
+  }>(buildQuery)
 
   // Industry creators only — the client's and competitors' own videos are brand
   // voice, which is what video_claims already covers.

@@ -129,11 +129,11 @@ export const runPipeline = inngest.createFunction(
     // against the live relevance gate, persist the survivors. Runs before
     // plan-gather so a newly-promoted community is available to this run.
     //
-    // Non-fatal AND uncounted, like gather-news: Reddit is a degradable
-    // platform by decision, and a failed discovery leaves the tenant's existing
-    // subreddit list untouched — nothing downstream is silently wrong, so this
-    // must not mark a run 'partial'. Skipped entirely on an analysis-only
-    // resume (no gather → nothing to discover for).
+    // Non-fatal but COUNTED. Unlike gather-news (a free RSS fetch), this step
+    // spends real Apify and OpenAI money BEFORE it can fail, and its most likely
+    // failure is a timeout after several completed paid probes. A run that
+    // quietly burned money and produced nothing is exactly what 'partial' is
+    // for. Skipped entirely on an analysis-only resume.
     if (!options.skipGather && redditDiscoveryEnabled()) {
       await step
         .run('discover-subreddits', async () => {
@@ -149,6 +149,7 @@ export const runPipeline = inngest.createFunction(
         })
         .catch((e) => {
           console.error(`[discover-subreddits] out of retries: ${e instanceof Error ? e.message : String(e)}`)
+          totalErrors++
           return { skipped: 'failed' }
         })
     }
