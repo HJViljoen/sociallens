@@ -53,6 +53,32 @@ export function acceptSnapshot(
 }
 
 /**
+ * Did a profile read come back empty because the account IS empty, or because
+ * the scrape glitched?
+ *
+ * The IG details actor intermittently returns a live profile (followers present)
+ * with `latestPosts: []`. That reads as "no recent posts", so the step writes
+ * nothing, raises nothing, and the week's owned layer silently vanishes — which
+ * is what happened on 2026-08-16.
+ *
+ * The glitch does NOT present consistently: on the failed run the same handle
+ * reported postsCount 1,494 with no posts; an hour later it returned 12 posts;
+ * an hour after that, postsCount null with no posts. So postsCount cannot be
+ * the tell — it is itself part of what glitches (a known Wave 2 finding: IG
+ * details-mode postsCount is nullable).
+ *
+ * Hence the rule is inverted: zero recent posts is a glitch UNLESS the platform
+ * explicitly says the account has zero posts. Only `postsCount === 0` is real
+ * emptiness; null is a scrape that didn't answer the question and gets retried.
+ * The cost of being wrong is a non-fatal step error on a genuinely empty
+ * account — loud and recorded, which beats losing a week of owned data silently.
+ */
+export function emptyProfileIsGlitch(postsCount: number | null, recentPosts: number): boolean {
+  if (recentPosts > 0) return false
+  return postsCount !== 0
+}
+
+/**
  * Platform-aware minimum % floor for a follower event. YouTube's public
  * subscriberCount rounds to 3 significant figures, so one rounding step on a
  * small channel can fake a move — the floor must clear TWO rounding steps.
@@ -287,6 +313,11 @@ export async function ingestOwnedPosts(opts: {
     clientId: opts.clientId,
     runId: opts.runId,
   })
+  if (emptyProfileIsGlitch(profile.postsCount, profile.recentPosts.length)) {
+    throw new Error(
+      `owned profile (${opts.platform} @${opts.handle}) returned 0 recent posts but reports ${profile.postsCount} posts — scrape glitch, retrying`,
+    )
+  }
   if (profile.recentPosts.length) {
     const admin = createAdminClient()
     // A client post the keyword gather ALREADY discovered stays 'discovered' —

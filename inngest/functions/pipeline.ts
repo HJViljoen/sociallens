@@ -13,6 +13,7 @@ import { attributeRunKeywords } from '@/lib/pipeline/keyword-attribution'
 import { planClassifyMetaBatches, runClassifyMetaBatch } from '@/lib/pipeline/classify-meta'
 import { ingestOwnedPosts } from '@/lib/gather/owned'
 import { runStep2c } from '@/lib/pipeline/owned-events'
+import { summariseRunErrors, RUN_ERROR_CAP } from '@/lib/pipeline/run-errors'
 import { persistRunNews } from '@/lib/news/persist'
 import { persistThemes, loadThemes } from '@/lib/pipeline/themes'
 import { writeRunSummary } from '@/lib/pipeline/run-summary'
@@ -163,6 +164,19 @@ export const runPipeline = inngest.createFunction(
     //    others; one search failing must not stop its platform.
     let totalVideos = 0
     let totalErrors = 0
+    // WHY a run ends 'partial'. Before this, a degraded run wrote the status and
+    // nothing else: the reason lived only in a console line that ages out of the
+    // platform's log retention within the hour. The first scheduled run
+    // (2026-08-16) closed 'partial' and the cause had to be reconstructed from
+    // third-party billing history — and still wasn't provable. close-run
+    // persists this list so the next one explains itself.
+    const runErrors: string[] = []
+    const noteError = (where: string, detail?: unknown) => {
+      totalErrors++
+      if (runErrors.length >= RUN_ERROR_CAP) return
+      const message = detail instanceof Error ? detail.message : detail == null ? '' : String(detail)
+      runErrors.push(message ? `${where}: ${message.slice(0, 300)}` : where)
+    }
     for (const platform of gatherPlatforms) {
       try {
         // Searches dispatch in parallel waves (transcribe-fan-out precedent):
@@ -182,8 +196,8 @@ export const runPipeline = inngest.createFunction(
                     maxVideos: options.maxVideos, period: options.period,
                   }),
                 )
-              } catch {
-                totalErrors++
+              } catch (e) {
+                noteError(`search:${platform}:${task.keyword}`, e)
                 return { keyword: task.keyword, bucket: task.bucket, videos: [] }
               }
             }),
@@ -194,7 +208,7 @@ export const runPipeline = inngest.createFunction(
           gatePlatform({ clientId, runId, platform, searches, videoLimit: options.videoLimit, period: options.period }),
         )
         totalVideos += gate.videosKept
-        totalErrors += gate.errors.length
+        for (const err of gate.errors) noteError(`gate:${platform}`, err)
         // Comment batches dispatch in parallel waves — this loop is the run's
         // wall-clock dominator (each video is its own Apify actor run, and the
         // sequential version drove run 1's ~2.5h). Batches are disjoint video
@@ -212,9 +226,9 @@ export const runPipeline = inngest.createFunction(
                 const r = await step.run(`comments:${platform}:${w + j + 1}`, () =>
                   scrapeCommentsBatch({ clientId, runId, platform, refs }),
                 )
-                totalErrors += r.errors.length
-              } catch {
-                totalErrors++
+                for (const err of r.errors) noteError(`comments:${platform}:${w + j + 1}`, err)
+              } catch (e) {
+                noteError(`comments:${platform}:${w + j + 1}`, e)
               }
             }),
           )
@@ -244,10 +258,12 @@ export const runPipeline = inngest.createFunction(
                     .catch(() => ({ transcribed: 0, skipped: 0, errors: ['transcribe step failed'] })),
                 ),
               )
-              for (const t of wave) totalErrors += t.errors.length
+              for (const t of wave) {
+                for (const err of t.errors) noteError(`transcribe:${platform}`, err)
+              }
             }
-          } catch {
-            totalErrors++
+          } catch (e) {
+            noteError(`plan-transcribe:${platform}`, e)
           }
         }
 
@@ -261,7 +277,7 @@ export const runPipeline = inngest.createFunction(
             )
             .catch((e) => {
               console.error(`[owned-posts:${platform}] out of retries: ${e instanceof Error ? e.message : String(e)}`)
-              totalErrors++
+              noteError(`owned-posts:${platform}`, e)
               return [] as { video_id: string; video_url: string; comments_count: number }[]
             })
           for (let w = 0; w < ownedRefs.length; w += COMMENT_BATCH) {
@@ -269,14 +285,14 @@ export const runPipeline = inngest.createFunction(
               .run(`owned-comments:${platform}:${Math.floor(w / COMMENT_BATCH) + 1}`, () =>
                 scrapeCommentsBatch({ clientId, runId, platform: platform as Platform, refs: ownedRefs.slice(w, w + COMMENT_BATCH), source: 'owned' }),
               )
-              .catch(() => {
-                totalErrors++
+              .catch((e) => {
+                noteError(`owned-comments:${platform}`, e)
                 return { comments: 0, errors: ['owned comment scrape failed'] }
               })
           }
         }
-      } catch {
-        totalErrors++
+      } catch (e) {
+        noteError(`platform:${platform}`, e)
       }
     }
 
@@ -348,7 +364,7 @@ export const runPipeline = inngest.createFunction(
       // (the ship-live decision rests on this contract).
       .catch((e) => {
         console.error(`[classify-meta] plan failed, skipping: ${e instanceof Error ? e.message : String(e)}`)
-        totalErrors++
+        noteError('plan-classify', e)
         return [] as string[][]
       })
     const classify = { classified: 0, nulls: 0, cost: 0, errors: 0 }
@@ -375,7 +391,7 @@ export const runPipeline = inngest.createFunction(
         classify.cost += r.costUsd
         if (r.error) {
           classify.errors++
-          totalErrors++
+          noteError('classify-meta', r.error)
         }
       }
     }
@@ -452,7 +468,7 @@ export const runPipeline = inngest.createFunction(
       .run('owned-events', () => runStep2c({ clientId, runId }))
       .catch((e) => {
         console.error(`[owned-events] out of retries: ${e instanceof Error ? e.message : String(e)}`)
-        totalErrors++
+        noteError('owned-events', e)
         return null
       })
 
@@ -466,7 +482,7 @@ export const runPipeline = inngest.createFunction(
       .run('keyword-attribution', () => attributeRunKeywords(createAdminClient(), clientId, runId))
       .catch((e) => {
         console.error(`[keyword-attribution] out of retries: ${e instanceof Error ? e.message : String(e)}`)
-        totalErrors++
+        noteError('keyword-attribution', e)
         return null
       })
 
@@ -477,6 +493,8 @@ export const runPipeline = inngest.createFunction(
         status: totalErrors > 0 ? 'partial' : 'completed',
         videos_scraped: totalVideos,
         completed_at: new Date().toISOString(),
+        errors: runErrors,
+        error_message: summariseRunErrors(totalErrors, runErrors),
       }).eq('id', runId)
     })
 

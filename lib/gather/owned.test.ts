@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { acceptSnapshot, followerFloorPct } from './owned'
+import { acceptSnapshot, followerFloorPct, emptyProfileIsGlitch } from './owned'
 
 describe('acceptSnapshot', () => {
   it('rejects null/zero glitch reads', () => {
@@ -32,5 +32,29 @@ describe('followerFloorPct', () => {
     expect(followerFloorPct('youtube', 999, 1.5)).toBe(1.5)
     // 1M subs → step 10,000 → 2% — rounding dominates even at scale
     expect(followerFloorPct('youtube', 1_000_000, 1.5)).toBeCloseTo(2, 5)
+  })
+})
+
+describe('emptyProfileIsGlitch', () => {
+  it('flags the 2026-08-16 Instagram case: 1,494 posts reported, none returned', () => {
+    expect(emptyProfileIsGlitch(1494, 0)).toBe(true)
+  })
+
+  it('accepts a genuinely empty account — an explicit zero is the only real emptiness', () => {
+    expect(emptyProfileIsGlitch(0, 0)).toBe(false)
+  })
+
+  it('flags a null postsCount with no posts — the same glitch, second presentation', () => {
+    // 2026-08-16, one hour after the 1,494-posts case: the same handle came
+    // back followers-present, postsCount null, zero posts. Keying the guard on
+    // postsCount > 0 would have stayed silent through exactly the failure it
+    // exists to catch.
+    expect(emptyProfileIsGlitch(null, 0)).toBe(true)
+  })
+
+  it('is irrelevant once any post came back', () => {
+    expect(emptyProfileIsGlitch(1494, 12)).toBe(false)
+    expect(emptyProfileIsGlitch(null, 12)).toBe(false)
+    expect(emptyProfileIsGlitch(0, 12)).toBe(false)
   })
 })
