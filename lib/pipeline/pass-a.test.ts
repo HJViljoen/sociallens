@@ -181,4 +181,12 @@ describe('passALane — the comment floor vs the Wave 4 claims lane', () => {
   it('is disabled by passing transcript_status null when transcripts are off', () => {
     expect(passALane(yt({ is_client: true, transcript_status: null }), 0)).toBe('skip')
   })
+
+  it("the client's OWN posts take the claims lane or nothing — never the full lane, however many comments", () => {
+    const owned = { ...yt({ is_client: true, transcript_status: 'ok' }), source: 'owned' }
+    expect(passALane(owned, 57)).toBe('claims_only')
+    expect(passALane(owned, 0)).toBe('claims_only')
+    expect(passALane({ ...owned, transcript_status: 'lyrics' }, 57)).toBe('skip')
+    expect(passALane({ ...owned, transcript_status: null }, 57)).toBe('skip')
+  })
 })

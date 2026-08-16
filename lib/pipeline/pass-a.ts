@@ -125,10 +125,15 @@ export type PassALane = 'full' | 'claims_only' | 'skip'
  * Pass `transcript_status: null` when transcripts are off to disable the lane.
  */
 export function passALane(
-  v: { platform: string; is_client: boolean | null; is_competitor: boolean | null; transcript_status: string | null },
+  v: { platform: string; is_client: boolean | null; is_competitor: boolean | null; transcript_status: string | null; source?: string | null },
   comments: number,
   floor: number = passAMinComments(v.platform),
 ): PassALane {
+  // The client's OWN posts (Brand Voice, 2026-08-16): claims lane or nothing.
+  // Never the full lane — their fans' comments would contaminate audience
+  // themes (Owned-Data-Plan guardrail: segment, never blend). Their words
+  // are the purest "say" side there is; their comments stay Step 2c's.
+  if (v.source === 'owned') return v.transcript_status === 'ok' ? 'claims_only' : 'skip'
   if (comments >= floor) return 'full'
   if ((v.is_client || v.is_competitor) && v.transcript_status === 'ok') return 'claims_only'
   return 'skip'

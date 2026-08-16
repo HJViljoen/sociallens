@@ -622,10 +622,12 @@ const THEMES_PARALLEL = 2
 // avoidance as everywhere else.
 async function planPassABatches(clientId: string): Promise<string[][]> {
   const admin = createAdminClient()
-  // Discovered corpus only — owned posts must never enter Pass A (their fans'
-  // comments would contaminate audience themes; Step 2c is their consumer).
-  const videos = await selectAll<{ id: string; platform: string; video_id: string; is_client: boolean | null; is_competitor: boolean | null; transcript_status: string | null }>(() =>
-    admin.from('videos').select('id, platform, video_id, is_client, is_competitor, transcript_status').eq('client_id', clientId).eq('source', 'discovered').order('id', { ascending: true }),
+  // Discovered corpus + the client's OWN posts. Owned posts never take the
+  // full lane (their fans' comments would contaminate audience themes; Step 2c
+  // is their consumer) — passALane admits them to the claims lane only, when
+  // they carry a usable transcript (Brand Voice, 2026-08-16).
+  const videos = await selectAll<{ id: string; platform: string; video_id: string; is_client: boolean | null; is_competitor: boolean | null; transcript_status: string | null; source: string | null }>(() =>
+    admin.from('videos').select('id, platform, video_id, is_client, is_competitor, transcript_status, source').eq('client_id', clientId).in('source', ['discovered', 'owned']).order('id', { ascending: true }),
   )
   const counts = new Map<string, number>()
   const comments = await selectAll<{ platform: string; video_id: string }>(() =>
