@@ -805,8 +805,9 @@ export async function transcribeBatch(opts: {
   // Paid text platforms (YouTube captions): ONE actor call for the whole batch,
   // before the loop. Deliberately outside the per-video try — if the actor
   // itself fails, the step throws and retries; the ids stay NULL and re-plan
-  // next run. Per-id absence/null is handled inside the loop.
-  const fetched = adapter.fetchTranscripts && pending.length && !opts.dryRun
+  // next run. Per-id absence/null is handled inside the loop. Runs in dryRun
+  // too: dry-run here means "resolve, don't write", same as the Whisper path.
+  const fetched = adapter.fetchTranscripts && pending.length
     ? await adapter.fetchTranscripts(pending.map((r) => r.video_id))
     : null
   let transcribed = 0
