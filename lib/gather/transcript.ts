@@ -52,6 +52,8 @@ const LANG_CODES: Record<string, string> = {
   chinese: 'zh', japanese: 'ja', korean: 'ko', russian: 'ru', turkish: 'tr',
   thai: 'th', vietnamese: 'vi', polish: 'pl', swedish: 'sv', danish: 'da',
   norwegian: 'no', filipino: 'tl', tagalog: 'tl',
+  // Seen as YouTube caption language names on the first Össur backfill (2026-08-16).
+  bengali: 'bn', hungarian: 'hu', nepali: 'ne', ukrainian: 'uk', greek: 'el', czech: 'cs', romanian: 'ro', hebrew: 'he', persian: 'fa', finnish: 'fi',
 }
 
 export function normaliseLang(lang: string | null | undefined): string | null {
