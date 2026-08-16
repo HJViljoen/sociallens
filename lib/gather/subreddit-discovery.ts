@@ -1,10 +1,10 @@
 import { zodResponseFormat } from 'openai/helpers/zod'
 import { openai } from '../openai'
 import { createAdminClient } from '../supabase-admin'
-import { ANALYSIS_MODEL, ANALYSIS_TEMPERATURE, SUBREDDIT_PROBES_PER_RUN, SUBREDDIT_TARGET_ACTIVE, SUBREDDIT_MAX_KNOWN } from '../config'
+import { ANALYSIS_MODEL, ANALYSIS_TEMPERATURE, SUBREDDIT_PROBES_PER_RUN, SUBREDDIT_TARGET_ACTIVE, SUBREDDIT_MAX_KNOWN, SUBREDDIT_STRIKE_LIMIT } from '../config'
 import { logAiCall } from '../pipeline/ai-log'
 import { SubredditProposalSchema, type SubredditProposalOutput } from '../pipeline/schemas'
-import { subredditKey, knownSubreddits } from './subreddits'
+import { subredditKey, knownSubreddits, applyStrikes, subredditLabel, type RedditYields } from './subreddits'
 import { probeSubreddits } from './subreddit-probe'
 import type { GatherConfig, SubredditEntry } from './types'
 
@@ -156,6 +156,32 @@ export function discoveryConverged(entries: SubredditEntry[]): boolean {
  *
  * Caller must treat this as non-fatal — Reddit is a degradable platform.
  */
+/** Gate survivors per Reddit source for the most recent run that gathered.
+ *  keyword_performance already records this — a community harvest is stored
+ *  under its label ('r/amputee') — so dead-community detection costs no extra
+ *  query at gather time and no new table. Null when the tenant has never
+ *  gathered Reddit. */
+async function loadLastRedditYields(
+  admin: ReturnType<typeof createAdminClient>,
+  clientId: string,
+): Promise<RedditYields | null> {
+  const { data } = await admin
+    .from('keyword_performance')
+    .select('run_id, keyword, gate_survived, created_at')
+    .eq('client_id', clientId)
+    .eq('platform', 'reddit')
+    .order('created_at', { ascending: false })
+    .limit(200)
+  const rows = (data ?? []) as { run_id: string; keyword: string; gate_survived: number | null }[]
+  if (!rows.length) return null
+  // Anchor on the newest run that actually gathered — analysis-only re-runs
+  // write no keyword rows, so run recency alone would read an empty set.
+  const latest = rows[0].run_id
+  const out: RedditYields = new Map()
+  for (const r of rows) if (r.run_id === latest) out.set(r.keyword, r.gate_survived ?? 0)
+  return out
+}
+
 export async function discoverSubreddits(opts: {
   clientId: string
   runId: string
@@ -163,8 +189,20 @@ export async function discoverSubreddits(opts: {
   today: string
 }): Promise<SubredditEntry[]> {
   const admin = createAdminClient()
-  const existing = opts.config.subreddits
-  let entries = [...existing]
+
+  // 0. Retire communities that have gone quiet. Runs BEFORE the convergence
+  //    check, so a demotion frees a slot and this same run proposes a
+  //    replacement instead of waiting a week.
+  const yields = await loadLastRedditYields(admin, opts.clientId)
+  const strikeResult = applyStrikes(opts.config.subreddits, yields, SUBREDDIT_STRIKE_LIMIT)
+  let entries = [...strikeResult.entries]
+  if (strikeResult.demoted.length || strikeResult.struck.length) {
+    console.log(
+      `[reddit] strikes: ${strikeResult.struck.map(subredditLabel).join(', ') || 'none'} struck` +
+        `${strikeResult.demoted.length ? ` · demoted ${strikeResult.demoted.map(subredditLabel).join(', ')} → candidate (re-probe queued)` : ''}`,
+    )
+  }
+  const strikesChanged = strikeResult.demoted.length > 0 || strikeResult.struck.length > 0
 
   // 1. Carry-over first: anything still unprobed (including probes that errored
   //    on an earlier run) is ahead of anything newly proposed.
@@ -179,6 +217,13 @@ export async function discoverSubreddits(opts: {
   }
 
   if (!pending.length) {
+    // Strike bookkeeping is still a change worth keeping even when there is
+    // nothing to probe — otherwise a strike is recounted from zero every week
+    // and a dying community never reaches the limit.
+    if (strikesChanged) {
+      const { error } = await admin.from('tracking_configs').update({ subreddits: entries }).eq('client_id', opts.clientId)
+      if (error) throw new Error(`persist subreddit strikes: ${error.message}`)
+    }
     console.log(
       discoveryConverged(entries)
         ? `[reddit] discovery: converged (${entries.filter((e) => e.status === 'active').length} active)`

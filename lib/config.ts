@@ -288,6 +288,11 @@ export const SUBREDDIT_TARGET_ACTIVE = 5
  *  category simply lacks 5 good communities still stops paying to look. */
 export const SUBREDDIT_MAX_KNOWN = 20
 
+/** Consecutive barren runs before an ACTIVE community is demoted for re-judging.
+ *  One week is too twitchy — communities have quiet weeks — and five is a month
+ *  of a run closing 'partial' every time before anything self-corrects. */
+export const SUBREDDIT_STRIKE_LIMIT = 3
+
 /** Default min comments before a video is worth a comment scrape (TikTok/Instagram). */
 export const COMMENT_THRESHOLD = 5
 

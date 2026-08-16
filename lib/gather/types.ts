@@ -14,6 +14,10 @@ export interface SubredditEntry {
   discovered_at: string
   /** What the relevance probe saw, when it ran. Absent on unprobed candidates. */
   probe?: { sampled: number; kept: number; at: string }
+  /** Consecutive runs this ACTIVE community yielded nothing while other Reddit
+   *  sources did. Reset by any productive run; at the limit the community is
+   *  demoted back to 'candidate' for re-judging. See lib/gather/subreddits.ts. */
+  strikes?: number
 }
 
 /** The tracking_configs subset gather needs. */
