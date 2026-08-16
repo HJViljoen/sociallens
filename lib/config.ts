@@ -229,6 +229,18 @@ export const APIFY_ACTORS = {
  *  segment run 3–8 comments. */
 export const REDDIT_COMMENT_DEPTH_CAP = 40
 
+/** Posts pulled per community per run. A harvest ignores keywords, so without a
+ *  cap it would pull `max_videos` (70 for Ossur) from EVERY active community. */
+export const REDDIT_HARVEST_POSTS = 25
+
+/** Fresh comment scrapes per run for Reddit. The dominant cost by far: the actor
+ *  bills $0.02 per START and the spine scrapes one post per run, so ~$0.06 a
+ *  post once a thread's comments are counted. Uncapped, two harvested
+ *  communities would run ~$8/run against a ~$2 budget. TikTok/Instagram don't
+ *  need this — their per-scrape cost is a fraction and their corpora are
+ *  keyword-bounded already. Measured 2026-08-16, not estimated. */
+export const REDDIT_COMMENT_SCRAPE_CAP = 25
+
 // --- Subreddit discovery probe (Wave 3) --------------------------------------
 // A GPT-proposed subreddit is only a candidate. Before it can be searched on
 // real runs it must survive a live sample judged by the existing relevance gate

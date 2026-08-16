@@ -1,5 +1,5 @@
 import { createAdminClient, selectAll } from '../supabase-admin'
-import { ANALYSIS_MODEL, periodWindowDays, RECHECK_MIN_GROWTH, RECHECK_CAP, RECHECK_WINDOW_DAYS, TRANSCRIBE_CAP, TRANSCRIBE_BATCH, TRANSCRIBE_MODEL, CONTENT_GATE_MODEL, WHISPER_PER_MINUTE, estimateCost, transcriptsEnabled } from '../config'
+import { ANALYSIS_MODEL, REDDIT_COMMENT_SCRAPE_CAP, periodWindowDays, RECHECK_MIN_GROWTH, RECHECK_CAP, RECHECK_WINDOW_DAYS, TRANSCRIBE_CAP, TRANSCRIBE_BATCH, TRANSCRIBE_MODEL, CONTENT_GATE_MODEL, WHISPER_PER_MINUTE, estimateCost, transcriptsEnabled } from '../config'
 import { runActor } from './apify'
 import { adapters } from './platforms'
 import { parseSubreddits, activeSubreddits, subredditLabel } from './subreddits'
@@ -492,7 +492,18 @@ export async function gatePlatform(opts: {
   const freshEligible = kept.filter(
     (v) => adapter.commentThreshold == null || v.comments_count >= adapter.commentThreshold,
   )
-  const toScrape = opts.videoLimit ? freshEligible.slice(0, opts.videoLimit) : freshEligible
+  // Reddit carries a default scrape cap the other platforms don't need: its
+  // actor bills per RUN START and the spine scrapes one post per run (~$0.06 a
+  // post), so a two-community harvest would otherwise run ~$8/run.
+  const scrapeCap = opts.videoLimit ?? (adapter.platform === 'reddit' ? REDDIT_COMMENT_SCRAPE_CAP : undefined)
+  let toScrape = freshEligible
+  if (scrapeCap && freshEligible.length > scrapeCap) {
+    // Spend the cap on the densest threads — same richest-first rule Pass A
+    // batching and delta re-checks already use. Only the capped path sorts, so
+    // an uncapped platform's ordering is untouched.
+    toScrape = [...freshEligible].sort((a, b) => b.comments_count - a.comments_count).slice(0, scrapeCap)
+    console.log(`[${adapter.platform}] comment-scrape cap: ${freshEligible.length} eligible → ${scrapeCap} scraped (richest first)`)
+  }
 
   // Delta re-checks: known videos whose comment count grew earn a re-scrape —
   // even outside the window (their NEW comments are this period's conversation;

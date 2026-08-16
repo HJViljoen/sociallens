@@ -1,5 +1,5 @@
 import type { PlatformAdapter } from '../types'
-import { APIFY_ACTORS, REDDIT_COMMENT_DEPTH_CAP, passAMinComments } from '../../config'
+import { APIFY_ACTORS, REDDIT_COMMENT_DEPTH_CAP, REDDIT_HARVEST_POSTS, passAMinComments } from '../../config'
 import { num, str, first, toDateOnly } from '../util'
 import { tagVideo } from '../tagging'
 
@@ -61,7 +61,9 @@ export const reddit: PlatformAdapter = {
         actor: APIFY_ACTORS.reddit.video,
         input: {
           subredditUrls: [opts.community],
-          maxPostsCount: limit,
+          // Its own cap, not max_videos: a harvest ignores keywords, so the
+          // tenant's per-keyword quota would apply to EVERY active community.
+          maxPostsCount: Math.min(limit, REDDIT_HARVEST_POSTS),
           crawlCommentsPerPost: false, // gate first; comments are bought later
           includeNSFW: false,
         },
