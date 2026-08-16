@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { summariseRunErrors, RUN_ERROR_CAP } from './run-errors'
+import { summariseRunErrors, partialRunAlert, RUN_ERROR_CAP, ALERT_ERROR_LIST_CAP } from './run-errors'
 
 describe('summariseRunErrors', () => {
   it('returns null for a clean run so error_message stays NULL', () => {
@@ -39,5 +39,40 @@ describe('summariseRunErrors', () => {
 
   it('handles entries with no detail suffix', () => {
     expect(summariseRunErrors(1, ['owned-posts:tiktok'])).toBe('1 step error: owned-posts:tiktok')
+  })
+})
+
+describe('partialRunAlert', () => {
+  const base = {
+    runId: '147899d3-0000-0000-0000-000000000000',
+    clientName: 'Össur',
+    total: 2,
+    recorded: ['owned-posts:tiktok: 22P02 invalid input syntax', 'owned-posts:instagram: profile returned 0 posts'],
+    reportSent: true,
+  }
+
+  it('names the client in the subject so the inbox scan reads it', () => {
+    expect(partialRunAlert(base).subject).toBe('Verbatim run PARTIAL — Össur')
+  })
+
+  it('carries the run id, the step summary and every recorded error', () => {
+    const { text } = partialRunAlert(base)
+    expect(text).toContain(base.runId)
+    expect(text).toContain('2 step errors: owned-posts:instagram, owned-posts:tiktok')
+    expect(text).toContain('- owned-posts:tiktok: 22P02 invalid input syntax')
+    expect(text).toContain('- owned-posts:instagram: profile returned 0 posts')
+  })
+
+  it('says whether the client report still went out', () => {
+    expect(partialRunAlert(base).text).toContain('The client report was still sent')
+    expect(partialRunAlert({ ...base, reportSent: false }).text).toContain('No client report was requested')
+  })
+
+  it('caps the listed errors and points at pipeline_runs.errors for the rest', () => {
+    const recorded = Array.from({ length: 40 }, (_, i) => `comments:instagram:${i + 1}: 429`)
+    const { text } = partialRunAlert({ ...base, total: 40, recorded })
+    expect(text).toContain(`- comments:instagram:${ALERT_ERROR_LIST_CAP}: 429`)
+    expect(text).not.toContain(`- comments:instagram:${ALERT_ERROR_LIST_CAP + 1}: 429`)
+    expect(text).toContain(`…and ${40 - ALERT_ERROR_LIST_CAP} more in pipeline_runs.errors`)
   })
 })

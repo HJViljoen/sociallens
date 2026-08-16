@@ -15,7 +15,7 @@ import { ingestOwnedPosts, supportsOwnedProfile } from '@/lib/gather/owned'
 import { discoverSubreddits } from '@/lib/gather/subreddit-discovery'
 import { activeSubreddits } from '@/lib/gather/subreddits'
 import { runStep2c } from '@/lib/pipeline/owned-events'
-import { summariseRunErrors, RUN_ERROR_CAP } from '@/lib/pipeline/run-errors'
+import { summariseRunErrors, partialRunAlert, RUN_ERROR_CAP } from '@/lib/pipeline/run-errors'
 import { persistRunNews } from '@/lib/news/persist'
 import { persistThemes, loadThemes } from '@/lib/pipeline/themes'
 import { writeRunSummary } from '@/lib/pipeline/run-summary'
@@ -545,6 +545,32 @@ export const runPipeline = inngest.createFunction(
         name: 'report/send.requested',
         data: { clientId, runId },
       })
+    }
+
+    // 9. Operator alert for a degraded run. Only 'failed' and zero-video runs
+    //    alerted before 2026-08-16, so a 'partial' run — report delivered,
+    //    side-layer silently dead — was indistinguishable from a clean one in
+    //    the inbox. Non-fatal: an alert hiccup must never demote a completed
+    //    run to 'failed' via onFailure.
+    if (totalErrors > 0) {
+      await step
+        .run('alert-partial', async () => {
+          const admin = createAdminClient()
+          const { data: client } = await admin.from('clients')
+            .select('company_name').eq('id', clientId).maybeSingle()
+          const { subject, text } = partialRunAlert({
+            runId,
+            clientName: client?.company_name ?? clientId,
+            total: totalErrors,
+            recorded: runErrors,
+            reportSent: Boolean(options.sendReport),
+          })
+          return sendAlertEmail(subject, text)
+        })
+        .catch((e) => {
+          console.error(`[alert-partial] out of retries: ${e instanceof Error ? e.message : String(e)}`)
+          return { sent: false }
+        })
     }
 
     return { runId, status: totalErrors > 0 ? 'partial' : 'completed', totalVideos, ...passA, classifyMeta: classify, brandMentions: crossRef.mentionsFlagged, ...themedSummary, ...synth }

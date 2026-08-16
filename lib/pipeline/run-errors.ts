@@ -40,3 +40,46 @@ export function summariseRunErrors(total: number, recorded: string[]): string | 
   const truncated = total > recorded.length ? ` (first ${recorded.length} recorded)` : ''
   return `${total} ${noun}${truncated}: ${parts.join(', ')}`
 }
+
+/** How many recorded errors the partial-run alert lists inline. The full
+ *  (RUN_ERROR_CAP-bounded) list is always in pipeline_runs.errors; the email
+ *  only needs enough to name the failing step(s) at a glance. */
+export const ALERT_ERROR_LIST_CAP = 15
+
+/**
+ * Operator alert for a run that closed 'partial'.
+ *
+ * Until 2026-08-16 only 'failed' and zero-video runs alerted, so a degraded
+ * run — report delivered, side-layer silently dead — looked identical to a
+ * clean one in the inbox. That is exactly how the first scheduled run's dead
+ * owned layer went unnoticed. The email carries the same summary close-run
+ * persists, so the operator sees the failing step without opening the DB.
+ */
+export function partialRunAlert(input: {
+  runId: string
+  clientName: string
+  total: number
+  recorded: string[]
+  reportSent: boolean
+}): { subject: string; text: string } {
+  const { runId, clientName, total, recorded, reportSent } = input
+  const listed = recorded.slice(0, ALERT_ERROR_LIST_CAP).map((e) => `- ${e}`)
+  const rest = recorded.length - listed.length
+  if (rest > 0) listed.push(`…and ${rest} more in pipeline_runs.errors`)
+
+  const text = [
+    `Run ${runId} for ${clientName} completed but closed PARTIAL: ${total} step${total === 1 ? '' : 's'} failed after retries.`,
+    reportSent
+      ? 'The client report was still sent — the core loop finished; the steps below degraded silently.'
+      : 'No client report was requested for this run.',
+    '',
+    `Summary: ${summariseRunErrors(total, recorded) ?? `${total} step errors`}`,
+    '',
+    'Errors:',
+    ...(listed.length ? listed : ['- (none recorded)']),
+    '',
+    'Full list: pipeline_runs.errors / error_message. Owned-layer step named? → scripts/diagnose-owned.ts.',
+  ].join('\n')
+
+  return { subject: `Verbatim run PARTIAL — ${clientName}`, text }
+}
