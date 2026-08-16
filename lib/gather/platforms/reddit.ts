@@ -1,5 +1,5 @@
 import type { PlatformAdapter } from '../types'
-import { APIFY_ACTORS, REDDIT_COMMENT_DEPTH_CAP, REDDIT_HARVEST_POSTS, passAMinComments } from '../../config'
+import { APIFY_ACTORS, REDDIT_COMMENT_DEPTH_CAP, REDDIT_HARVEST_POSTS, REDDIT_KEYWORD_SEARCH_POSTS, passAMinComments } from '../../config'
 import { num, str, first, toDateOnly } from '../util'
 import { tagVideo } from '../tagging'
 
@@ -78,7 +78,11 @@ export const reddit: PlatformAdapter = {
         searchCommunities: false,
         searchSort: 'relevance',
         searchTime: periodToTimeFilter(config.report_period),
-        maxPostsCount: limit,
+        // Its own cap, well under max_videos: keyword search is the WEAKER of
+        // Reddit's two sources now that harvest exists (a keyword search cannot
+        // see the ~75% of relevant posts that never mention a tracked term), and
+        // at full volume it was this platform's largest single cost.
+        maxPostsCount: Math.min(limit, REDDIT_KEYWORD_SEARCH_POSTS),
         // Comments are NOT crawled here on purpose: the relevance gate sits
         // between search and comment scrape, so paying for comments now would
         // buy them for junk posts too.

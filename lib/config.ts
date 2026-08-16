@@ -233,6 +233,22 @@ export const REDDIT_COMMENT_DEPTH_CAP = 40
  *  cap it would pull `max_videos` (70 for Ossur) from EVERY active community. */
 export const REDDIT_HARVEST_POSTS = 25
 
+/**
+ * Posts per KEYWORD search on Reddit — deliberately far below max_videos.
+ *
+ * Site-wide keyword search was the whole Reddit plan before community harvest
+ * existed. Harvest is strictly better at that job: measured 2026-08-16, 15 of 20
+ * harvested r/amputee posts contained no tracked keyword at all, so a keyword
+ * search cannot see three quarters of the relevant conversation. What keyword
+ * search still adds is reach OUTSIDE the active communities.
+ *
+ * It can't be dropped: a tenant whose discovery hasn't converged yet has no
+ * active communities, and this is then their only Reddit source. So it stays,
+ * at a fraction of the volume — 8 keywords x 70 posts was ~$1.28/run, the
+ * single largest Reddit line item, for the weaker of the two sources.
+ */
+export const REDDIT_KEYWORD_SEARCH_POSTS = 20
+
 /** Fresh comment scrapes per run for Reddit. The dominant cost by far: the actor
  *  bills $0.02 per START and the spine scrapes one post per run, so ~$0.06 a
  *  post once a thread's comments are counted. Uncapped, two harvested
@@ -244,10 +260,18 @@ export const REDDIT_HARVEST_POSTS = 25
  *  steady state rather than an edge case — a harvest re-pulls a community's
  *  newest posts weekly and Reddit threads keep accruing comments, with no free
  *  count lookup to avoid paying. So Reddit's real comment-scrape ceiling is
- *  25 + 25 = 50 scrapes ~= $3.00, and full worst-case Reddit spend at the Ossur
- *  shape (8 keywords, 5 active communities) is ~$3.3-4.8/run, NOT the ~$2 the
- *  original budget note assumed. Measured 2026-08-16. Lower this constant, or
- *  cap active communities, if that ceiling isn't acceptable. */
+ *  25 + 25 = 50 scrapes ~= $2.60-3.00 — the dominant line by far.
+ *
+ *  Worst case at the Ossur shape (8 keywords, 5 active communities) is
+ *  ~$3.2-3.5/run after REDDIT_KEYWORD_SEARCH_POSTS cut the keyword-search line
+ *  from ~$1.28 to ~$0.48. NOT the ~$2 the original budget note assumed.
+ *
+ *  Note what is NOT a useful lever: the number of active communities. These caps
+ *  are per-run and per-platform, not per-community, so each extra community adds
+ *  only its own harvest search (~$0.07) — and since the fixed scrape budget is
+ *  spent richest-first, MORE communities means a better candidate pool for the
+ *  same money. To go lower, cut these two caps, not the community count.
+ *  Measured 2026-08-16. */
 export const REDDIT_COMMENT_SCRAPE_CAP = 25
 
 // --- Subreddit discovery probe (Wave 3) --------------------------------------

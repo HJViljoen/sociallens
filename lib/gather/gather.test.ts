@@ -182,8 +182,16 @@ describe('reddit.videoSearch', () => {
     const { input } = reddit.videoSearch!(config, ['ossur prosthetic'], 50)
     expect(input.crawlCommentsPerPost).toBe(false)
     expect(input.searchTerms).toEqual(['ossur prosthetic'])
-    expect(input.maxPostsCount).toBe(50)
     expect(input.searchTime).toBe('week') // weekly report period
+  })
+
+  it('caps keyword volume — harvest is the stronger source now', () => {
+    // A keyword search can't see the ~75% of relevant Reddit posts that never
+    // mention a tracked term, and at max_videos it was the platform's largest
+    // single cost. It stays (a tenant pre-convergence has no communities) but
+    // at a fraction of the volume.
+    expect(reddit.videoSearch!(config, ['ossur'], 70).input.maxPostsCount).toBe(20)
+    expect(reddit.videoSearch!(config, ['ossur'], 5).input.maxPostsCount).toBe(5)
   })
 })
 
