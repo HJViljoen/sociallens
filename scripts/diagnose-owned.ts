@@ -1,5 +1,5 @@
 import { createAdminClient } from '../lib/supabase-admin'
-import { fetchOwnProfile, ownedCommentRefs, OWN_POSTS_LIMIT } from '../lib/gather/owned'
+import { fetchOwnProfile, ownedCommentRefs, stampOwnedSource, OWN_POSTS_LIMIT } from '../lib/gather/owned'
 import { resolveGatherWindow, scrapeCommentsBatch } from '../lib/gather/gather'
 import { COMMENT_THRESHOLD } from '../lib/config'
 import type { Platform } from '../lib/gather/types'
@@ -69,7 +69,7 @@ async function main() {
 
     const { data: existing, error: exErr } = await admin
       .from('videos')
-      .select('video_id')
+      .select('video_id, source')
       .eq('client_id', clientId)
       .eq('platform', platform)
       .in('video_id', profile.recentPosts.map((p) => p.video_id))
@@ -77,8 +77,8 @@ async function main() {
       console.log(`  EXISTING-CHECK ERROR: ${exErr.message}`)
       continue
     }
-    const known = new Set((existing ?? []).map((r) => r.video_id as string))
-    console.log(`  already known: ${known.size}/${profile.recentPosts.length} → ${profile.recentPosts.length - known.size} would be stamped source:'owned'`)
+    const known = (existing ?? []) as { video_id: string; source: string | null }[]
+    console.log(`  already known: ${known.length}/${profile.recentPosts.length} → ${profile.recentPosts.length - known.length} would be stamped source:'owned'`)
 
     const refs = ownedCommentRefs(profile.recentPosts, {
       windowStart: window.since,
@@ -90,9 +90,10 @@ async function main() {
       console.log('  (dry run — no write attempted)')
       continue
     }
-    const rows = profile.recentPosts.map((p) =>
-      known.has(p.video_id) ? p : { ...p, source: 'owned' as const },
-    )
+    // Shares the pipeline's own source-stamping, deliberately — an inline copy
+    // here drifted from the fix once already (2026-08-16) and re-reproduced the
+    // 23502 it was supposed to prove fixed.
+    const rows = stampOwnedSource(profile.recentPosts, known)
     const { error } = await admin.from('videos').upsert(rows, { onConflict: 'client_id,platform,video_id' })
     if (error) {
       console.log(`  UPSERT ERROR: ${error.code} ${error.message}`)
