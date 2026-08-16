@@ -8,7 +8,7 @@ import { runPassB } from '@/lib/pipeline/pass-b'
 import { runPassC } from '@/lib/pipeline/pass-c'
 import { runPassD } from '@/lib/pipeline/pass-d'
 import { runCrossReference } from '@/lib/pipeline/cross-reference'
-import { loadBrandClaims } from '@/lib/pipeline/claims'
+import { loadBrandClaims, shapeBrandVoice } from '@/lib/pipeline/claims'
 import { attributeRunKeywords } from '@/lib/pipeline/keyword-attribution'
 import { planClassifyMetaBatches, runClassifyMetaBatch } from '@/lib/pipeline/classify-meta'
 import { ingestOwnedPosts, supportsOwnedProfile } from '@/lib/gather/owned'
@@ -271,6 +271,40 @@ export const runPipeline = inngest.createFunction(
             }),
           )
         }
+        // Owned layer (Wave 2): the client's own recent posts + their comments,
+        // stamped source:'owned' — feeds Step 2c, never the discovered-corpus
+        // metrics (SoV guard). Non-fatal: catch on the step promise.
+        // Runs BEFORE the transcribe steps (moved 2026-08-16, Brand Voice) so
+        // the own posts' video_raw rows are in this run's transcribe plan —
+        // step IDs unchanged, order only.
+        // supportsOwnedProfile: Reddit has no owned-account concept, so an
+        // own_handles.reddit entry is skipped rather than thrown (Wave 3).
+        if (ownedHandles[platform] && supportsOwnedProfile(platform)) {
+          const owned = await step
+            .run(`owned-posts:${platform}`, () =>
+              ingestOwnedPosts({ clientId, runId, platform, handle: ownedHandles[platform], windowStart: ownedPlan.windowStart }),
+            )
+            .catch((e) => {
+              console.error(`[owned-posts:${platform}] out of retries: ${e instanceof Error ? e.message : String(e)}`)
+              noteError(`owned-posts:${platform}`, e)
+              return { refs: [] as { video_id: string; video_url: string; comments_count: number }[], warnings: [] as string[] }
+            })
+          // Best-effort degradations (IG transcript refetch, video_raw write)
+          // count as run errors: the week's own-voice claims are missing, and
+          // a run that says so is the point of 'partial'.
+          for (const w of owned.warnings) noteError(`owned-posts:${platform}`, w)
+          const ownedRefs = owned.refs
+          for (let w = 0; w < ownedRefs.length; w += COMMENT_BATCH) {
+            await step
+              .run(`owned-comments:${platform}:${Math.floor(w / COMMENT_BATCH) + 1}`, () =>
+                scrapeCommentsBatch({ clientId, runId, platform: platform as Platform, refs: ownedRefs.slice(w, w + COMMENT_BATCH), source: 'owned' }),
+              )
+              .catch((e) => {
+                noteError(`owned-comments:${platform}`, e)
+                return { comments: 0, errors: ['owned comment scrape failed'] }
+              })
+          }
+        }
         // Transcripts (flag-gated), fanned out like Pass A: a plan step chunks
         // this run's pending candidates signal-first (TRANSCRIBE_BATCH per
         // step), then batches dispatch in parallel waves. One sequential
@@ -305,32 +339,6 @@ export const runPipeline = inngest.createFunction(
           }
         }
 
-        // Owned layer (Wave 2): the client's own recent posts + their comments,
-        // stamped source:'owned' — feeds Step 2c, never the discovered-corpus
-        // metrics (SoV guard). Non-fatal: catch on the step promise.
-        // supportsOwnedProfile: Reddit has no owned-account concept, so an
-        // own_handles.reddit entry is skipped rather than thrown (Wave 3).
-        if (ownedHandles[platform] && supportsOwnedProfile(platform)) {
-          const ownedRefs = await step
-            .run(`owned-posts:${platform}`, () =>
-              ingestOwnedPosts({ clientId, runId, platform, handle: ownedHandles[platform], windowStart: ownedPlan.windowStart }),
-            )
-            .catch((e) => {
-              console.error(`[owned-posts:${platform}] out of retries: ${e instanceof Error ? e.message : String(e)}`)
-              noteError(`owned-posts:${platform}`, e)
-              return [] as { video_id: string; video_url: string; comments_count: number }[]
-            })
-          for (let w = 0; w < ownedRefs.length; w += COMMENT_BATCH) {
-            await step
-              .run(`owned-comments:${platform}:${Math.floor(w / COMMENT_BATCH) + 1}`, () =>
-                scrapeCommentsBatch({ clientId, runId, platform: platform as Platform, refs: ownedRefs.slice(w, w + COMMENT_BATCH), source: 'owned' }),
-              )
-              .catch((e) => {
-                noteError(`owned-comments:${platform}`, e)
-                return { comments: 0, errors: ['owned comment scrape failed'] }
-              })
-          }
-        }
       } catch (e) {
         noteError(`platform:${platform}`, e)
       }
@@ -619,10 +627,12 @@ const THEMES_PARALLEL = 2
 // avoidance as everywhere else.
 async function planPassABatches(clientId: string): Promise<string[][]> {
   const admin = createAdminClient()
-  // Discovered corpus only — owned posts must never enter Pass A (their fans'
-  // comments would contaminate audience themes; Step 2c is their consumer).
-  const videos = await selectAll<{ id: string; platform: string; video_id: string; is_client: boolean | null; is_competitor: boolean | null; transcript_status: string | null }>(() =>
-    admin.from('videos').select('id, platform, video_id, is_client, is_competitor, transcript_status').eq('client_id', clientId).eq('source', 'discovered').order('id', { ascending: true }),
+  // Discovered corpus + the client's OWN posts. Owned posts never take the
+  // full lane (their fans' comments would contaminate audience themes; Step 2c
+  // is their consumer) — passALane admits them to the claims lane only, when
+  // they carry a usable transcript (Brand Voice, 2026-08-16).
+  const videos = await selectAll<{ id: string; platform: string; video_id: string; is_client: boolean | null; is_competitor: boolean | null; transcript_status: string | null; source: string | null }>(() =>
+    admin.from('videos').select('id, platform, video_id, is_client, is_competitor, transcript_status, source').eq('client_id', clientId).in('source', ['discovered', 'owned']).order('id', { ascending: true }),
   )
   const counts = new Map<string, number>()
   const comments = await selectAll<{ platform: string; video_id: string }>(() =>
@@ -695,7 +705,9 @@ async function runSynthesisHalf(clientId: string, runId: string) {
 
   // Brand claims (Step 2b) — all-time accumulation, newest-run-per-video,
   // tracked competitors only; empty for tenants that never ran Pass A v4.
-  const claims = await loadBrandClaims(admin, clientId, tc?.competitor_names ?? [])
+  // Client claims split by voice: `client` = the brand speaking (own posts +
+  // own accounts) → say-vs-hear; `about` = third parties → the About-you block.
+  const claims = await loadBrandClaims(admin, clientId, tc?.competitor_names ?? [], tc?.brand_keywords ?? [])
 
   // Floor-passing themes only — early signals surface on pages, not in C/D.
   const themes = (await loadThemes(clientId, runId)).filter((t) => !t.singleSource)
@@ -714,7 +726,8 @@ async function runSynthesisHalf(clientId: string, runId: string) {
   await writeRunSummary({
     clientId, runId, metrics, videos,
     periodMetrics, periodVideos,
-    ciSummary: d.ciSummary, executiveBrief: d.executiveBrief, sayVsHear: d.sayVsHear, period: tc?.report_period ?? null,
+    ciSummary: d.ciSummary, executiveBrief: d.executiveBrief, sayVsHear: d.sayVsHear,
+    brandVoice: shapeBrandVoice(claims, tc?.brand_keywords ?? []), period: tc?.report_period ?? null,
   })
 
   return {

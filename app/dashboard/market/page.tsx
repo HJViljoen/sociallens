@@ -10,6 +10,7 @@ import { Quotes } from '@/components/quotes'
 import type { GlossaryKey } from '@/lib/calibration'
 import { rankByTheme, fetchQuotesByAudience, createQuotePicker, bucketByAudienceId, scopeToClientVoices, type ThemeBucketRow } from '@/lib/quotes'
 import type { CiSummary, SayVsHearEntry } from '@/lib/pipeline/schemas'
+import type { BrandVoiceSnapshot } from '@/lib/pipeline/claims'
 
 // Market Intelligence — "What should we do?" (Redesign Spec §3). The editorial
 // layer over Pass D: the consumer-intelligence summary leads (the "someone
@@ -87,7 +88,7 @@ function EvidenceChip({ tier }: { tier: GateTier }) {
   return null
 }
 
-const LEGEND_ITEMS: GlossaryKey[] = ['conversations', 'say_vs_hear', 'act_now', 'plan_next', 'worth_considering', 'strong_evidence', 'early_signal']
+const LEGEND_ITEMS: GlossaryKey[] = ['conversations', 'say_vs_hear', 'about_you', 'act_now', 'plan_next', 'worth_considering', 'strong_evidence', 'early_signal']
 
 export default async function MarketIntelligencePage({
   searchParams,
@@ -127,7 +128,7 @@ export default async function MarketIntelligencePage({
       .eq('client_id', clientId).eq('run_id', runId),
     supabase.from('competitive_insights').select('id, evidence, impact_level')
       .eq('client_id', clientId).eq('run_id', runId),
-    supabase.from('run_summary').select('consumer_intelligence_summary, say_vs_hear')
+    supabase.from('run_summary').select('consumer_intelligence_summary, say_vs_hear, brand_voice')
       .eq('client_id', clientId).eq('run_id', runId).maybeSingle(),
     // Single-source pills must clear the same strength bar as early-signal
     // insights — "Early signal" is a calibrated term, not a catch-all for
@@ -149,6 +150,10 @@ export default async function MarketIntelligencePage({
   const competitive = (ciRes.data ?? []) as CompetitiveRef[]
   const ciSummary = (summaryRes.data?.consumer_intelligence_summary ?? null) as CiSummary | null
   const sayVsHear = (summaryRes.data?.say_vs_hear ?? null) as SayVsHearEntry[] | null
+  const brandVoice = (summaryRes.data?.brand_voice ?? null) as BrandVoiceSnapshot | null
+  // The strip needs a brand-side voice to talk about; competitor claims alone
+  // (or a tenant with no data yet) render nothing.
+  const hasBrandVoice = !!brandVoice && brandVoice.counts.own + brandVoice.counts.about > 0
   const singleSourceThemes = (ssRes.data ?? []) as SingleSourceTheme[]
   const singleSourceTotal = ssRes.count ?? singleSourceThemes.length
 
@@ -269,9 +274,14 @@ export default async function MarketIntelligencePage({
       {/* The short read — a tight at-a-glance digest (spec §3.1) */}
       {ciSummary && <ShortRead s={ciSummary} />}
 
-      {/* Say vs hear (Step 2b) — the brand's own video claims set against the
-          tracked conversation. Self-gates: null/empty renders nothing. */}
+      {/* Brand voice (2026-08-16): who is speaking on brand-side videos — the
+          client (own posts + own accounts), third parties about the client, and
+          competitors. Roll-up strip first; the say-vs-hear contrast quotes ONLY
+          the client's own voice; "About you" is evidence-only, their words. All
+          three self-gate on the run_summary snapshot. */}
+      {hasBrandVoice && !nothingYet && <BrandVoiceStrip counts={brandVoice!.counts} />}
       {sayVsHear && sayVsHear.length > 0 && <SayVsHearSection entries={sayVsHear} themeSlugById={themeSlugById} />}
+      {brandVoice && brandVoice.about.length > 0 && <AboutYouSection entries={brandVoice.about} />}
 
       {/* Top recommendations (spec §3.2) — the outcome, promoted above insights */}
       {recommendations.length > 0 && (
@@ -433,6 +443,62 @@ function SayVsHearSection({ entries, themeSlugById }: { entries: SayVsHearEntry[
             </Card>
           )
         })}
+      </div>
+    </section>
+  )
+}
+
+/** One honest line above the brand-voice blocks: how many claims each speaker
+ *  contributes — ALL-TIME (claims accumulate across updates, decision D1),
+ *  post-hygiene, uncapped, so the label says "so far", not "this update".
+ *  "Client as a whole" is this roll-up — never a pooled claim list, which is
+ *  what misattributed third-party words as "You say" before 2026-08-16. */
+function BrandVoiceStrip({ counts }: { counts: BrandVoiceSnapshot['counts'] }) {
+  const part = (n: number, label: string) => (
+    <span className="inline-flex items-baseline gap-1.5">
+      <span className="text-base font-semibold tabular-nums text-foreground">{n}</span>
+      <span>{label}</span>
+    </span>
+  )
+  return (
+    <p className="flex flex-wrap items-baseline gap-x-4 gap-y-1 text-sm text-muted-foreground">
+      <span className="text-xs font-medium uppercase tracking-wide">Brand voice so far</span>
+      {part(counts.own, counts.own === 1 ? 'claim in your voice' : 'claims in your voice')}
+      <span aria-hidden>·</span>
+      {part(counts.about, 'about you')}
+      <span aria-hidden>·</span>
+      {part(counts.competitors, 'from competitors')}
+    </p>
+  )
+}
+
+/** About you — third parties talking about the brand (a reviewer, a clinic, a
+ *  news channel), quoted verbatim from their transcripts. Evidence-only, no
+ *  synthesis: the quote is the subject, the claim its annotation, the speaker
+ *  named. These are is_client videos ("about the brand") that are NOT the
+ *  brand speaking — kept out of say-vs-hear on purpose. */
+function AboutYouSection({ entries }: { entries: BrandVoiceSnapshot['about'] }) {
+  return (
+    <section className="space-y-4">
+      <SectionHeading label="What others say about you" hint="Other people&rsquo;s videos that name your brand &mdash; their words, not yours, and not your audience" />
+      <div className="grid gap-4 md:grid-cols-2">
+        {entries.map((e, i) => (
+          <Card key={i}>
+            <CardContent className="pt-6 space-y-3">
+              <blockquote className="border-l-2 pl-3 text-sm italic">&ldquo;{e.quote}&rdquo;</blockquote>
+              <p className="text-sm text-muted-foreground">{e.claim}</p>
+              <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                <span title={glossaryRule('about_you')} className={`${chipBase} bg-muted text-muted-foreground`}>{e.account}</span>
+                {e.platform && <span className="capitalize">{e.platform}</span>}
+                {e.url && (
+                  <a href={e.url} target="_blank" rel="noopener noreferrer" className="underline underline-offset-2 hover:text-foreground">
+                    Watch
+                  </a>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+        ))}
       </div>
     </section>
   )

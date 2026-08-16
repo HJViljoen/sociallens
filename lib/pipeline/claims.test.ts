@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { selectClaims } from './claims'
+import { selectClaims, ownVoice, shapeBrandVoice, mentionsBrand, MAX_CLAIMS_PER_ENTITY, ABOUT_YOU_MAX } from './claims'
 
 const TRACKED = ['Cotopaxi', 'Topo Designs']
 
@@ -74,5 +74,112 @@ describe('selectClaims', () => {
     expect(capped.competitors.filter((c) => c.competitor === 'Cotopaxi')).toHaveLength(3)
     expect(capped.competitors.filter((c) => c.competitor === 'Topo Designs')).toHaveLength(3)
     expect(capped.client).toHaveLength(3)
+  })
+})
+
+describe('ownVoice — is this client-bucket video the client speaking?', () => {
+  const OSSUR = ['Össur', 'ossur']
+  it('an owned post is own voice regardless of account name', () => {
+    expect(ownVoice({ source: 'owned', account_name: 'whatever' }, OSSUR)).toBe(true)
+  })
+  it("a discovered video from one of the client's own accounts is own voice (name folds to a brand keyword)", () => {
+    expect(ownVoice({ source: 'discovered', account_name: 'ÖSSUR' }, OSSUR)).toBe(true)
+    expect(ownVoice({ source: 'discovered', account_name: 'Össur Academy' }, OSSUR)).toBe(true)
+    expect(ownVoice({ source: 'discovered', account_name: 'Össur DE' }, OSSUR)).toBe(true)
+  })
+  it('a third party talking about the client is NOT own voice — the 2026-08-16 misattribution', () => {
+    expect(ownVoice({ source: 'discovered', account_name: 'McMorris Prosthetic Services' }, OSSUR)).toBe(false)
+    expect(ownVoice({ source: 'discovered', account_name: 'The Sport Verdict' }, OSSUR)).toBe(false)
+    expect(ownVoice({ source: 'discovered', account_name: 'tunl.to' }, ['Sealand', 'Sealand Gear'])).toBe(false)
+  })
+  it('null account, empty keywords, or a too-short keyword never match', () => {
+    expect(ownVoice({ source: 'discovered', account_name: null }, OSSUR)).toBe(false)
+    expect(ownVoice({ source: 'discovered', account_name: 'ÖSSUR' }, [])).toBe(false)
+    expect(ownVoice({ source: 'discovered', account_name: 'ÖSSUR' }, null)).toBe(false)
+    expect(ownVoice({ source: 'discovered', account_name: 'Sport Verdict' }, ['or'])).toBe(false)
+  })
+})
+
+describe('selectClaims — voice split', () => {
+  it('routes client claims by voice: own → client, about → about; competitors untouched', () => {
+    const r = selectClaims([
+      row({ entity: 'client', competitor_name: null, source_video_id: 'own1', claim: 'Proprio Foot adapts to terrain', voice: 'own', account: 'ÖSSUR', platform: 'youtube', url: 'https://youtu.be/x' }),
+      row({ entity: 'client', competitor_name: null, source_video_id: 'rev1', claim: 'ProFlex is the model they base all their feet on', voice: 'about', account: 'McMorris Prosthetic Services', platform: 'youtube', url: 'https://youtu.be/y' }),
+      row(),
+    ], TRACKED)
+    expect(r.client.map((c) => c.claim)).toEqual(['Proprio Foot adapts to terrain'])
+    expect(r.about).toEqual([{ competitor: null, claim: 'ProFlex is the model they base all their feet on', quote: row().quote, voice: 'about', account: 'McMorris Prosthetic Services', platform: 'youtube', url: 'https://youtu.be/y' }])
+    expect(r.competitors).toHaveLength(1)
+  })
+
+  it('a client row without a voice is treated as own voice (pre-voice callers)', () => {
+    const r = selectClaims([row({ entity: 'client', competitor_name: null, source_video_id: 'c1' })], TRACKED)
+    expect(r.client).toHaveLength(1)
+    expect(r.about).toHaveLength(0)
+  })
+
+  it('caps own and about separately — a busy reviewer cannot crowd out the client\'s own words', () => {
+    const rows = [
+      ...Array.from({ length: MAX_CLAIMS_PER_ENTITY + 3 }, (_, i) => row({ entity: 'client', competitor_name: null, source_video_id: `rev${i}`, claim: `review claim ${i}`, voice: 'about' as const })),
+      row({ entity: 'client', competitor_name: null, source_video_id: 'own1', claim: 'own claim', voice: 'own' as const }),
+    ]
+    const r = selectClaims(rows, TRACKED)
+    expect(r.about).toHaveLength(MAX_CLAIMS_PER_ENTITY)
+    expect(r.client.map((c) => c.claim)).toEqual(['own claim'])
+  })
+})
+
+describe('selectClaims counts + shapeBrandVoice', () => {
+  const BRAND = ['Sealand']
+  const about = (i: number, url = `https://youtu.be/v${i}`, claim = `Sealand about claim ${i}`) =>
+    row({ entity: 'client', competitor_name: null, source_video_id: `rev${i}`, claim, voice: 'about' as const, account: `Reviewer ${i}`, platform: 'youtube', url })
+
+  it('counts are post-hygiene but PRE-cap, so the roll-up stays honest past 12', () => {
+    const rows = [
+      ...Array.from({ length: 15 }, (_, i) => about(i)),
+      row({ entity: 'client', competitor_name: null, source_video_id: 'own1', claim: 'own', voice: 'own' as const }),
+      row(),
+    ]
+    const r = selectClaims(rows, TRACKED)
+    expect(r.counts).toEqual({ own: 1, about: 15, competitors: 1 })
+    expect(r.about).toHaveLength(MAX_CLAIMS_PER_ENTITY)
+  })
+
+  it('shapes the About-you block: ≤2 per video, claim-text dedupe, capped, speaker + platform + url carried', () => {
+    const rows = [
+      about(1, 'https://youtu.be/A', 'Sealand A first'), about(2, 'https://youtu.be/A', 'Sealand A second'), about(3, 'https://youtu.be/A', 'Sealand A third'),
+      about(4, 'https://youtu.be/B', 'Sealand same words'), about(5, 'https://youtu.be/C', 'Sealand same  words'),
+      ...Array.from({ length: 10 }, (_, i) => about(10 + i, `https://youtu.be/D${i}`, `Sealand unique ${i}`)),
+    ]
+    const snap = shapeBrandVoice(selectClaims(rows, TRACKED, 100), BRAND)
+    expect(snap.about.filter((e) => e.url === 'https://youtu.be/A')).toHaveLength(2)
+    expect(snap.about.filter((e) => e.claim.toLowerCase().replace(/\s+/g, ' ') === 'sealand same words')).toHaveLength(1)
+    expect(snap.about).toHaveLength(ABOUT_YOU_MAX)
+    expect(snap.about[0]).toEqual({ claim: 'Sealand A first', quote: row().quote, account: 'Reviewer 1', platform: 'youtube', url: 'https://youtu.be/A' })
+    expect(snap.counts.about).toBe(15)
+  })
+
+  it('an empty about side yields an empty block but keeps the counts', () => {
+    const snap = shapeBrandVoice(selectClaims([row()], TRACKED), BRAND)
+    expect(snap).toEqual({ counts: { own: 0, about: 0, competitors: 1 }, about: [] })
+  })
+
+  it("drops About-you claims that never name the brand — a shipping company's copy is not 'about you' (review 2026-08-16)", () => {
+    const rows = [
+      about(1, 'https://i/1', 'Tunl is an international shipping company based in Cape Town'),
+      about(2, 'https://i/2', 'Sealand Gear bags come with a lifetime warranty'),
+    ]
+    const snap = shapeBrandVoice(selectClaims(rows, TRACKED), ['sealandgear', 'sealand gear'])
+    expect(snap.about.map((e) => e.claim)).toEqual(['Sealand Gear bags come with a lifetime warranty'])
+    expect(snap.counts.about).toBe(2) // the roll-up still counts what Pass A stored
+  })
+})
+
+describe('mentionsBrand', () => {
+  it('matches in the claim OR the quote, fold-insensitive; short keywords never match', () => {
+    expect(mentionsBrand({ claim: 'ProFlex has a sandal toe', quote: 'Össur builds it' }, ['ossur'])).toBe(true)
+    expect(mentionsBrand({ claim: 'ProFlex has a sandal toe', quote: 'the foot is light' }, ['ossur'])).toBe(false)
+    expect(mentionsBrand({ claim: 'anything', quote: 'x' }, ['or'])).toBe(false)
+    expect(mentionsBrand({ claim: 'anything', quote: 'x' }, null)).toBe(false)
   })
 })

@@ -5,6 +5,8 @@ import {
   supportsOwnedProfile,
   emptyProfileIsGlitch,
   stampOwnedSource,
+  ownedRawRows,
+  igRawsByShortcode,
 } from './owned'
 
 describe('supportsOwnedProfile', () => {
@@ -119,5 +121,33 @@ describe('stampOwnedSource', () => {
   it('preserves every input field', () => {
     const rows = stampOwnedSource([{ video_id: 'a', views: 12 }], [])
     expect(rows[0]).toEqual({ video_id: 'a', views: 12, source: 'owned' })
+  })
+})
+
+describe('ownedRawRows — own posts into the transcribe pool (Brand Voice)', () => {
+  const ctx = { clientId: 'c', runId: 'r' }
+  const post = (video_id: string, platform: 'youtube' | 'tiktok' | 'instagram' = 'youtube') =>
+    ({ video_id, platform, video_url: `u/${video_id}` }) as unknown as Parameters<typeof ownedRawRows>[0][number]
+
+  it('files one video_raw row per post that has a raw item, keyed by this run', () => {
+    const rows = ownedRawRows([post('a'), post('b')], { a: { id: 'a' } }, ctx)
+    expect(rows).toEqual([{ client_id: 'c', run_id: 'r', platform: 'youtube', video_id: 'a', raw: { id: 'a' } }])
+  })
+  it('returns nothing when the profile carried no raws (IG refetch failed)', () => {
+    expect(ownedRawRows([post('a')], undefined, ctx)).toEqual([])
+  })
+})
+
+describe('igRawsByShortcode', () => {
+  it('keys posts-mode items by shortCode with a url fallback; first wins; skips junk', () => {
+    const out = igRawsByShortcode([
+      { shortCode: 'Db6AVCIiJPK', audioUrl: 'x' },
+      { url: 'https://www.instagram.com/reel/Dbn476REwYZ/', videoUrl: 'y' },
+      { shortCode: 'Db6AVCIiJPK', audioUrl: 'dup' },
+      null as unknown as Record<string, unknown>,
+      { nothing: true },
+    ])
+    expect(Object.keys(out)).toEqual(['Db6AVCIiJPK', 'Dbn476REwYZ'])
+    expect(out.Db6AVCIiJPK.audioUrl).toBe('x')
   })
 })

@@ -1,6 +1,7 @@
 import { runActor } from './apify'
 import { createAdminClient } from '../supabase-admin'
-import { APIFY_ACTORS, COMMENT_THRESHOLD } from '../config'
+import { APIFY_ACTORS, COMMENT_THRESHOLD, transcriptsEnabled } from '../config'
+import { instagram } from './platforms/instagram'
 import type { RawItem, VideoInsert } from './types'
 import { getPath, first, num, str } from './util'
 
@@ -39,6 +40,15 @@ export interface OwnProfile {
   followers: number | null
   postsCount: number | null
   recentPosts: VideoInsert[]
+  /** Raw item per recent post (video_id → item), for the transcript layer
+   *  (Brand Voice, 2026-08-16). Own posts used to bypass `video_raw` and so
+   *  were never transcribed on any platform — the client's own words were
+   *  invisible to say-vs-hear. YT: the Data API item · TT: the profile item
+   *  (media/caption fields kept via customMapFunction) · IG: the full post
+   *  from a posts-mode refetch (the profile read returns summaries only). */
+  raws?: Record<string, RawItem>
+  /** Non-fatal problems worth a run error (e.g. the IG transcript refetch failed). */
+  warnings?: string[]
 }
 
 /** How many recent own posts a profile read pulls (weekly own-post ingestion
@@ -177,11 +187,13 @@ function igProfile(handle: string, raw: RawItem[], ctx: Ctx): OwnProfile {
 function ttProfile(handle: string, raw: RawItem[], ctx: Ctx): OwnProfile {
   const channel = (raw[0] as RawItem | undefined)?.channel as RawItem | undefined
   const recentPosts: VideoInsert[] = []
+  const raws: Record<string, RawItem> = {}
   for (const item of raw.slice(0, OWN_POSTS_LIMIT)) {
     const v = item as RawItem
     const id = str(v.id)
     const url = str(getPath(v, ['postPage']))
     if (!id || !url) continue
+    raws[id] = v
     const views = num(v.views)
     const likes = num(v.likes)
     const comments = num(v.comments)
@@ -221,6 +233,7 @@ function ttProfile(handle: string, raw: RawItem[], ctx: Ctx): OwnProfile {
     followers,
     postsCount: channel?.videos == null ? null : num(channel.videos),
     recentPosts,
+    raws,
   }
 }
 
@@ -241,6 +254,7 @@ async function ytProfile(channelId: string, ctx: Ctx): Promise<OwnProfile> {
   const stats = channel.statistics as RawItem
   const uploads = str(getPath(channel, ['contentDetails', 'relatedPlaylists', 'uploads']))
 
+  const raws: Record<string, RawItem> = {}
   const recentPosts: VideoInsert[] = []
   if (uploads) {
     const plRes = await fetch(`${base}/playlistItems?part=contentDetails&playlistId=${uploads}&maxResults=${OWN_POSTS_LIMIT}&key=${key}`)
@@ -256,6 +270,7 @@ async function ytProfile(channelId: string, ctx: Ctx): Promise<OwnProfile> {
           for (const v of vs.items ?? []) {
             const id = str(v.id)
             if (!id) continue
+            raws[id] = v
             const vStats = (v.statistics ?? {}) as RawItem
             const snippet = (v.snippet ?? {}) as RawItem
             const views = num(vStats.viewCount)
@@ -295,6 +310,7 @@ async function ytProfile(channelId: string, ctx: Ctx): Promise<OwnProfile> {
     followers: stats.subscriberCount == null ? null : num(stats.subscriberCount),
     postsCount: stats.videoCount == null ? null : num(stats.videoCount),
     recentPosts,
+    raws,
   }
 }
 
@@ -312,16 +328,61 @@ export async function fetchOwnProfile(
       resultsType: 'details',
       resultsLimit: 1,
     }, { timeoutSecs: 120 })
-    return igProfile(handle, raw, ctx)
+    const profile = igProfile(handle, raw, ctx)
+    // The details read returns post SUMMARIES (no media url). For the
+    // transcript layer, refetch the recent posts in posts mode — the same
+    // by-URL call the backfill uses — and key the full items by shortcode.
+    // Best-effort: a refetch failure costs this week's own transcripts, not
+    // the owned layer — but it is REPORTED (profile.warnings → run errors), so
+    // a week with zero own-voice claims never passes as a clean run.
+    if (transcriptsEnabled() && profile.recentPosts.length) {
+      try {
+        const { actor, input } = instagram.refetchByUrl!(profile.recentPosts.map((p) => p.video_url))
+        const full = await runActor(actor, input, { timeoutSecs: 180 })
+        profile.raws = igRawsByShortcode(full)
+        const filed = profile.recentPosts.filter((p) => profile.raws![p.video_id]).length
+        if (filed === 0) profile.warnings = [`instagram refetch returned no matching posts (${full.length} items for ${profile.recentPosts.length} posts)`]
+      } catch (e) {
+        profile.warnings = [`instagram refetch for transcripts failed: ${e instanceof Error ? e.message : String(e)}`]
+      }
+    }
+    return profile
   }
   if (platform === 'tiktok') {
     const raw = await runActor(APIFY_ACTORS.tiktok.video, {
       startUrls: [`https://www.tiktok.com/@${handle}`],
       maxItems: OWN_POSTS_LIMIT,
+      // Keep the media + caption fields — without the passthrough the actor
+      // trims them and the transcript layer has nothing to resolve.
+      customMapFunction: '(object) => { return {...object} }',
     }, { timeoutSecs: 180 })
     return ttProfile(handle, raw, ctx)
   }
   throw new Error(`no own-profile fetcher for platform: ${platform}`)
+}
+
+/** Posts-mode items keyed by shortcode (the IG video_id). Pure; exported for tests. */
+export function igRawsByShortcode(items: RawItem[]): Record<string, RawItem> {
+  const out: Record<string, RawItem> = {}
+  for (const it of items) {
+    if (!it || typeof it !== 'object') continue
+    const code = str(first(it.shortCode, it.shortcode, it.code)) || (str(it.url).match(/\/(?:p|reel|tv)\/([^/?]+)/)?.[1] ?? '')
+    if (code && !out[code]) out[code] = it
+  }
+  return out
+}
+
+/** video_raw rows for this run's own posts that have a raw item — the pool
+ *  the transcribe planner reads. Pure; exported for tests. */
+export function ownedRawRows(
+  posts: VideoInsert[],
+  raws: Record<string, RawItem> | undefined,
+  ctx: Ctx,
+): { client_id: string; run_id: string; platform: string; video_id: string; raw: RawItem }[] {
+  if (!raws) return []
+  return posts
+    .filter((p) => raws[p.video_id])
+    .map((p) => ({ client_id: ctx.clientId, run_id: ctx.runId, platform: p.platform, video_id: p.video_id, raw: raws[p.video_id] }))
 }
 
 /** Own posts new/fresh enough to be worth a paid comment scrape this run:
@@ -352,11 +413,16 @@ export async function ingestOwnedPosts(opts: {
   platform: string
   handle: string
   windowStart: string | null
-}): Promise<{ video_id: string; video_url: string; comments_count: number }[]> {
+}): Promise<{
+  refs: { video_id: string; video_url: string; comments_count: number }[]
+  /** Non-fatal degradations the caller should count as run errors. */
+  warnings: string[]
+}> {
   const profile = await fetchOwnProfile(opts.platform, opts.handle, {
     clientId: opts.clientId,
     runId: opts.runId,
   })
+  const warnings: string[] = [...(profile.warnings ?? [])]
   if (emptyProfileIsGlitch(profile.postsCount, profile.recentPosts.length)) {
     throw new Error(
       `owned profile (${opts.platform} @${opts.handle}) returned 0 recent posts but reports ${profile.postsCount} posts — scrape glitch, retrying`,
@@ -383,9 +449,30 @@ export async function ingestOwnedPosts(opts: {
       .from('videos')
       .upsert(rows, { onConflict: 'client_id,platform,video_id' })
     if (error) throw new Error(`owned posts upsert (${opts.platform}): ${error.message}`)
+
+    // Transcript layer (Brand Voice): file the raw items so this run's
+    // transcribe planner picks the own posts up like any kept video (the
+    // owned block runs BEFORE plan-transcribe for exactly this reason). Own
+    // posts already known as 'discovered' are included too — harmless upsert,
+    // and their NULL status makes them eligible if never transcribed.
+    // NON-FATAL (like gather.ts's own video_raw write): a transcript-layer
+    // hiccup must never take the owned comment layer down with it.
+    if (transcriptsEnabled()) {
+      const rawRows = ownedRawRows(profile.recentPosts, profile.raws, { clientId: opts.clientId, runId: opts.runId })
+      if (rawRows.length) {
+        const { error: rawErr } = await admin
+          .from('video_raw')
+          .upsert(rawRows, { onConflict: 'client_id,platform,video_id,run_id' })
+        if (rawErr) warnings.push(`video_raw upsert failed: ${rawErr.message}`)
+      }
+      console.log(`[owned-posts:${opts.platform}] transcript raws filed: ${rawRows.length}/${profile.recentPosts.length}`)
+    }
   }
-  return ownedCommentRefs(profile.recentPosts, {
-    windowStart: opts.windowStart,
-    threshold: opts.platform === 'youtube' ? 1 : COMMENT_THRESHOLD,
-  })
+  return {
+    refs: ownedCommentRefs(profile.recentPosts, {
+      windowStart: opts.windowStart,
+      threshold: opts.platform === 'youtube' ? 1 : COMMENT_THRESHOLD,
+    }),
+    warnings,
+  }
 }
