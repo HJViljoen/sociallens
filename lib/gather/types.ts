@@ -125,6 +125,14 @@ export interface TranscriptResult {
   gateTokens?: { prompt: number; completion: number }
 }
 
+/** Raw text a `fetchTranscripts` hook hands back — pre-gate. `lang` is whatever
+ *  the platform reports (a name or a code); the caller normalises. */
+export interface FetchedTranscript {
+  text: string
+  lang: string | null
+  source: NonNullable<TranscriptResult['source']>
+}
+
 /** Client/run ids + config threaded into the normalisers. */
 export interface NormaliseCtx {
   clientId: string
@@ -222,7 +230,7 @@ export interface PlatformAdapter {
    * (→ 'no_media'); a MISSING key = the fetch dropped it (→ 'failed', retried
    * next run); a thrown error fails the whole batch (→ step retry).
    */
-  fetchTranscripts?(videoIds: string[]): Promise<Map<string, { text: string; lang: string | null } | null>>
+  fetchTranscripts?(videoIds: string[]): Promise<Map<string, FetchedTranscript | null>>
   /** Raw actor item → VideoInsert. null = skip (unparseable / no url). */
   normaliseVideo(raw: RawItem, ctx: NormaliseCtx): VideoInsert | null
   /** Raw actor item → CommentInsert. null = skip. */

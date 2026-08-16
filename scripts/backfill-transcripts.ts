@@ -1,8 +1,8 @@
 import { createAdminClient, selectAll } from '../lib/supabase-admin'
 import { runActor } from '../lib/gather/apify'
 import { adapters } from '../lib/gather/platforms'
-import { resolveTranscript, classifyTranscript } from '../lib/gather/transcript'
-import type { Platform, RawItem } from '../lib/gather/types'
+import { resolveTranscript, classifyTranscript, gateTranscript, normaliseLang } from '../lib/gather/transcript'
+import type { Platform, RawItem, TranscriptResult } from '../lib/gather/types'
 
 // Transcript backfill for videos ALREADY in the corpus (Step 2 test bed).
 //
@@ -13,14 +13,15 @@ import type { Platform, RawItem } from '../lib/gather/types'
 // left. This re-fetches known videos BY URL (adapter.refetchByUrl), transcribes,
 // and writes the transcript columns — giving Pass A a with/without test bed on
 // the run-1 corpus whose comments are already stored, with no new gather, no new
-// videos, and no corpus pollution.
+// videos, and no corpus pollution. YouTube (Wave 4) needs no refetch: its
+// captions come by video id through adapter.fetchTranscripts, batched.
 //
 // Flags:
 //   --client <uuid>      client_id (default: Sealand)
 //   --limit <n>          videos to transcribe (default 60)
-//   --platform <name>    tiktok | instagram (default: both)
+//   --platform <name>    tiktok | instagram | youtube (default: all three)
 //   --min-comments <n>   min stored comments to qualify (default 5)
-//   --batch <n>          urls per actor call (default 10)
+//   --batch <n>          urls/ids per actor call (default 10)
 //   --force              re-transcribe videos that already have a status
 //   --retry-failed       re-try only the ones that errored (failed / no_media)
 //   --regate             re-run the CONTENT GATE over stored transcripts only —
@@ -28,7 +29,7 @@ import type { Platform, RawItem } from '../lib/gather/types'
 //   --dry-run            pick + report the sample only; no actor calls, no writes
 
 const SEALAND = 'ac16988e-c4f3-4baf-b388-73895852a554'
-const PLATFORMS: Platform[] = ['tiktok', 'instagram']
+const PLATFORMS: Platform[] = ['tiktok', 'instagram', 'youtube']
 
 type Bucket = 'client' | 'competitor' | 'industry'
 
@@ -251,6 +252,50 @@ async function main() {
     const rows = sample.filter((c) => c.platform === platform)
     if (!rows.length) continue
     const adapter = adapters[platform]
+
+    // Paid text platforms (YouTube captions): one actor call per batch of ids,
+    // straight through the shared gate — no refetch, no media, no video_raw.
+    // A failed actor call leaves the batch NULL (still retryable) rather than
+    // stamping 'failed' on ids the actor never saw.
+    if (adapter?.fetchTranscripts) {
+      for (let i = 0; i < rows.length; i += o.batch) {
+        const batch = rows.slice(i, i + o.batch)
+        console.log(`\n[${platform}] batch ${Math.floor(i / o.batch) + 1} — fetching ${batch.length} transcripts`)
+        let fetched
+        try {
+          fetched = await adapter.fetchTranscripts(batch.map((c) => c.video_id))
+        } catch (e) {
+          console.warn(`[${platform}] transcript fetch failed: ${(e as Error).message}`)
+          continue
+        }
+        for (const c of batch) {
+          let t: TranscriptResult
+          if (!fetched.has(c.video_id)) {
+            stats.missing++
+            t = { text: '', lang: null, source: null, status: 'failed' }
+          } else {
+            const f = fetched.get(c.video_id)
+            t = f
+              ? await gateTranscript(f.text, normaliseLang(f.lang), f.source)
+              : { text: '', lang: null, source: null, status: 'no_media' }
+          }
+          stats[t.status]++
+          if (t.status === 'ok') {
+            langs.set(t.lang ?? 'unknown', (langs.get(t.lang ?? 'unknown') ?? 0) + 1)
+            bySource.set(t.source ?? 'unknown', (bySource.get(t.source ?? 'unknown') ?? 0) + 1)
+          }
+          const { error } = await admin
+            .from('videos')
+            .update({ transcript: t.text || null, transcript_lang: t.lang, transcript_source: t.source, transcript_status: t.status })
+            .eq('id', c.id)
+          if (error) console.warn(`  ! ${c.video_id} update: ${error.message}`)
+          const mark = t.status === 'ok' ? '✓' : '·'
+          console.log(`  ${mark} ${c.bucket.padEnd(10)} ${c.video_id} — ${t.status} ${t.source ?? ''} (${t.text.length} chars)`)
+        }
+      }
+      continue
+    }
+
     if (!adapter?.refetchByUrl || !adapter.extractMedia) {
       console.log(`[${platform}] no refetch/extract route — skipped`)
       continue

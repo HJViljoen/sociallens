@@ -1,4 +1,4 @@
-import type { PlatformAdapter, GatherConfig, VideoRef, RawItem } from '../types'
+import type { PlatformAdapter, GatherConfig, VideoRef, RawItem, FetchedTranscript } from '../types'
 import { num, str, first, getPath, toDateOnly, engagementRate } from '../util'
 import { tagVideo } from '../tagging'
 import { runActor } from '../apify'
@@ -95,8 +95,8 @@ export function idFromWatchUrl(url: string): string {
  * quirk — with the flat field as fallback. `lang` is the actor's human-readable
  * name ("English"); the caller normalises. Exported for tests.
  */
-export function parseTranscriptItems(items: RawItem[]): Map<string, { text: string; lang: string | null } | null> {
-  const out = new Map<string, { text: string; lang: string | null } | null>()
+export function parseTranscriptItems(items: RawItem[]): Map<string, FetchedTranscript | null> {
+  const out = new Map<string, FetchedTranscript | null>()
   for (const it of items) {
     const id = str(it.id) || idFromWatchUrl(str(it.url))
     if (!id) continue
@@ -104,7 +104,7 @@ export function parseTranscriptItems(items: RawItem[]): Map<string, { text: stri
     let text = segs ? segs.map((s) => str(s.text)).filter(Boolean).join(' ') : ''
     if (!text) text = str(it.transcript_only_text)
     text = text.replace(/\s+/g, ' ').trim()
-    out.set(id, text ? { text, lang: str(it.language) || null } : null)
+    out.set(id, text ? { text, lang: str(it.language) || null, source: 'youtube_caption' } : null)
   }
   return out
 }

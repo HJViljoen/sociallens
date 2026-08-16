@@ -1,10 +1,10 @@
 import { createAdminClient, selectAll } from '../supabase-admin'
-import { ANALYSIS_MODEL, REDDIT_COMMENT_SCRAPE_CAP, redditDiscoveryEnabled, periodWindowDays, RECHECK_MIN_GROWTH, RECHECK_CAP, RECHECK_WINDOW_DAYS, TRANSCRIBE_CAP, TRANSCRIBE_BATCH, TRANSCRIBE_MODEL, CONTENT_GATE_MODEL, WHISPER_PER_MINUTE, estimateCost, transcriptsEnabled } from '../config'
+import { ANALYSIS_MODEL, REDDIT_COMMENT_SCRAPE_CAP, redditDiscoveryEnabled, periodWindowDays, RECHECK_MIN_GROWTH, RECHECK_CAP, RECHECK_WINDOW_DAYS, TRANSCRIBE_CAP, TRANSCRIBE_BATCH, TRANSCRIBE_MODEL, CONTENT_GATE_MODEL, WHISPER_PER_MINUTE, YT_TRANSCRIPT_PER_ITEM_USD, estimateCost, transcriptsEnabled } from '../config'
 import { runActor } from './apify'
 import { adapters } from './platforms'
 import { parseSubreddits, activeSubreddits, subredditLabel } from './subreddits'
 import { logAiCall } from '../pipeline/ai-log'
-import { resolveTranscript } from './transcript'
+import { resolveTranscript, gateTranscript, normaliseLang } from './transcript'
 import { dedupeBy, round2 } from './util'
 import { classifyRelevance, type RelevanceMethod } from './relevance'
 import { attributeVideos, type AttributionMethod } from './attribution'
@@ -17,6 +17,9 @@ import type {
   CommentInsert,
   VideoRef,
   RawItem,
+  PlatformAdapter,
+  FetchedTranscript,
+  TranscriptResult,
 } from './types'
 
 // Gather orchestrator. For each platform: search → normalise → upsert videos →
@@ -692,15 +695,34 @@ export function orderAndChunkPending(
   return batches
 }
 
+/** A platform can transcribe when its adapter implements exactly one of the
+ *  three routes: media+Whisper (TT/IG), text-in-raw (Reddit), or a paid text
+ *  fetch by id (YouTube, Wave 4). */
+export function canTranscribe(a: PlatformAdapter | undefined): boolean {
+  return !!(a?.extractMedia || a?.extractTranscript || a?.fetchTranscripts)
+}
+
+/** Resolve one fetched transcript through the shared gate. Absent key = the
+ *  fetch dropped this id → 'failed' (stays retryable via the backfill script);
+ *  null = the platform has no caption for it → 'no_media', same as an item
+ *  with no media handle. */
+async function gateFetched(
+  fetched: Map<string, FetchedTranscript | null>,
+  videoId: string,
+): Promise<TranscriptResult> {
+  if (!fetched.has(videoId)) return { text: '', lang: null, source: null, status: 'failed' }
+  const f = fetched.get(videoId)
+  if (!f) return { text: '', lang: null, source: null, status: 'no_media' }
+  return gateTranscript(f.text, normaliseLang(f.lang), f.source)
+}
+
 /** Batch plan for the transcribe fan-out: this run's video_raw candidates,
  *  minus already-transcribed videos, signal-first, chunked. The status check is
  *  scoped to exactly these candidates (chunked .in) — never a platform-wide
  *  unbounded read. */
 export async function planTranscribeBatches(clientId: string, runId: string, platform: Platform): Promise<string[][]> {
   const admin = createAdminClient()
-  // YouTube: deferred (no media route). Reddit takes the extractTranscript path.
-  const a = adapters[platform]
-  if (!a?.extractMedia && !a?.extractTranscript) return []
+  if (!canTranscribe(adapters[platform])) return []
   const rawIds = (
     await selectAll<{ video_id: string }>(() =>
       admin
@@ -743,8 +765,7 @@ export async function transcribeBatch(opts: {
   const admin = createAdminClient()
   const adapter = adapters[opts.platform]
   const errors: string[] = []
-  // YouTube: deferred (no media route). Reddit resolves from the raw item itself.
-  if (!adapter?.extractMedia && !adapter?.extractTranscript) return { transcribed: 0, skipped: 0, errors }
+  if (!canTranscribe(adapter)) return { transcribed: 0, skipped: 0, errors }
   const startedAt = Date.now()
 
   const rawRows = await selectAll<{ video_id: string; raw: RawItem }>(() => {
@@ -781,6 +802,13 @@ export async function transcribeBatch(opts: {
 
   const filtered = rawRows.filter((r) => !done.has(r.video_id))
   const pending = opts.videoIds?.length ? filtered : filtered.slice(0, TRANSCRIBE_CAP)
+  // Paid text platforms (YouTube captions): ONE actor call for the whole batch,
+  // before the loop. Deliberately outside the per-video try — if the actor
+  // itself fails, the step throws and retries; the ids stay NULL and re-plan
+  // next run. Per-id absence/null is handled inside the loop.
+  const fetched = adapter.fetchTranscripts && pending.length && !opts.dryRun
+    ? await adapter.fetchTranscripts(pending.map((r) => r.video_id))
+    : null
   let transcribed = 0
   let skipped = 0
   let whisperMinutes = 0
@@ -789,10 +817,13 @@ export async function transcribeBatch(opts: {
   for (const row of pending) {
     try {
       // Text-native platforms (Reddit) resolve straight from the stored item —
-      // no fetch, no Whisper, no cost. Everything else goes via media/captions.
-      const t = adapter.extractTranscript
-        ? (adapter.extractTranscript(row.raw) ?? { text: '', lang: null, source: null, status: 'no_media' as const })
-        : await resolveTranscript(adapter.extractMedia!(row.raw))
+      // no fetch, no Whisper, no cost. Fetched text (YouTube) goes through the
+      // shared gate. Everything else goes via media/captions + Whisper.
+      const t = fetched
+        ? await gateFetched(fetched, row.video_id)
+        : adapter.extractTranscript
+          ? (adapter.extractTranscript(row.raw) ?? { text: '', lang: null, source: null, status: 'no_media' as const })
+          : await resolveTranscript(adapter.extractMedia!(row.raw))
       // Spend happened the moment Whisper/the gate ran — accumulate BEFORE the
       // persist attempt so a failed update can't under-log real cost.
       whisperMinutes += t.whisperMinutes ?? 0
@@ -836,7 +867,14 @@ export async function transcribeBatch(opts: {
       model: TRANSCRIBE_MODEL,
       prompt_version: 'transcribe_v1',
       request: { platform: opts.platform, videos: pending.length },
-      response: { ok: transcribed, statuses: statusCounts, failed: errors.length, whisper_minutes: Math.round(whisperMinutes * 100) / 100, gate_prompt_tokens: gate.prompt, gate_completion_tokens: gate.completion },
+      response: {
+        ok: transcribed, statuses: statusCounts, failed: errors.length,
+        whisper_minutes: Math.round(whisperMinutes * 100) / 100,
+        gate_prompt_tokens: gate.prompt, gate_completion_tokens: gate.completion,
+        // The caption actor bills per item, empties included — an estimate, not
+        // a bill; the DB records no other Apify spend for any platform.
+        ...(fetched ? { apify_est_usd: Math.round(pending.length * YT_TRANSCRIPT_PER_ITEM_USD * 1e4) / 1e4 } : {}),
+      },
       error_message: null,
       prompt_tokens: gate.prompt,
       completion_tokens: gate.completion,

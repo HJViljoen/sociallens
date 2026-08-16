@@ -259,7 +259,7 @@ describe('youtube.parseTranscriptItems — field paths pinned to the live actor'
     const odd = parseTranscriptItems([
       { url: 'https://www.youtube.com/watch?v=abc123DEF45', transcript_only_text: ' hello   world ', transcript: null, language: null },
     ])
-    expect(odd.get('abc123DEF45')).toEqual({ text: 'hello world', lang: null })
+    expect(odd.get('abc123DEF45')).toEqual({ text: 'hello world', lang: null, source: 'youtube_caption' })
   })
 
   it('drops an item with neither id nor a parseable url', () => {
