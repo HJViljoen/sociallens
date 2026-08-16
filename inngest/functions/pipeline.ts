@@ -125,6 +125,12 @@ export const runPipeline = inngest.createFunction(
         return { fetched: 0, stored: 0 }
       })
 
+    // Declared HERE, not with the gather counters below: the discovery step's
+    // .catch() increments it while this function is still suspended at that
+    // await, so a later `let` would be in the temporal dead zone and the catch
+    // would throw a ReferenceError — turning a non-fatal step into a run-killer.
+    let totalErrors = 0
+
     // Reddit subreddit discovery (Wave 3): propose communities, probe each
     // against the live relevance gate, persist the survivors. Runs before
     // plan-gather so a newly-promoted community is available to this run.
@@ -192,8 +198,7 @@ export const runPipeline = inngest.createFunction(
     //    run — the single-step-per-platform version timed out at 300s on the
     //    first attempt, 2026-07-03). One platform failing must not stop the
     //    others; one search failing must not stop its platform.
-    let totalVideos = 0
-    let totalErrors = 0
+    let totalVideos = 0 // totalErrors is declared above — the discovery catch uses it first
     for (const platform of gatherPlatforms) {
       try {
         // Searches dispatch in parallel waves (transcribe-fan-out precedent):

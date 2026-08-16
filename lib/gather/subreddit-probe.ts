@@ -90,8 +90,12 @@ export async function probeSubreddits(opts: {
 
   for (const [i, candidate] of opts.candidates.entries()) {
     try {
+      // 75s, not the usual 120: SUBREDDIT_PROBES_PER_RUN of these run
+      // SEQUENTIALLY inside one Inngest step against a 300s cap, so the
+      // per-probe ceiling has to divide into it with room for the gate call.
+      // A 12-post probe measures ~20-40s; 75 is a ceiling, not a target.
       const raw = await runActor(APIFY_ACTORS.reddit.video, buildProbeInput(candidate.name, sample), {
-        timeoutSecs: 120,
+        timeoutSecs: 75,
       })
       const ctx = { clientId: opts.clientId, runId: opts.runId, config: opts.config }
       const posts = raw

@@ -1,5 +1,5 @@
 import { createAdminClient, selectAll } from '../supabase-admin'
-import { ANALYSIS_MODEL, REDDIT_COMMENT_SCRAPE_CAP, periodWindowDays, RECHECK_MIN_GROWTH, RECHECK_CAP, RECHECK_WINDOW_DAYS, TRANSCRIBE_CAP, TRANSCRIBE_BATCH, TRANSCRIBE_MODEL, CONTENT_GATE_MODEL, WHISPER_PER_MINUTE, estimateCost, transcriptsEnabled } from '../config'
+import { ANALYSIS_MODEL, REDDIT_COMMENT_SCRAPE_CAP, redditDiscoveryEnabled, periodWindowDays, RECHECK_MIN_GROWTH, RECHECK_CAP, RECHECK_WINDOW_DAYS, TRANSCRIBE_CAP, TRANSCRIBE_BATCH, TRANSCRIBE_MODEL, CONTENT_GATE_MODEL, WHISPER_PER_MINUTE, estimateCost, transcriptsEnabled } from '../config'
 import { runActor } from './apify'
 import { adapters } from './platforms'
 import { parseSubreddits, activeSubreddits, subredditLabel } from './subreddits'
@@ -247,7 +247,11 @@ export async function planGatherSearches(clientId: string, platforms?: Platform[
     // conversation people have when they aren't using our keywords is the only
     // thing Reddit offers that TikTok/Instagram don't. One extra search per
     // active community, so the plan grows by N+M, never N*M.
-    if (platform === 'reddit') {
+    // Gated by the same flag as discovery. Without this the flag is a one-way
+    // switch: once communities are promoted, turning it OFF would stop proposing
+    // but keep fanning out M harvest searches and their comment scrapes every
+    // run, and the only rollback would be hand-editing jsonb.
+    if (platform === 'reddit' && redditDiscoveryEnabled()) {
       for (const name of activeSubreddits(config.subreddits)) {
         tasks.push({ platform, keyword: subredditLabel(name), bucket: 'industry', community: name })
       }
@@ -305,6 +309,21 @@ export async function searchOne(opts: {
     for (const p of paired) raws[p.video.video_id] = p.raw
   }
   return { keyword: opts.keyword, bucket: opts.bucket, videos, raws }
+}
+
+/**
+ * How many FRESH comment scrapes a platform may run this gather.
+ *
+ * `videoLimit` is a cost-CONTROL lever, so where a platform carries its own
+ * ceiling an explicit limit may only tighten it — passing videoLimit:60 to keep
+ * a TikTok test cheap must not silently double Reddit's guard, the one platform
+ * that has one. Null = uncapped. An explicit 0 means "scrape nothing" and must
+ * not fall through to uncapped. Exported pure for tests.
+ */
+export function resolveScrapeCap(platform: Platform, videoLimit?: number): number | null {
+  const platformCap = platform === 'reddit' ? REDDIT_COMMENT_SCRAPE_CAP : null
+  if (videoLimit == null) return platformCap
+  return platformCap == null ? videoLimit : Math.min(videoLimit, platformCap)
 }
 
 /** Merge a platform's keyword searches (unioning source_keywords), run the
@@ -495,9 +514,9 @@ export async function gatePlatform(opts: {
   // Reddit carries a default scrape cap the other platforms don't need: its
   // actor bills per RUN START and the spine scrapes one post per run (~$0.06 a
   // post), so a two-community harvest would otherwise run ~$8/run.
-  const scrapeCap = opts.videoLimit ?? (adapter.platform === 'reddit' ? REDDIT_COMMENT_SCRAPE_CAP : undefined)
+  const scrapeCap = resolveScrapeCap(adapter.platform, opts.videoLimit)
   let toScrape = freshEligible
-  if (scrapeCap && freshEligible.length > scrapeCap) {
+  if (scrapeCap != null && freshEligible.length > scrapeCap) {
     // Spend the cap on the densest threads — same richest-first rule Pass A
     // batching and delta re-checks already use. Only the capped path sorts, so
     // an uncapped platform's ordering is untouched.
@@ -852,17 +871,27 @@ export async function runGather(opts: GatherOptions): Promise<PlatformResult[]> 
     }
     const errors: string[] = []
     try {
+      // Same task list the Inngest path plans — keyword searches plus, on
+      // Reddit, one community harvest per active subreddit. Kept identical on
+      // purpose: this is the only path with --dry-run, and a spend-bearing
+      // feature the CLI can't exercise is one that can only be tested in prod.
+      const tasks = [
+        ...buildSearchPlan(config).map((g) => ({ keyword: g.keyword, bucket: g.bucket, community: undefined as string | undefined })),
+        ...(platform === 'reddit' && redditDiscoveryEnabled()
+          ? activeSubreddits(config.subreddits).map((name) => ({ keyword: subredditLabel(name), bucket: 'industry' as KeywordBucket, community: name }))
+          : []),
+      ]
       const searches: SearchResult[] = []
-      for (const group of buildSearchPlan(config)) {
+      for (const task of tasks) {
         try {
           searches.push(await searchOne({
             clientId: opts.clientId, runId: opts.runId, platform,
-            keyword: group.keyword, bucket: group.bucket,
+            keyword: task.keyword, bucket: task.bucket, community: task.community,
             maxVideos: opts.maxVideos, period: opts.period,
           }))
         } catch (e) {
-          errors.push(`search ${group.bucket}:${group.keyword}: ${(e as Error).message}`)
-          searches.push({ keyword: group.keyword, bucket: group.bucket, videos: [] })
+          errors.push(`search ${task.bucket}:${task.keyword}: ${(e as Error).message}`)
+          searches.push({ keyword: task.keyword, bucket: task.bucket, videos: [] })
         }
       }
       const gate = await gatePlatform({

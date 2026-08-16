@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { inWindow } from './gather'
+import { inWindow, resolveScrapeCap } from './gather'
 import { periodWindowDays } from '../config'
 import { reddit } from './platforms/reddit'
 import { usableTranscript } from '../pipeline/transcript-input'
@@ -240,5 +240,30 @@ describe('reddit caption vs transcript duplication', () => {
     // tagVideo reads caption, so the body cannot vanish from it entirely.
     const v = reddit.normaliseVideo({ dataType: 'post', parsedId: 'p2', postUrl: 'https://reddit.com/r/x/comments/p2/', communityName: 'r/x', title: 'Foot covers', body: 'i have an ossur foot cover and it frays' }, ctx)!
     expect(v.is_client).toBe(true)
+  })
+})
+
+describe('resolveScrapeCap', () => {
+  // videoLimit is a COST-CONTROL lever. On the one platform carrying its own
+  // ceiling it must only ever tighten — otherwise an operator capping a TikTok
+  // test would silently raise Reddit's guard.
+  it('caps Reddit by default and leaves other platforms uncapped', () => {
+    expect(resolveScrapeCap('reddit')).toBe(25)
+    expect(resolveScrapeCap('tiktok')).toBeNull()
+    expect(resolveScrapeCap('instagram')).toBeNull()
+  })
+
+  it('lets an explicit limit tighten Reddit but never loosen it', () => {
+    expect(resolveScrapeCap('reddit', 10)).toBe(10)
+    expect(resolveScrapeCap('reddit', 60)).toBe(25) // not 60
+  })
+
+  it('honours an explicit limit on uncapped platforms', () => {
+    expect(resolveScrapeCap('tiktok', 60)).toBe(60)
+  })
+
+  it('treats an explicit 0 as "scrape nothing", not "uncapped"', () => {
+    expect(resolveScrapeCap('reddit', 0)).toBe(0)
+    expect(resolveScrapeCap('tiktok', 0)).toBe(0)
   })
 })

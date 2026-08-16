@@ -236,9 +236,18 @@ export const REDDIT_HARVEST_POSTS = 25
 /** Fresh comment scrapes per run for Reddit. The dominant cost by far: the actor
  *  bills $0.02 per START and the spine scrapes one post per run, so ~$0.06 a
  *  post once a thread's comments are counted. Uncapped, two harvested
- *  communities would run ~$8/run against a ~$2 budget. TikTok/Instagram don't
- *  need this — their per-scrape cost is a fraction and their corpora are
- *  keyword-bounded already. Measured 2026-08-16, not estimated. */
+ *  communities would run ~$8/run. TikTok/Instagram don't need this — their
+ *  per-scrape cost is a fraction and their corpora are keyword-bounded already.
+ *
+ *  HONEST CEILING: this caps FRESH scrapes only. Delta re-scrapes are a second,
+ *  independent budget (RECHECK_CAP, also 25), and harvest makes re-checks the
+ *  steady state rather than an edge case — a harvest re-pulls a community's
+ *  newest posts weekly and Reddit threads keep accruing comments, with no free
+ *  count lookup to avoid paying. So Reddit's real comment-scrape ceiling is
+ *  25 + 25 = 50 scrapes ~= $3.00, and full worst-case Reddit spend at the Ossur
+ *  shape (8 keywords, 5 active communities) is ~$3.3-4.8/run, NOT the ~$2 the
+ *  original budget note assumed. Measured 2026-08-16. Lower this constant, or
+ *  cap active communities, if that ceiling isn't acceptable. */
 export const REDDIT_COMMENT_SCRAPE_CAP = 25
 
 // --- Subreddit discovery probe (Wave 3) --------------------------------------
@@ -261,10 +270,12 @@ export const SUBREDDIT_PROBE_MIN_RATIO = 0.34
  *  alone (2 of 4 is 50% and proves nothing). */
 export const SUBREDDIT_PROBE_MIN_KEPT = 3
 
-/** Probes per run. Bounds BOTH spend and wall-clock: each probe is a sequential
- *  Apify run (~20-40s) inside one Inngest step against a 300s cap, so three is
- *  the most that fits with headroom. Discovery therefore ramps over a few weeks
- *  instead of trying to settle in one run. */
+/** Probes per run. Bounds BOTH spend and wall-clock. They run SEQUENTIALLY in
+ *  one Inngest step against a 300s cap, so the budget is probes x per-probe
+ *  timeout: 3 x 75s = 225s, plus the gate calls, fits. (At the default 120s
+ *  timeout three would need 360s and blow the cap — the probe sets 75s for
+ *  exactly this reason; change them together.) Discovery therefore ramps over a
+ *  few weeks rather than trying to settle in one run. */
 export const SUBREDDIT_PROBES_PER_RUN = 3
 
 /** Stop proposing once the tenant has this many ACTIVE communities. Without a

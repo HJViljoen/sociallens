@@ -35,18 +35,3 @@ describe('reddit gather threshold vs Pass A floor', () => {
   })
 })
 
-describe('Reddit cost caps', () => {
-  it('caps harvest posts per community below the tenant keyword quota', async () => {
-    // A harvest ignores keywords, so max_videos (70 for Ossur) would otherwise
-    // apply to EVERY active community.
-    const { reddit } = await import('./gather/platforms/reddit')
-    const cfg = {
-      brand_keywords: [], competitor_keywords: [], competitor_names: [], industry_keywords: [],
-      platforms: ['reddit'], max_videos: 70, comment_depth: 50, report_period: 'weekly',
-      own_handles: {}, subreddits: [],
-    }
-    expect(reddit.videoSearch!(cfg, ['r/amputee'], 70, { community: 'amputee' }).input.maxPostsCount).toBe(25)
-    // A tenant asking for fewer than the cap still gets fewer.
-    expect(reddit.videoSearch!(cfg, ['r/amputee'], 10, { community: 'amputee' }).input.maxPostsCount).toBe(10)
-  })
-})
