@@ -56,3 +56,25 @@ describe('buildProbeInput', () => {
     expect(buildProbeInput('amputee', 5).maxPostsCount).toBe(5)
   })
 })
+
+describe('community harvest input', () => {
+  it('pulls a whole community rather than running a keyword search', async () => {
+    // The reason Reddit is worth having: the conversation people have when they
+    // are NOT using our keywords. A keyword search cannot see it.
+    const { reddit } = await import('./platforms/reddit')
+    const config = {
+      brand_keywords: ['ossur'], competitor_keywords: [], competitor_names: [], industry_keywords: [],
+      platforms: ['reddit'], max_videos: 50, comment_depth: 50, report_period: 'weekly',
+      own_handles: {}, subreddits: [],
+    }
+    const { input } = reddit.videoSearch!(config, ['r/amputee'], 50, { community: 'amputee' })
+    expect(input.subredditUrls).toEqual(['amputee'])
+    expect(input.searchTerms).toBeUndefined() // not a keyword search
+    expect(input.crawlCommentsPerPost).toBe(false) // gate first, buy comments later
+
+    // …and without a community it is still the ordinary keyword search.
+    const plain = reddit.videoSearch!(config, ['ossur'], 50, {})
+    expect(plain.input.searchTerms).toEqual(['ossur'])
+    expect(plain.input.subredditUrls).toBeUndefined()
+  })
+})

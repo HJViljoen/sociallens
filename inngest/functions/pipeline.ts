@@ -210,6 +210,7 @@ export const runPipeline = inngest.createFunction(
                 return await step.run(`search:${platform}:${task.keyword}`, () =>
                   searchOne({
                     clientId, runId, platform, keyword: task.keyword, bucket: task.bucket,
+                    community: task.community,
                     maxVideos: options.maxVideos, period: options.period,
                   }),
                 )

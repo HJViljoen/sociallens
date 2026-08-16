@@ -1,7 +1,7 @@
 import { zodResponseFormat } from 'openai/helpers/zod'
 import { openai } from '../openai'
 import { createAdminClient } from '../supabase-admin'
-import { ANALYSIS_MODEL, ANALYSIS_TEMPERATURE } from '../config'
+import { ANALYSIS_MODEL, ANALYSIS_TEMPERATURE, SUBREDDIT_PROBES_PER_RUN, SUBREDDIT_TARGET_ACTIVE, SUBREDDIT_MAX_KNOWN } from '../config'
 import { logAiCall } from '../pipeline/ai-log'
 import { SubredditProposalSchema, type SubredditProposalOutput } from '../pipeline/schemas'
 import { subredditKey, knownSubreddits } from './subreddits'
@@ -131,12 +131,28 @@ export async function proposeSubreddits(opts: {
   return candidates
 }
 
+/** Discovery is finished for this tenant when it has enough active communities,
+ *  or has already considered enough candidates to conclude the category doesn't
+ *  have more. Without this the proposal prompt — which excludes everything
+ *  already known — returns the NEXT plausible names every single week, forever,
+ *  each costing a paid probe, and eventually starts inventing them. */
+export function discoveryConverged(entries: SubredditEntry[]): boolean {
+  const active = entries.filter((e) => e.status === 'active').length
+  return active >= SUBREDDIT_TARGET_ACTIVE || entries.length >= SUBREDDIT_MAX_KNOWN
+}
+
 /**
- * Full discovery pass for one tenant: propose → probe → persist.
+ * Full discovery pass for one tenant: top up candidates → probe a few → persist.
  *
- * Returns the tenant's subreddit list AFTER discovery. Safe to call on every
- * run: proposals exclude everything already known, so a settled tenant proposes
- * nothing and probes nothing, and the whole pass costs one cheap GPT call.
+ * Deliberately incremental. Probing is sequential I/O inside one Inngest step
+ * against a 300s cap, so only SUBREDDIT_PROBES_PER_RUN are probed per run and
+ * discovery ramps over a few weeks rather than trying to settle at once. That
+ * same cap bounds per-run spend.
+ *
+ * Unprobed candidates are probed FIRST, before any new proposal. That is what
+ * gives a candidate whose probe errored another chance — otherwise it would sit
+ * in the config forever, excluded from future proposals as "already known" and
+ * never re-probed.
  *
  * Caller must treat this as non-fatal — Reddit is a degradable platform.
  */
@@ -147,25 +163,43 @@ export async function discoverSubreddits(opts: {
   today: string
 }): Promise<SubredditEntry[]> {
   const admin = createAdminClient()
-  const candidates = await proposeSubreddits(opts)
-  if (!candidates.length) {
-    console.log('[reddit] discovery: no new candidates')
-    return opts.config.subreddits
+  const existing = opts.config.subreddits
+  let entries = [...existing]
+
+  // 1. Carry-over first: anything still unprobed (including probes that errored
+  //    on an earlier run) is ahead of anything newly proposed.
+  let pending = entries.filter((e) => e.status === 'candidate')
+
+  // 2. Top up only if there is room in this run's probe budget AND discovery
+  //    hasn't converged.
+  if (pending.length < SUBREDDIT_PROBES_PER_RUN && !discoveryConverged(entries)) {
+    const fresh = await proposeSubreddits({ ...opts, config: { ...opts.config, subreddits: entries } })
+    entries = [...entries, ...fresh]
+    pending = [...pending, ...fresh]
   }
 
+  if (!pending.length) {
+    console.log(
+      discoveryConverged(entries)
+        ? `[reddit] discovery: converged (${entries.filter((e) => e.status === 'active').length} active)`
+        : '[reddit] discovery: no candidates to probe',
+    )
+    return entries
+  }
+
+  const batch = pending.slice(0, SUBREDDIT_PROBES_PER_RUN)
   const resolved = await probeSubreddits({
     clientId: opts.clientId,
     runId: opts.runId,
     config: opts.config,
-    candidates,
+    candidates: batch,
     today: opts.today,
   })
 
-  // Merge by canonical name; existing entries win over a re-proposal of the
-  // same community so a probe result is never silently downgraded.
-  const merged = [...opts.config.subreddits]
-  const known = knownSubreddits(opts.config.subreddits)
-  for (const entry of resolved) if (!known.has(entry.name)) merged.push(entry)
+  // Fold results back in by canonical name. Only probed entries change; a probe
+  // that errored comes back unchanged and stays a candidate for next run.
+  const byName = new Map(resolved.map((e) => [e.name, e]))
+  const merged = entries.map((e) => byName.get(e.name) ?? e)
 
   const { error } = await admin
     .from('tracking_configs')
@@ -173,9 +207,11 @@ export async function discoverSubreddits(opts: {
     .eq('client_id', opts.clientId)
   if (error) throw new Error(`persist subreddits: ${error.message}`)
 
-  const active = resolved.filter((e) => e.status === 'active').map((e) => e.name)
+  const active = merged.filter((e) => e.status === 'active').map((e) => e.name)
+  const stillPending = merged.filter((e) => e.status === 'candidate').length
   console.log(
-    `[reddit] discovery: ${candidates.length} probed → ${active.length} active${active.length ? ` (${active.join(', ')})` : ''}`,
+    `[reddit] discovery: probed ${batch.length} → ${active.length} active total` +
+      `${active.length ? ` (${active.join(', ')})` : ''}, ${stillPending} candidate(s) queued`,
   )
   return merged
 }

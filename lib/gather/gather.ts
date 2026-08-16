@@ -2,7 +2,7 @@ import { createAdminClient, selectAll } from '../supabase-admin'
 import { ANALYSIS_MODEL, periodWindowDays, RECHECK_MIN_GROWTH, RECHECK_CAP, RECHECK_WINDOW_DAYS, TRANSCRIBE_CAP, TRANSCRIBE_BATCH, TRANSCRIBE_MODEL, CONTENT_GATE_MODEL, WHISPER_PER_MINUTE, estimateCost, transcriptsEnabled } from '../config'
 import { runActor } from './apify'
 import { adapters } from './platforms'
-import { parseSubreddits } from './subreddits'
+import { parseSubreddits, activeSubreddits, subredditLabel } from './subreddits'
 import { logAiCall } from '../pipeline/ai-log'
 import { resolveTranscript } from './transcript'
 import { dedupeBy, round2 } from './util'
@@ -206,6 +206,10 @@ export interface SearchTask {
   platform: Platform
   keyword: string
   bucket: KeywordBucket
+  /** Reddit community harvest: pull this whole community rather than running
+   *  `keyword` as a search term. `keyword` is then the display label ('r/x'),
+   *  which keeps source_keywords and keyword_performance meaningful. */
+  community?: string
 }
 
 /** One keyword search's normalised output (videos tagged with the keyword). */
@@ -239,6 +243,15 @@ export async function planGatherSearches(clientId: string, platforms?: Platform[
     for (const group of buildSearchPlan(config)) {
       tasks.push({ platform, keyword: group.keyword, bucket: group.bucket })
     }
+    // Reddit additionally harvests each discovered community WHOLESALE — the
+    // conversation people have when they aren't using our keywords is the only
+    // thing Reddit offers that TikTok/Instagram don't. One extra search per
+    // active community, so the plan grows by N+M, never N*M.
+    if (platform === 'reddit') {
+      for (const name of activeSubreddits(config.subreddits)) {
+        tasks.push({ platform, keyword: subredditLabel(name), bucket: 'industry', community: name })
+      }
+    }
   }
   return tasks
 }
@@ -251,6 +264,8 @@ export async function searchOne(opts: {
   platform: Platform
   keyword: string
   bucket: KeywordBucket
+  /** Reddit community harvest — see SearchTask.community. */
+  community?: string
   maxVideos?: number
   period?: string
 }): Promise<SearchResult> {
@@ -268,7 +283,9 @@ export async function searchOne(opts: {
   if (adapter.fetchVideos) {
     raw = await adapter.fetchVideos(config, [opts.keyword], config.max_videos)
   } else if (adapter.videoSearch) {
-    const { actor, input } = adapter.videoSearch(config, [opts.keyword], config.max_videos)
+    const { actor, input } = adapter.videoSearch(config, [opts.keyword], config.max_videos, {
+      community: opts.community,
+    })
     raw = await runActor(actor, input)
   } else {
     throw new Error(`adapter ${opts.platform} has no video source`)

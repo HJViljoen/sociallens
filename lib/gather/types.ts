@@ -154,7 +154,15 @@ export interface PlatformAdapter {
    * Apify-sourced platforms (TikTok, Instagram) implement this; a platform on a
    * native API (YouTube) provides `fetchVideos` instead — see below.
    */
-  videoSearch?(config: GatherConfig, terms: string[], limit: number): { actor: string; input: RawItem }
+  videoSearch?(
+    config: GatherConfig,
+    terms: string[],
+    limit: number,
+    /** Community harvest (Reddit): pull a whole community's recent posts rather
+     *  than running a keyword search. Absent = keyword search, the behaviour
+     *  every other platform has. Platforms that ignore it are unaffected. */
+    opts?: { community?: string },
+  ): { actor: string; input: RawItem }
   /** Apify actor slug + input for scraping one video's comments. */
   commentScrape?(video: VideoRef, config: GatherConfig): { actor: string; input: RawItem }
   /**

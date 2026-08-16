@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { toCandidates, buildDiscoveryUserPrompt, MAX_PROPOSALS } from './subreddit-discovery'
+import { toCandidates, buildDiscoveryUserPrompt, discoveryConverged, MAX_PROPOSALS } from './subreddit-discovery'
 import type { GatherConfig, SubredditEntry } from './types'
 
 const config: GatherConfig = {
@@ -89,5 +89,25 @@ describe('buildDiscoveryUserPrompt', () => {
     expect(p).toContain('ossur')
     expect(p).toContain('Ottobock')
     expect(p).toContain('prosthetic, amputee')
+  })
+})
+
+describe('discoveryConverged', () => {
+  const e = (name: string, status: SubredditEntry['status']): SubredditEntry => ({ name, status, discovered_at: '' })
+
+  it('stops once the tenant has enough active communities', () => {
+    const five = ['a1', 'b2', 'c3', 'd4', 'e5'].map((n) => e(n, 'active'))
+    expect(discoveryConverged(five)).toBe(true)
+    expect(discoveryConverged(five.slice(0, 4))).toBe(false)
+  })
+
+  it('stops on a category that simply lacks good communities', () => {
+    // Otherwise a tenant whose category has 2 good subs pays to look forever.
+    const many = Array.from({ length: 20 }, (_, i) => e(`sub${i}xx`, 'rejected'))
+    expect(discoveryConverged(many)).toBe(true)
+  })
+
+  it('has not converged on a fresh tenant', () => {
+    expect(discoveryConverged([])).toBe(false)
   })
 })

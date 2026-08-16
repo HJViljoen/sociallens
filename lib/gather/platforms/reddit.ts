@@ -51,7 +51,22 @@ function periodToTimeFilter(period: string): string {
 export const reddit: PlatformAdapter = {
   platform: 'reddit',
 
-  videoSearch(config, terms, limit) {
+  videoSearch(config, terms, limit, opts) {
+    // COMMUNITY HARVEST. The point of Reddit is the conversation people have
+    // when they are NOT using our keywords — insurance denials, frayed socks,
+    // "new leg day". A keyword search cannot see any of that, so a discovered
+    // community is pulled wholesale and the relevance gate does the filtering.
+    if (opts?.community) {
+      return {
+        actor: APIFY_ACTORS.reddit.video,
+        input: {
+          subredditUrls: [opts.community],
+          maxPostsCount: limit,
+          crawlCommentsPerPost: false, // gate first; comments are bought later
+          includeNSFW: false,
+        },
+      }
+    }
     return {
       actor: APIFY_ACTORS.reddit.video,
       input: {

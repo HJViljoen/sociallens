@@ -249,6 +249,22 @@ export const SUBREDDIT_PROBE_MIN_RATIO = 0.34
  *  alone (2 of 4 is 50% and proves nothing). */
 export const SUBREDDIT_PROBE_MIN_KEPT = 3
 
+/** Probes per run. Bounds BOTH spend and wall-clock: each probe is a sequential
+ *  Apify run (~20-40s) inside one Inngest step against a 300s cap, so three is
+ *  the most that fits with headroom. Discovery therefore ramps over a few weeks
+ *  instead of trying to settle in one run. */
+export const SUBREDDIT_PROBES_PER_RUN = 3
+
+/** Stop proposing once the tenant has this many ACTIVE communities. Without a
+ *  convergence rule the proposal prompt — which excludes everything already
+ *  known — returns the *next* plausible names every week forever, each costing
+ *  a paid probe, eventually inventing them. */
+export const SUBREDDIT_TARGET_ACTIVE = 5
+
+/** …and a hard ceiling on total communities ever considered, so a tenant whose
+ *  category simply lacks 5 good communities still stops paying to look. */
+export const SUBREDDIT_MAX_KNOWN = 20
+
 /** Default min comments before a video is worth a comment scrape (TikTok/Instagram). */
 export const COMMENT_THRESHOLD = 5
 
