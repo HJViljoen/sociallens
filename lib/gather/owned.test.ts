@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { acceptSnapshot, followerFloorPct, emptyProfileIsGlitch } from './owned'
+import { acceptSnapshot, followerFloorPct, emptyProfileIsGlitch, stampOwnedSource } from './owned'
 
 describe('acceptSnapshot', () => {
   it('rejects null/zero glitch reads', () => {
@@ -56,5 +56,44 @@ describe('emptyProfileIsGlitch', () => {
     expect(emptyProfileIsGlitch(1494, 12)).toBe(false)
     expect(emptyProfileIsGlitch(null, 12)).toBe(false)
     expect(emptyProfileIsGlitch(0, 12)).toBe(false)
+  })
+})
+
+describe('stampOwnedSource', () => {
+  const posts = [{ video_id: 'a' }, { video_id: 'b' }, { video_id: 'c' }]
+
+  it('gives every row an explicit source — PostgREST sends NULL for a missing key', () => {
+    // The 2026-08-16 YouTube failure: 2 of 12 posts already known, so those
+    // rows carried no `source` key, PostgREST filled NULL, and the NOT NULL
+    // constraint rejected the whole upsert (23502).
+    const rows = stampOwnedSource(posts, [{ video_id: 'a', source: 'discovered' }])
+    expect(rows.every((r) => typeof r.source === 'string' && r.source.length > 0)).toBe(true)
+  })
+
+  it('keeps an already-discovered client post on the discovered layer', () => {
+    // Flipping it to 'owned' would drop it out of the SoV series and fake a
+    // share decline — metric continuity beats layer purity.
+    const rows = stampOwnedSource(posts, [{ video_id: 'a', source: 'discovered' }])
+    expect(rows.find((r) => r.video_id === 'a')!.source).toBe('discovered')
+  })
+
+  it("keeps a post already stored as 'owned' on the owned layer", () => {
+    const rows = stampOwnedSource(posts, [{ video_id: 'b', source: 'owned' }])
+    expect(rows.find((r) => r.video_id === 'b')!.source).toBe('owned')
+  })
+
+  it("stamps posts new to us as 'owned'", () => {
+    const rows = stampOwnedSource(posts, [{ video_id: 'a', source: 'discovered' }])
+    expect(rows.find((r) => r.video_id === 'c')!.source).toBe('owned')
+  })
+
+  it("treats a stored NULL source as new rather than propagating the NULL", () => {
+    const rows = stampOwnedSource(posts, [{ video_id: 'a', source: null }])
+    expect(rows.find((r) => r.video_id === 'a')!.source).toBe('owned')
+  })
+
+  it('preserves every input field', () => {
+    const rows = stampOwnedSource([{ video_id: 'a', views: 12 }], [])
+    expect(rows[0]).toEqual({ video_id: 'a', views: 12, source: 'owned' })
   })
 })

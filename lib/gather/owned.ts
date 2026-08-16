@@ -79,6 +79,31 @@ export function emptyProfileIsGlitch(postsCount: number | null, recentPosts: num
 }
 
 /**
+ * Give EVERY owned-post row an explicit `source`, preserving what a already-known
+ * post already had.
+ *
+ * Two constraints collide here. (a) A client post the keyword gather already
+ * discovered must stay 'discovered' — it has been in the SoV series since it was
+ * found, and flipping it out would fake a share decline (metric continuity beats
+ * layer purity); a post already stored as 'owned' must likewise stay 'owned'.
+ * (b) PostgREST takes the UNION of keys across a bulk upsert and sends NULL for
+ * any row missing one — it does not fall back to the column default. So the old
+ * "omit source on known rows" approach sent `source: NULL` the moment one row in
+ * the batch carried the key, and the NOT NULL constraint rejected the whole
+ * statement (23502, YouTube, 2026-08-16 — 2 of 12 posts already known).
+ *
+ * Setting every row explicitly satisfies both: known rows echo their stored
+ * value back unchanged, new rows get 'owned'.
+ */
+export function stampOwnedSource<T extends { video_id: string }>(
+  posts: T[],
+  existing: { video_id: string; source: string | null }[],
+): (T & { source: string })[] {
+  const stored = new Map(existing.map((r) => [r.video_id, r.source]))
+  return posts.map((p) => ({ ...p, source: stored.get(p.video_id) ?? 'owned' }))
+}
+
+/**
  * Platform-aware minimum % floor for a follower event. YouTube's public
  * subscriberCount rounds to 3 significant figures, so one rounding step on a
  * small channel can fake a move — the floor must clear TWO rounding steps.
@@ -165,7 +190,11 @@ function ttProfile(handle: string, raw: RawItem[], ctx: Ctx): OwnProfile {
       upload_date: str(v.uploadedAtFormatted).slice(0, 10) || null,
       audio_name: str(getPath(v, ['song', 'title'])),
       is_sponsored: false,
-      duration_seconds: num(getPath(v, ['video', 'duration'])),
+      // Math.round, matching the discovered path (platforms/tiktok.ts): TikTok
+      // reports fractional seconds (35.029) and videos.duration_seconds is an
+      // integer column. Sending the float rejected the whole upsert with 22P02
+      // on every retry — the deterministic half of the 2026-08-16 failure.
+      duration_seconds: Math.round(num(getPath(v, ['video', 'duration']))),
       is_client: true,
       is_competitor: false,
       competitor_name: null,
@@ -326,14 +355,14 @@ export async function ingestOwnedPosts(opts: {
     // Only posts new to us get source:'owned'.
     const { data: existing, error: exErr } = await admin
       .from('videos')
-      .select('video_id')
+      .select('video_id, source')
       .eq('client_id', opts.clientId)
       .eq('platform', opts.platform)
       .in('video_id', profile.recentPosts.map((p) => p.video_id))
     if (exErr) throw new Error(`owned posts existing check (${opts.platform}): ${exErr.message}`)
-    const known = new Set((existing ?? []).map((r) => r.video_id as string))
-    const rows = profile.recentPosts.map((p) =>
-      known.has(p.video_id) ? p : { ...p, source: 'owned' as const },
+    const rows = stampOwnedSource(
+      profile.recentPosts,
+      (existing ?? []) as { video_id: string; source: string | null }[],
     )
     const { error } = await admin
       .from('videos')
