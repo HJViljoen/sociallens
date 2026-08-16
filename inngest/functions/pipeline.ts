@@ -368,7 +368,7 @@ export const runPipeline = inngest.createFunction(
     //    filter only shrinks a video's count, so raw < min are guaranteed
     //    skips) and chunks richest-first, mirroring runPassA's own ordering.
     const batches = await step.run('plan-pass-a', () => planPassABatches(clientId))
-    const passA = { analyzed: 0, skipped: 0, insights: 0, languageSamples: 0, cost: 0 }
+    const passA = { analyzed: 0, claimsOnly: 0, skipped: 0, insights: 0, languageSamples: 0, cost: 0 }
     // Batches dispatch in parallel waves — batches are disjoint video sets, so
     // ordering is irrelevant to output; this is purely wall-time (a serial
     // pass over a depth-100 corpus measured ~3 videos/min). Wave size stays
@@ -378,12 +378,13 @@ export const runPipeline = inngest.createFunction(
         batches.slice(w, w + PASS_A_PARALLEL).map((videoIds, j) =>
           step.run(`pass-a:${w + j + 1}-of-${batches.length}`, async () => {
             const s = await runPassA({ clientId, runId, videoIds, persist: true })
-            return { analyzed: s.videosAnalyzed, skipped: s.videosSkipped, insights: s.insightsKept, languageSamples: s.languageSamples, cost: s.costUsd }
+            return { analyzed: s.videosAnalyzed, claimsOnly: s.videosClaimsOnly, skipped: s.videosSkipped, insights: s.insightsKept, languageSamples: s.languageSamples, cost: s.costUsd }
           }),
         ),
       )
       for (const r of wave) {
         passA.analyzed += r.analyzed
+        passA.claimsOnly += r.claimsOnly ?? 0
         passA.skipped += r.skipped
         passA.insights += r.insights
         passA.languageSamples += r.languageSamples

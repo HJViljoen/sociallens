@@ -702,16 +702,10 @@ export function canTranscribe(a: PlatformAdapter | undefined): boolean {
   return !!(a?.extractMedia || a?.extractTranscript || a?.fetchTranscripts)
 }
 
-/** Resolve one fetched transcript through the shared gate. Absent key = the
- *  fetch dropped this id → 'failed' (stays retryable via the backfill script);
- *  null = the platform has no caption for it → 'no_media', same as an item
- *  with no media handle. */
-async function gateFetched(
-  fetched: Map<string, FetchedTranscript | null>,
-  videoId: string,
-): Promise<TranscriptResult> {
-  if (!fetched.has(videoId)) return { text: '', lang: null, source: null, status: 'failed' }
-  const f = fetched.get(videoId)
+/** Resolve one fetched transcript through the shared gate. null = the platform
+ *  has no caption for it → 'no_media', same as an item with no media handle.
+ *  (An id the fetch dropped never reaches here — see transcribeBatch.) */
+async function gateFetched(f: FetchedTranscript | null): Promise<TranscriptResult> {
   if (!f) return { text: '', lang: null, source: null, status: 'no_media' }
   return gateTranscript(f.text, normaliseLang(f.lang), f.source)
 }
@@ -816,12 +810,21 @@ export async function transcribeBatch(opts: {
   const gate = { prompt: 0, completion: 0 }
   const statusCounts: Record<string, number> = {}
   for (const row of pending) {
+    // An id the fetch did not return (actor dropped it, or a 200 with an
+    // empty/non-array body — runActor maps that to []) is an ERROR, not a
+    // verdict: count it so the run closes partial, and write nothing so the
+    // NULL status re-plans it next run. Stamping 'failed' here would silently
+    // and permanently drop the whole batch on a bad actor day.
+    if (fetched && !fetched.has(row.video_id)) {
+      errors.push(`transcript fetch dropped (${row.video_id})`)
+      continue
+    }
     try {
       // Text-native platforms (Reddit) resolve straight from the stored item —
       // no fetch, no Whisper, no cost. Fetched text (YouTube) goes through the
       // shared gate. Everything else goes via media/captions + Whisper.
       const t = fetched
-        ? await gateFetched(fetched, row.video_id)
+        ? await gateFetched(fetched.get(row.video_id) ?? null)
         : adapter.extractTranscript
           ? (adapter.extractTranscript(row.raw) ?? { text: '', lang: null, source: null, status: 'no_media' as const })
           : await resolveTranscript(adapter.extractMedia!(row.raw))

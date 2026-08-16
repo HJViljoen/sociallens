@@ -116,7 +116,7 @@ export type PassALane = 'full' | 'claims_only' | 'skip'
  *   claims_only — below the floor, but a brand-side (client/competitor) video
  *                 with a usable transcript (Wave 4). It enters with NO comments
  *                 in the prompt, so it can only yield claims + classification:
- *                 no audience insights, sentiment forced null. The comment
+ *                 no audience insights, sentiment column untouched. The comment
  *                 floor keeps governing audience evidence; the transcript
  *                 governs brand claims. Why: 0 of Össur's 22 client YouTube
  *                 videos in run 147899d3 had even 3 comments — the captions
@@ -671,8 +671,8 @@ interface PersistArgs {
    *  the table may not exist pre-migration). */
   claims: PassAClaim[] | null
   /** Wave 4 claims lane: the model saw no comments, so its sentiment is a guess
-   *  about the video, not a read of its audience — and run_summary's sentiment
-   *  shares are built from this column. Forced null. */
+   *  about the video, not a read of its audience. The column is left untouched
+   *  (classify-meta's framing sentiment stays; run_summary's shares read it). */
   claimsOnly?: boolean
 }
 
@@ -692,7 +692,10 @@ async function persistVideo(admin: ReturnType<typeof createAdminClient>, args: P
       hook_style: c.hook_style,
       hook_text: c.hook_text,
       topics: c.topics,
-      sentiment: claimsOnly ? null : c.sentiment,
+      // Claims lane: LEAVE the column alone rather than null it — classify-meta
+      // owns framing sentiment for below-floor videos (it can't revisit once
+      // classified_type is set) and run_summary's shares read this column.
+      ...(claimsOnly ? {} : { sentiment: c.sentiment }),
       comment_quality_score: qualityScore,
     })
     .eq('id', video.id)

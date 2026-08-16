@@ -100,6 +100,7 @@ function summarySlice(s: RunPassASummary) {
     runId: s.runId,
     videosProcessed: s.videosProcessed,
     videosAnalyzed: s.videosAnalyzed,
+    videosClaimsOnly: s.videosClaimsOnly,
     videosSkipped: s.videosSkipped,
     insightsKept: s.insightsKept,
     insightsDropped: s.insightsDropped,
@@ -116,8 +117,10 @@ async function main() {
   const opts = parseArgs(process.argv.slice(2))
   const admin = createAdminClient()
 
-  // The bed: every transcript-ok video for the client (Pass A itself skips
-  // <5-kept-comment videos — identically in both arms).
+  // The bed: every transcript-ok video for the client. NOTE (Wave 4): arm B
+  // also admits brand-side <5-comment videos via the claims lane, which arm A
+  // (transcripts off) skips — so aggregate counts/cost are NOT arm-comparable
+  // for those; read them per video, or subtract videosClaimsOnly.
   let bed = await selectAll<VideoRow>(() =>
     admin.from('videos').select('*').eq('client_id', opts.clientId).eq('transcript_status', 'ok').order('comments_count', { ascending: false, nullsFirst: false }).order('id', { ascending: true }),
   )

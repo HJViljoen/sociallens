@@ -20,7 +20,8 @@ import type { Platform, RawItem, TranscriptResult } from '../lib/gather/types'
 //   --client <uuid>      client_id (default: Sealand)
 //   --limit <n>          videos to transcribe (default 60)
 //   --platform <name>    tiktok | instagram | youtube (default: all three)
-//   --min-comments <n>   min stored comments to qualify (default 5)
+//   --min-comments <n>   min stored comments to qualify (default 5; pass 0 for
+//                        youtube — the videos Wave 4 exists for have 0–4 comments)
 //   --batch <n>          urls/ids per actor call (default 10)
 //   --force              re-transcribe videos that already have a status
 //   --retry-failed       re-try only the ones that errored (failed / no_media)
@@ -255,8 +256,8 @@ async function main() {
 
     // Paid text platforms (YouTube captions): one actor call per batch of ids,
     // straight through the shared gate — no refetch, no media, no video_raw.
-    // A failed actor call leaves the batch NULL (still retryable) rather than
-    // stamping 'failed' on ids the actor never saw.
+    // A failed actor call, or an id the actor did not return, leaves the row
+    // NULL (still retryable) rather than stamping 'failed' on ids it never saw.
     if (adapter?.fetchTranscripts) {
       for (let i = 0; i < rows.length; i += o.batch) {
         const batch = rows.slice(i, i + o.batch)
@@ -269,16 +270,15 @@ async function main() {
           continue
         }
         for (const c of batch) {
-          let t: TranscriptResult
           if (!fetched.has(c.video_id)) {
             stats.missing++
-            t = { text: '', lang: null, source: null, status: 'failed' }
-          } else {
-            const f = fetched.get(c.video_id)
-            t = f
-              ? await gateTranscript(f.text, normaliseLang(f.lang), f.source)
-              : { text: '', lang: null, source: null, status: 'no_media' }
+            console.log(`  ✗ ${c.video_id} — not returned by the actor (left NULL)`)
+            continue
           }
+          const f = fetched.get(c.video_id)
+          const t: TranscriptResult = f
+            ? await gateTranscript(f.text, normaliseLang(f.lang), f.source)
+            : { text: '', lang: null, source: null, status: 'no_media' }
           stats[t.status]++
           if (t.status === 'ok') {
             langs.set(t.lang ?? 'unknown', (langs.get(t.lang ?? 'unknown') ?? 0) + 1)

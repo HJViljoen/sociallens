@@ -98,8 +98,9 @@ export function idFromWatchUrl(url: string): string {
 export function parseTranscriptItems(items: RawItem[]): Map<string, FetchedTranscript | null> {
   const out = new Map<string, FetchedTranscript | null>()
   for (const it of items) {
+    if (!it || typeof it !== 'object') continue
     const id = str(it.id) || idFromWatchUrl(str(it.url))
-    if (!id) continue
+    if (!id || out.has(id)) continue // first item per id wins
     const segs = Array.isArray(it.transcript) ? (it.transcript as RawItem[]) : null
     let text = segs ? segs.map((s) => str(s.text)).filter(Boolean).join(' ') : ''
     if (!text) text = str(it.transcript_only_text)
@@ -257,15 +258,16 @@ export const youtube: PlatformAdapter = {
   },
 
   // Wave 4: batched caption fetch. One actor run per transcribe batch (8 ids ≈
-  // 7s live); the sync endpoint's timeout stays well inside the 300s step cap
-  // so the batch's gate calls still fit after it. Throws on actor failure —
-  // the step retries, and the ids stay NULL for the next run if it never lands.
+  // 7s live). runActor retries transient failures up to 3× — at 60s per attempt
+  // the worst case (~190s) still leaves the batch's gate calls inside the 300s
+  // step cap. Throws on actor failure — the step retries, and the ids stay NULL
+  // for the next run if it never lands.
   async fetchTranscripts(videoIds) {
     if (!videoIds.length) return new Map()
     const items = await runActor(
       APIFY_ACTORS.youtube.transcript,
       { videoUrls: videoIds.map((id) => `${WATCH_URL}${id}`) },
-      { timeoutSecs: 120 },
+      { timeoutSecs: 60 },
     )
     return parseTranscriptItems(items)
   },
