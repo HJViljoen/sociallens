@@ -102,8 +102,11 @@ export function shapeBrandVoice(claims: BrandClaims, brandKeywords: string[] | n
 /** Account-name words that mark a THIRD PARTY even when the brand's name is
  *  in the handle ("Össur Review", "WHOOP Fans", "Ossur vs Ottobock"). Folded
  *  whole-word match. Kept short and obvious on purpose — a long list is a
- *  second tagging system nobody maintains. */
-export const THIRD_PARTY_ACCOUNT_WORDS = ['review', 'reviews', 'reviewer', 'unboxing', 'fan', 'fans', 'fanpage', 'vs', 'versus', 'news', 'podcast', 'community']
+ *  second tagging system nobody maintains — and limited to words a brand
+ *  would not put in its OWN handle (so not news/podcast/community: "Össur
+ *  News" is plausibly Össur). Checked against both live tenants 2026-08-17:
+ *  no brand-owned account demoted. */
+export const THIRD_PARTY_ACCOUNT_WORDS = ['review', 'reviews', 'reviewer', 'unboxing', 'fan', 'fans', 'fanpage', 'vs', 'versus']
 
 export function ownVoice(
   v: { source: string | null | undefined; account_name: string | null | undefined },
@@ -187,7 +190,8 @@ export function selectClaims(rows: ClaimRow[], trackedCompetitors: string[], max
     else counts.own++
     const entityKey = isClient ? `client:${voice}` : `competitor:${fold(name!)}`
     const count = perEntity.get(entityKey) ?? 0
-    if (count >= (voice === 'about' ? Math.max(maxPerEntity, MAX_ABOUT_CLAIMS) : maxPerEntity)) continue
+    // The about side never feeds a prompt, so it ignores the prompt-sized cap.
+    if (count >= (voice === 'about' ? MAX_ABOUT_CLAIMS : maxPerEntity)) continue
     perEntity.set(entityKey, count + 1)
 
     const out: BrandClaim = { competitor: isClient ? null : name, claim: r.claim, quote: r.quote }

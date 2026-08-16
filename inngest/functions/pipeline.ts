@@ -377,9 +377,11 @@ export const runPipeline = inngest.createFunction(
     //    Runs BEFORE Pass A (moved 2026-08-16): Pass A overwrites the
     //    classification for the videos it analyses (its comment-informed read
     //    is better), but the claims lane leaves `sentiment` alone — so a
-    //    below-floor brand video keeps THIS pass's framing sentiment instead of
-    //    ending up with none. Costs ~$0.10/run more than classifying only the
-    //    Pass A leftovers; the run_summary sentiment shares stay whole.
+    //    below-floor DISCOVERED brand video keeps THIS pass's framing sentiment
+    //    instead of ending up with none (owned posts stay outside this pass and
+    //    outside every sentiment consumer). Costs ~$0.10/run more than
+    //    classifying only the Pass A leftovers; the run_summary sentiment
+    //    shares stay whole.
     //    Non-fatal per batch: a failed batch leaves its rows unclassified and
     //    the page reports coverage honestly; it must never take down a run.
     const classifyBatches = await step
@@ -652,11 +654,12 @@ async function planPassABatches(clientId: string, runId: string): Promise<string
   // claims lane (Wave 4) — same rule as runPassA's second gate, via passALane.
   // The full lane stays corpus-wide (the analysis map layer re-reads every
   // analysable video each run). The CLAIMS lane is RUN-SCOPED: only videos
-  // gathered or re-found this run (gather restamps videos.run_id on every
-  // re-find; owned ingestion restamps its recent posts) — otherwise every
-  // brand-side transcript ever captured re-enters Pass A weekly, unbounded
-  // (+103 videos on 2026-08-16 alone). A video's claims refresh when it
-  // resurfaces; older claims persist via loadBrandClaims' all-time read.
+  // stamped with this run — gather restamps videos.run_id on every re-find
+  // whose upload_date is inside the report window; owned ingestion restamps
+  // its recent posts unconditionally — otherwise every brand-side transcript
+  // ever captured re-enters Pass A weekly, unbounded (+103 videos on
+  // 2026-08-16 alone). A video's claims refresh while it is in-window; older
+  // claims persist via loadBrandClaims' all-time read.
   const withTranscripts = transcriptsEnabled()
   const eligible = videos
     .map((v) => ({ id: v.id, n: counts.get(`${v.platform}::${v.video_id}`) ?? 0, run_id: v.run_id,
