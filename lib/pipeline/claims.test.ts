@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { selectClaims, ownVoice, shapeBrandVoice, mentionsBrand, MAX_CLAIMS_PER_ENTITY, ABOUT_YOU_MAX } from './claims'
+import { selectClaims, ownVoice, shapeBrandVoice, mentionsBrand, MAX_ABOUT_CLAIMS, ABOUT_YOU_MAX } from './claims'
 
 const TRACKED = ['Cotopaxi', 'Topo Designs']
 
@@ -92,6 +92,13 @@ describe('ownVoice — is this client-bucket video the client speaking?', () => 
     expect(ownVoice({ source: 'discovered', account_name: 'The Sport Verdict' }, OSSUR)).toBe(false)
     expect(ownVoice({ source: 'discovered', account_name: 'tunl.to' }, ['Sealand', 'Sealand Gear'])).toBe(false)
   })
+  it("a third-party account that carries the brand's name is still NOT own voice — review/fan/vs channels", () => {
+    expect(ownVoice({ source: 'discovered', account_name: 'Össur Review' }, OSSUR)).toBe(false)
+    expect(ownVoice({ source: 'discovered', account_name: 'WHOOP Fans' }, ['whoop'])).toBe(false)
+    expect(ownVoice({ source: 'discovered', account_name: 'Ossur vs Ottobock' }, OSSUR)).toBe(false)
+    expect(ownVoice({ source: 'discovered', account_name: 'Össur Academy' }, OSSUR)).toBe(true) // still fine
+  })
+
   it('null account, empty keywords, or a too-short keyword never match', () => {
     expect(ownVoice({ source: 'discovered', account_name: null }, OSSUR)).toBe(false)
     expect(ownVoice({ source: 'discovered', account_name: 'ÖSSUR' }, [])).toBe(false)
@@ -120,11 +127,11 @@ describe('selectClaims — voice split', () => {
 
   it('caps own and about separately — a busy reviewer cannot crowd out the client\'s own words', () => {
     const rows = [
-      ...Array.from({ length: MAX_CLAIMS_PER_ENTITY + 3 }, (_, i) => row({ entity: 'client', competitor_name: null, source_video_id: `rev${i}`, claim: `review claim ${i}`, voice: 'about' as const })),
+      ...Array.from({ length: MAX_ABOUT_CLAIMS + 3 }, (_, i) => row({ entity: 'client', competitor_name: null, source_video_id: `rev${i}`, claim: `review claim ${i}`, voice: 'about' as const })),
       row({ entity: 'client', competitor_name: null, source_video_id: 'own1', claim: 'own claim', voice: 'own' as const }),
     ]
     const r = selectClaims(rows, TRACKED)
-    expect(r.about).toHaveLength(MAX_CLAIMS_PER_ENTITY)
+    expect(r.about).toHaveLength(MAX_ABOUT_CLAIMS)
     expect(r.client.map((c) => c.claim)).toEqual(['own claim'])
   })
 })
@@ -134,15 +141,15 @@ describe('selectClaims counts + shapeBrandVoice', () => {
   const about = (i: number, url = `https://youtu.be/v${i}`, claim = `Sealand about claim ${i}`) =>
     row({ entity: 'client', competitor_name: null, source_video_id: `rev${i}`, claim, voice: 'about' as const, account: `Reviewer ${i}`, platform: 'youtube', url })
 
-  it('counts are post-hygiene but PRE-cap, so the roll-up stays honest past 12', () => {
+  it('counts are post-hygiene but PRE-cap, so the roll-up stays honest past the cap; about holds up to MAX_ABOUT_CLAIMS', () => {
     const rows = [
-      ...Array.from({ length: 15 }, (_, i) => about(i)),
+      ...Array.from({ length: MAX_ABOUT_CLAIMS + 5 }, (_, i) => about(i)),
       row({ entity: 'client', competitor_name: null, source_video_id: 'own1', claim: 'own', voice: 'own' as const }),
       row(),
     ]
     const r = selectClaims(rows, TRACKED)
-    expect(r.counts).toEqual({ own: 1, about: 15, competitors: 1 })
-    expect(r.about).toHaveLength(MAX_CLAIMS_PER_ENTITY)
+    expect(r.counts).toEqual({ own: 1, about: MAX_ABOUT_CLAIMS + 5, competitors: 1 })
+    expect(r.about).toHaveLength(MAX_ABOUT_CLAIMS)
   })
 
   it('shapes the About-you block: ≤2 per video, claim-text dedupe, capped, speaker + platform + url carried', () => {

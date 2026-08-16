@@ -99,6 +99,12 @@ export function shapeBrandVoice(claims: BrandClaims, brandKeywords: string[] | n
  * "McMorris Prosthetic Services" → no). Name-fold is the v1 rule — YouTube
  * channel ids would be exact, but the videos table doesn't store them.
  */
+/** Account-name words that mark a THIRD PARTY even when the brand's name is
+ *  in the handle ("Össur Review", "WHOOP Fans", "Ossur vs Ottobock"). Folded
+ *  whole-word match. Kept short and obvious on purpose — a long list is a
+ *  second tagging system nobody maintains. */
+export const THIRD_PARTY_ACCOUNT_WORDS = ['review', 'reviews', 'reviewer', 'unboxing', 'fan', 'fans', 'fanpage', 'vs', 'versus', 'news', 'podcast', 'community']
+
 export function ownVoice(
   v: { source: string | null | undefined; account_name: string | null | undefined },
   brandKeywords: string[] | null | undefined,
@@ -106,6 +112,8 @@ export function ownVoice(
   if (v.source === 'owned') return true
   const acct = fold(v.account_name ?? '')
   if (!acct) return false
+  const words = new Set(acct.split(/[^a-z0-9]+/).filter(Boolean))
+  if (THIRD_PARTY_ACCOUNT_WORDS.some((w) => words.has(w))) return false
   return (brandKeywords ?? []).some((k) => {
     const kw = fold(k)
     return kw.length >= 3 && acct.includes(kw)
@@ -114,6 +122,9 @@ export function ownVoice(
 
 /** Cap per entity (client, or each named competitor) after dedupe. */
 export const MAX_CLAIMS_PER_ENTITY = 12
+/** The about-you side feeds no prompt (evidence-only block), so it can hold
+ *  more than the prompt-sized cap — enough that ≤2-per-video still fills 8. */
+export const MAX_ABOUT_CLAIMS = 24
 
 interface ClaimRow {
   run_id: string
@@ -176,7 +187,7 @@ export function selectClaims(rows: ClaimRow[], trackedCompetitors: string[], max
     else counts.own++
     const entityKey = isClient ? `client:${voice}` : `competitor:${fold(name!)}`
     const count = perEntity.get(entityKey) ?? 0
-    if (count >= maxPerEntity) continue
+    if (count >= (voice === 'about' ? Math.max(maxPerEntity, MAX_ABOUT_CLAIMS) : maxPerEntity)) continue
     perEntity.set(entityKey, count + 1)
 
     const out: BrandClaim = { competitor: isClient ? null : name, claim: r.claim, quote: r.quote }

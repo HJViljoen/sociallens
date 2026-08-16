@@ -371,42 +371,17 @@ export const runPipeline = inngest.createFunction(
       return { runId, status: 'failed', totalVideos: 0 }
     }
 
-    // 4. Pass A — per-video GPT analysis, fanned out so no batch outlives the
-    //    step cap. The plan step pre-filters on RAW comment count (the spam
-    //    filter only shrinks a video's count, so raw < min are guaranteed
-    //    skips) and chunks richest-first, mirroring runPassA's own ordering.
-    const batches = await step.run('plan-pass-a', () => planPassABatches(clientId))
-    const passA = { analyzed: 0, claimsOnly: 0, skipped: 0, insights: 0, languageSamples: 0, cost: 0 }
-    // Batches dispatch in parallel waves — batches are disjoint video sets, so
-    // ordering is irrelevant to output; this is purely wall-time (a serial
-    // pass over a depth-100 corpus measured ~3 videos/min). Wave size stays
-    // modest for OpenAI/Inngest concurrency headroom.
-    for (let w = 0; w < batches.length; w += PASS_A_PARALLEL) {
-      const wave = await Promise.all(
-        batches.slice(w, w + PASS_A_PARALLEL).map((videoIds, j) =>
-          step.run(`pass-a:${w + j + 1}-of-${batches.length}`, async () => {
-            const s = await runPassA({ clientId, runId, videoIds, persist: true })
-            return { analyzed: s.videosAnalyzed, claimsOnly: s.videosClaimsOnly, skipped: s.videosSkipped, insights: s.insightsKept, languageSamples: s.languageSamples, cost: s.costUsd }
-          }),
-        ),
-      )
-      for (const r of wave) {
-        passA.analyzed += r.analyzed
-        passA.claimsOnly += r.claimsOnly ?? 0
-        passA.skipped += r.skipped
-        passA.insights += r.insights
-        passA.languageSamples += r.languageSamples
-        passA.cost += r.cost
-      }
-    }
-
-    // 4b. Metadata classification — the videos Pass A skipped (<5 kept
-    //     comments, ~75% of a corpus) get format/hook/topics from caption +
-    //     transcript so the Content page's per-entity stats rest on the whole
-    //     gather. Non-fatal per batch: a failed batch leaves its rows
-    //     unclassified and the page reports coverage honestly; it must never
-    //     take down a run (unlike theme buckets, nothing downstream consumes
-    //     this silently — themes/synthesis never read these columns).
+    // 4. Metadata classification — format/hook/topics + a framing sentiment
+    //    from caption + transcript for every still-unclassified video of this
+    //    run, so the Content page's per-entity stats rest on the whole gather.
+    //    Runs BEFORE Pass A (moved 2026-08-16): Pass A overwrites the
+    //    classification for the videos it analyses (its comment-informed read
+    //    is better), but the claims lane leaves `sentiment` alone — so a
+    //    below-floor brand video keeps THIS pass's framing sentiment instead of
+    //    ending up with none. Costs ~$0.10/run more than classifying only the
+    //    Pass A leftovers; the run_summary sentiment shares stay whole.
+    //    Non-fatal per batch: a failed batch leaves its rows unclassified and
+    //    the page reports coverage honestly; it must never take down a run.
     const classifyBatches = await step
       .run('plan-classify', () => planClassifyMetaBatches(clientId, runId))
       // Plan failure out of retries → skip classification, never the run
@@ -442,6 +417,35 @@ export const runPipeline = inngest.createFunction(
           classify.errors++
           noteError('classify-meta', r.error)
         }
+      }
+    }
+
+    // 4b. Pass A — per-video GPT analysis, fanned out so no batch outlives the
+    //    step cap. The plan step pre-filters on RAW comment count (the spam
+    //    filter only shrinks a video's count, so raw < min are guaranteed
+    //    skips) and chunks richest-first, mirroring runPassA's own ordering.
+    const batches = await step.run('plan-pass-a', () => planPassABatches(clientId, runId))
+    const passA = { analyzed: 0, claimsOnly: 0, skipped: 0, insights: 0, languageSamples: 0, cost: 0 }
+    // Batches dispatch in parallel waves — batches are disjoint video sets, so
+    // ordering is irrelevant to output; this is purely wall-time (a serial
+    // pass over a depth-100 corpus measured ~3 videos/min). Wave size stays
+    // modest for OpenAI/Inngest concurrency headroom.
+    for (let w = 0; w < batches.length; w += PASS_A_PARALLEL) {
+      const wave = await Promise.all(
+        batches.slice(w, w + PASS_A_PARALLEL).map((videoIds, j) =>
+          step.run(`pass-a:${w + j + 1}-of-${batches.length}`, async () => {
+            const s = await runPassA({ clientId, runId, videoIds, persist: true })
+            return { analyzed: s.videosAnalyzed, claimsOnly: s.videosClaimsOnly, skipped: s.videosSkipped, insights: s.insightsKept, languageSamples: s.languageSamples, cost: s.costUsd }
+          }),
+        ),
+      )
+      for (const r of wave) {
+        passA.analyzed += r.analyzed
+        passA.claimsOnly += r.claimsOnly ?? 0
+        passA.skipped += r.skipped
+        passA.insights += r.insights
+        passA.languageSamples += r.languageSamples
+        passA.cost += r.cost
       }
     }
 
@@ -625,14 +629,14 @@ const THEMES_PARALLEL = 2
 // Eligible video ids (raw comment count >= 5, richest first), chunked into
 // batches. Comments are scanned once and joined in memory — same URL-overflow
 // avoidance as everywhere else.
-async function planPassABatches(clientId: string): Promise<string[][]> {
+async function planPassABatches(clientId: string, runId: string): Promise<string[][]> {
   const admin = createAdminClient()
   // Discovered corpus + the client's OWN posts. Owned posts never take the
   // full lane (their fans' comments would contaminate audience themes; Step 2c
   // is their consumer) — passALane admits them to the claims lane only, when
   // they carry a usable transcript (Brand Voice, 2026-08-16).
-  const videos = await selectAll<{ id: string; platform: string; video_id: string; is_client: boolean | null; is_competitor: boolean | null; transcript_status: string | null; source: string | null }>(() =>
-    admin.from('videos').select('id, platform, video_id, is_client, is_competitor, transcript_status, source').eq('client_id', clientId).in('source', ['discovered', 'owned']).order('id', { ascending: true }),
+  const videos = await selectAll<{ id: string; platform: string; video_id: string; is_client: boolean | null; is_competitor: boolean | null; transcript_status: string | null; source: string | null; run_id: string | null }>(() =>
+    admin.from('videos').select('id, platform, video_id, is_client, is_competitor, transcript_status, source, run_id').eq('client_id', clientId).in('source', ['discovered', 'owned']).order('id', { ascending: true }),
   )
   const counts = new Map<string, number>()
   const comments = await selectAll<{ platform: string; video_id: string }>(() =>
@@ -646,11 +650,18 @@ async function planPassABatches(clientId: string): Promise<string[][]> {
   // 5 would skip most of the platform (lib/config.ts passAMinComments). Below
   // the floor, brand-side videos with a usable transcript still enter via the
   // claims lane (Wave 4) — same rule as runPassA's second gate, via passALane.
+  // The full lane stays corpus-wide (the analysis map layer re-reads every
+  // analysable video each run). The CLAIMS lane is RUN-SCOPED: only videos
+  // gathered or re-found this run (gather restamps videos.run_id on every
+  // re-find; owned ingestion restamps its recent posts) — otherwise every
+  // brand-side transcript ever captured re-enters Pass A weekly, unbounded
+  // (+103 videos on 2026-08-16 alone). A video's claims refresh when it
+  // resurfaces; older claims persist via loadBrandClaims' all-time read.
   const withTranscripts = transcriptsEnabled()
   const eligible = videos
-    .map((v) => ({ id: v.id, n: counts.get(`${v.platform}::${v.video_id}`) ?? 0,
+    .map((v) => ({ id: v.id, n: counts.get(`${v.platform}::${v.video_id}`) ?? 0, run_id: v.run_id,
       lane: passALane({ ...v, transcript_status: withTranscripts ? v.transcript_status : null }, counts.get(`${v.platform}::${v.video_id}`) ?? 0) }))
-    .filter((v) => v.lane !== 'skip')
+    .filter((v) => v.lane === 'full' || (v.lane === 'claims_only' && v.run_id === runId))
     .sort((a, b) => b.n - a.n)
   const batches: string[][] = []
   for (let i = 0; i < eligible.length; i += PASS_A_BATCH) {

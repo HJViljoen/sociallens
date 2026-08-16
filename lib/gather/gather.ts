@@ -801,9 +801,17 @@ export async function transcribeBatch(opts: {
   // itself fails, the step throws and retries; the ids stay NULL and re-plan
   // next run. Per-id absence/null is handled inside the loop. Runs in dryRun
   // too: dry-run here means "resolve, don't write", same as the Whisper path.
-  const fetched = adapter.fetchTranscripts && pending.length
-    ? await adapter.fetchTranscripts(pending.map((r) => r.video_id))
-    : null
+  // Chunked by TRANSCRIBE_BATCH regardless of how the caller sized `pending`
+  // (fan-out passes 8; the CLI/backfill path could pass up to TRANSCRIBE_CAP)
+  // so one actor call never carries hundreds of ids into a 60s timeout.
+  let fetched: Map<string, FetchedTranscript | null> | null = null
+  if (adapter.fetchTranscripts && pending.length) {
+    fetched = new Map()
+    for (let i = 0; i < pending.length; i += TRANSCRIBE_BATCH) {
+      const part = await adapter.fetchTranscripts(pending.slice(i, i + TRANSCRIBE_BATCH).map((r) => r.video_id))
+      for (const [k, v] of part) fetched.set(k, v)
+    }
+  }
   let transcribed = 0
   let skipped = 0
   let whisperMinutes = 0
