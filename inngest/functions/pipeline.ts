@@ -1,7 +1,7 @@
 import { randomUUID } from 'crypto'
 import { inngest } from '@/inngest/client'
 import { createAdminClient, selectAll } from '@/lib/supabase-admin'
-import { planGatherSearches, searchOne, gatePlatform, scrapeCommentsBatch, transcribeBatch, planTranscribeBatches, resolveGatherWindow, inWindow, type SearchResult } from '@/lib/gather/gather'
+import { planGatherSearches, searchOne, gatePlatform, scrapeCommentsBatch, transcribeBatch, planTranscribeBatches, resolveGatherWindow, inWindow, loadGatherConfig, type SearchResult } from '@/lib/gather/gather'
 import { runPassA } from '@/lib/pipeline/pass-a'
 import { loadGroupedInsights, runStepA2Bucket, type StepA2BucketResult } from '@/lib/pipeline/step-a2'
 import { runPassB } from '@/lib/pipeline/pass-b'
@@ -11,7 +11,9 @@ import { runCrossReference } from '@/lib/pipeline/cross-reference'
 import { loadBrandClaims } from '@/lib/pipeline/claims'
 import { attributeRunKeywords } from '@/lib/pipeline/keyword-attribution'
 import { planClassifyMetaBatches, runClassifyMetaBatch } from '@/lib/pipeline/classify-meta'
-import { ingestOwnedPosts } from '@/lib/gather/owned'
+import { ingestOwnedPosts, supportsOwnedProfile } from '@/lib/gather/owned'
+import { discoverSubreddits } from '@/lib/gather/subreddit-discovery'
+import { activeSubreddits } from '@/lib/gather/subreddits'
 import { runStep2c } from '@/lib/pipeline/owned-events'
 import { summariseRunErrors, RUN_ERROR_CAP } from '@/lib/pipeline/run-errors'
 import { persistRunNews } from '@/lib/news/persist'
@@ -19,7 +21,7 @@ import { persistThemes, loadThemes } from '@/lib/pipeline/themes'
 import { writeRunSummary } from '@/lib/pipeline/run-summary'
 import { computeMetrics } from '@/lib/pipeline/metrics'
 import { sendAlertEmail } from '@/lib/email'
-import { CLUSTER_SIMILARITY_THRESHOLD, EVIDENCE_FLOOR, TRANSCRIBE_PARALLEL, transcriptsEnabled } from '@/lib/config'
+import { CLUSTER_SIMILARITY_THRESHOLD, EVIDENCE_FLOOR, TRANSCRIBE_PARALLEL, passAMinComments, redditDiscoveryEnabled, transcriptsEnabled } from '@/lib/config'
 import type { Platform } from '@/lib/gather/types'
 import type { VideoRow, CommentRow } from '@/lib/pipeline/types'
 
@@ -124,6 +126,55 @@ export const runPipeline = inngest.createFunction(
         return { fetched: 0, stored: 0 }
       })
 
+    // Declared HERE, not with the gather counters below: the discovery step's
+    // .catch() increments it while this function is still suspended at that
+    // await, so a later `let` would be in the temporal dead zone and the catch
+    // would throw a ReferenceError — turning a non-fatal step into a run-killer.
+    // noteError/runErrors ride along for exactly the same reason.
+    let totalErrors = 0
+    // WHY a run ends 'partial'. Before this, a degraded run wrote the status and
+    // nothing else: the reason lived only in a console line that ages out of the
+    // platform's log retention within the hour. The first scheduled run
+    // (2026-08-16) closed 'partial' and its cause had to be reconstructed from
+    // third-party billing history. close-run persists this list so the next one
+    // explains itself.
+    const runErrors: string[] = []
+    const noteError = (where: string, detail?: unknown) => {
+      totalErrors++
+      if (runErrors.length >= RUN_ERROR_CAP) return
+      const message = detail instanceof Error ? detail.message : detail == null ? '' : String(detail)
+      runErrors.push(message ? `${where}: ${message.slice(0, 300)}` : where)
+    }
+
+    // Reddit subreddit discovery (Wave 3): propose communities, probe each
+    // against the live relevance gate, persist the survivors. Runs before
+    // plan-gather so a newly-promoted community is available to this run.
+    //
+    // Non-fatal but COUNTED. Unlike gather-news (a free RSS fetch), this step
+    // spends real Apify and OpenAI money BEFORE it can fail, and its most likely
+    // failure is a timeout after several completed paid probes. A run that
+    // quietly burned money and produced nothing is exactly what 'partial' is
+    // for. Skipped entirely on an analysis-only resume.
+    if (!options.skipGather && redditDiscoveryEnabled()) {
+      await step
+        .run('discover-subreddits', async () => {
+          const config = await loadGatherConfig(clientId)
+          if (!config.platforms.includes('reddit')) return { skipped: 'reddit not enabled for tenant' }
+          const merged = await discoverSubreddits({
+            clientId,
+            runId,
+            config,
+            today: new Date().toISOString().slice(0, 10),
+          })
+          return { subreddits: merged.length, active: activeSubreddits(merged).length }
+        })
+        .catch((e) => {
+          console.error(`[discover-subreddits] out of retries: ${e instanceof Error ? e.message : String(e)}`)
+          noteError('discover-subreddits', e)
+          return { skipped: 'failed' }
+        })
+    }
+
     // 2. Plan the gather fan-out: one task per platform × keyword. An
     //    analysis-only resume skips gather — the corpus is already in the DB.
     const plan = options.skipGather
@@ -162,21 +213,7 @@ export const runPipeline = inngest.createFunction(
     //    run — the single-step-per-platform version timed out at 300s on the
     //    first attempt, 2026-07-03). One platform failing must not stop the
     //    others; one search failing must not stop its platform.
-    let totalVideos = 0
-    let totalErrors = 0
-    // WHY a run ends 'partial'. Before this, a degraded run wrote the status and
-    // nothing else: the reason lived only in a console line that ages out of the
-    // platform's log retention within the hour. The first scheduled run
-    // (2026-08-16) closed 'partial' and the cause had to be reconstructed from
-    // third-party billing history — and still wasn't provable. close-run
-    // persists this list so the next one explains itself.
-    const runErrors: string[] = []
-    const noteError = (where: string, detail?: unknown) => {
-      totalErrors++
-      if (runErrors.length >= RUN_ERROR_CAP) return
-      const message = detail instanceof Error ? detail.message : detail == null ? '' : String(detail)
-      runErrors.push(message ? `${where}: ${message.slice(0, 300)}` : where)
-    }
+    let totalVideos = 0 // totalErrors/noteError are declared above — the discovery catch uses them first
     for (const platform of gatherPlatforms) {
       try {
         // Searches dispatch in parallel waves (transcribe-fan-out precedent):
@@ -193,6 +230,7 @@ export const runPipeline = inngest.createFunction(
                 return await step.run(`search:${platform}:${task.keyword}`, () =>
                   searchOne({
                     clientId, runId, platform, keyword: task.keyword, bucket: task.bucket,
+                    community: task.community,
                     maxVideos: options.maxVideos, period: options.period,
                   }),
                 )
@@ -270,7 +308,9 @@ export const runPipeline = inngest.createFunction(
         // Owned layer (Wave 2): the client's own recent posts + their comments,
         // stamped source:'owned' — feeds Step 2c, never the discovered-corpus
         // metrics (SoV guard). Non-fatal: catch on the step promise.
-        if (ownedHandles[platform]) {
+        // supportsOwnedProfile: Reddit has no owned-account concept, so an
+        // own_handles.reddit entry is skipped rather than thrown (Wave 3).
+        if (ownedHandles[platform] && supportsOwnedProfile(platform)) {
           const ownedRefs = await step
             .run(`owned-posts:${platform}`, () =>
               ingestOwnedPosts({ clientId, runId, platform, handle: ownedHandles[platform], windowStart: ownedPlan.windowStart }),
@@ -565,9 +605,11 @@ async function planPassABatches(clientId: string): Promise<string[][]> {
     const key = `${c.platform}::${c.video_id}`
     counts.set(key, (counts.get(key) ?? 0) + 1)
   }
+  // Per-platform floor: Reddit threads run short but dense, so a single global
+  // 5 would skip most of the platform (lib/config.ts passAMinComments).
   const eligible = videos
-    .map((v) => ({ id: v.id, n: counts.get(`${v.platform}::${v.video_id}`) ?? 0 }))
-    .filter((v) => v.n >= 5)
+    .map((v) => ({ id: v.id, platform: v.platform, n: counts.get(`${v.platform}::${v.video_id}`) ?? 0 }))
+    .filter((v) => v.n >= passAMinComments(v.platform))
     .sort((a, b) => b.n - a.n)
   const batches: string[][] = []
   for (let i = 0; i < eligible.length; i += PASS_A_BATCH) {

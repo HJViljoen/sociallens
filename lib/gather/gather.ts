@@ -1,7 +1,9 @@
 import { createAdminClient, selectAll } from '../supabase-admin'
-import { periodWindowDays, RECHECK_MIN_GROWTH, RECHECK_CAP, RECHECK_WINDOW_DAYS, TRANSCRIBE_CAP, TRANSCRIBE_BATCH, TRANSCRIBE_MODEL, CONTENT_GATE_MODEL, WHISPER_PER_MINUTE, estimateCost, transcriptsEnabled } from '../config'
+import { ANALYSIS_MODEL, REDDIT_COMMENT_SCRAPE_CAP, redditDiscoveryEnabled, periodWindowDays, RECHECK_MIN_GROWTH, RECHECK_CAP, RECHECK_WINDOW_DAYS, TRANSCRIBE_CAP, TRANSCRIBE_BATCH, TRANSCRIBE_MODEL, CONTENT_GATE_MODEL, WHISPER_PER_MINUTE, estimateCost, transcriptsEnabled } from '../config'
 import { runActor } from './apify'
 import { adapters } from './platforms'
+import { parseSubreddits, activeSubreddits, subredditLabel } from './subreddits'
+import { logAiCall } from '../pipeline/ai-log'
 import { resolveTranscript } from './transcript'
 import { dedupeBy, round2 } from './util'
 import { classifyRelevance, type RelevanceMethod } from './relevance'
@@ -119,6 +121,13 @@ const DEFAULT_CONFIG: Omit<GatherConfig, 'platforms'> = {
   comment_depth: 50,
   report_period: 'weekly',
   own_handles: {},
+  subreddits: [],
+}
+
+/** The tenant's gather config. Exported for the discovery step, which needs the
+ *  same view of tracking_configs (including subreddits) before gather planning. */
+export async function loadGatherConfig(clientId: string): Promise<GatherConfig> {
+  return loadConfig(createAdminClient(), clientId)
 }
 
 async function loadConfig(admin: Admin, clientId: string): Promise<GatherConfig> {
@@ -139,6 +148,7 @@ async function loadConfig(admin: Admin, clientId: string): Promise<GatherConfig>
     comment_depth: data.comment_depth ?? DEFAULT_CONFIG.comment_depth,
     report_period: data.report_period ?? DEFAULT_CONFIG.report_period,
     own_handles: data.own_handles ?? {},
+    subreddits: parseSubreddits(data.subreddits),
   }
 }
 
@@ -196,6 +206,10 @@ export interface SearchTask {
   platform: Platform
   keyword: string
   bucket: KeywordBucket
+  /** Reddit community harvest: pull this whole community rather than running
+   *  `keyword` as a search term. `keyword` is then the display label ('r/x'),
+   *  which keeps source_keywords and keyword_performance meaningful. */
+  community?: string
 }
 
 /** One keyword search's normalised output (videos tagged with the keyword). */
@@ -229,6 +243,19 @@ export async function planGatherSearches(clientId: string, platforms?: Platform[
     for (const group of buildSearchPlan(config)) {
       tasks.push({ platform, keyword: group.keyword, bucket: group.bucket })
     }
+    // Reddit additionally harvests each discovered community WHOLESALE — the
+    // conversation people have when they aren't using our keywords is the only
+    // thing Reddit offers that TikTok/Instagram don't. One extra search per
+    // active community, so the plan grows by N+M, never N*M.
+    // Gated by the same flag as discovery. Without this the flag is a one-way
+    // switch: once communities are promoted, turning it OFF would stop proposing
+    // but keep fanning out M harvest searches and their comment scrapes every
+    // run, and the only rollback would be hand-editing jsonb.
+    if (platform === 'reddit' && redditDiscoveryEnabled()) {
+      for (const name of activeSubreddits(config.subreddits)) {
+        tasks.push({ platform, keyword: subredditLabel(name), bucket: 'industry', community: name })
+      }
+    }
   }
   return tasks
 }
@@ -241,6 +268,8 @@ export async function searchOne(opts: {
   platform: Platform
   keyword: string
   bucket: KeywordBucket
+  /** Reddit community harvest — see SearchTask.community. */
+  community?: string
   maxVideos?: number
   period?: string
 }): Promise<SearchResult> {
@@ -258,7 +287,9 @@ export async function searchOne(opts: {
   if (adapter.fetchVideos) {
     raw = await adapter.fetchVideos(config, [opts.keyword], config.max_videos)
   } else if (adapter.videoSearch) {
-    const { actor, input } = adapter.videoSearch(config, [opts.keyword], config.max_videos)
+    const { actor, input } = adapter.videoSearch(config, [opts.keyword], config.max_videos, {
+      community: opts.community,
+    })
     raw = await runActor(actor, input)
   } else {
     throw new Error(`adapter ${opts.platform} has no video source`)
@@ -278,6 +309,21 @@ export async function searchOne(opts: {
     for (const p of paired) raws[p.video.video_id] = p.raw
   }
   return { keyword: opts.keyword, bucket: opts.bucket, videos, raws }
+}
+
+/**
+ * How many FRESH comment scrapes a platform may run this gather.
+ *
+ * `videoLimit` is a cost-CONTROL lever, so where a platform carries its own
+ * ceiling an explicit limit may only tighten it — passing videoLimit:60 to keep
+ * a TikTok test cheap must not silently double Reddit's guard, the one platform
+ * that has one. Null = uncapped. An explicit 0 means "scrape nothing" and must
+ * not fall through to uncapped. Exported pure for tests.
+ */
+export function resolveScrapeCap(platform: Platform, videoLimit?: number): number | null {
+  const platformCap = platform === 'reddit' ? REDDIT_COMMENT_SCRAPE_CAP : null
+  if (videoLimit == null) return platformCap
+  return platformCap == null ? videoLimit : Math.min(videoLimit, platformCap)
 }
 
 /** Merge a platform's keyword searches (unioning source_keywords), run the
@@ -356,9 +402,36 @@ export async function gatePlatform(opts: {
   // viral human-interest, news) never enters the corpus or burns a comment
   // scrape. Fails open — kept videos are everything not explicitly dropped.
   const method = opts.relevance ?? 'gpt'
-  const { verdicts } = await classifyRelevance(videos, { method, config })
+  const gateStartedAt = Date.now()
+  const gateResult = await classifyRelevance(videos, { method, config })
+  const { verdicts } = gateResult
   const kept = videos.filter((v) => verdicts.get(v.video_id)?.relevant !== false)
   const dropped = videos.length - kept.length
+
+  // The gate's GPT spend used to be discarded here — it ran on every platform of
+  // every run and appeared in no cost report, so per-keyword ROI understated
+  // what a keyword actually cost. Logging failure must never sink a gather.
+  if (!opts.dryRun && gateResult.promptTokens + gateResult.completionTokens > 0) {
+    try {
+      await logAiCall(admin, {
+        clientId: opts.clientId,
+        runId: opts.runId,
+        pass: 'relevance_gate',
+        callIndex: 1,
+        model: ANALYSIS_MODEL,
+        promptVersion: `relevance_${method}`,
+        systemPrompt: `relevance gate (${method})`,
+        userPrompt: `${adapter.platform} — ${videos.length} candidates`,
+        response: { platform: adapter.platform, judged: videos.length, kept: kept.length, dropped },
+        error: null,
+        usage: { prompt_tokens: gateResult.promptTokens, completion_tokens: gateResult.completionTokens },
+        durationMs: Date.now() - gateStartedAt,
+        validationStatus: 'ok',
+      })
+    } catch (e) {
+      console.warn(`[${adapter.platform}] relevance gate cost log failed: ${e instanceof Error ? e.message : String(e)}`)
+    }
+  }
   if (dropped > 0) {
     const reasons = videos
       .filter((v) => verdicts.get(v.video_id)?.relevant === false)
@@ -438,7 +511,18 @@ export async function gatePlatform(opts: {
   const freshEligible = kept.filter(
     (v) => adapter.commentThreshold == null || v.comments_count >= adapter.commentThreshold,
   )
-  const toScrape = opts.videoLimit ? freshEligible.slice(0, opts.videoLimit) : freshEligible
+  // Reddit carries a default scrape cap the other platforms don't need: its
+  // actor bills per RUN START and the spine scrapes one post per run (~$0.06 a
+  // post), so a two-community harvest would otherwise run ~$8/run.
+  const scrapeCap = resolveScrapeCap(adapter.platform, opts.videoLimit)
+  let toScrape = freshEligible
+  if (scrapeCap != null && freshEligible.length > scrapeCap) {
+    // Spend the cap on the densest threads — same richest-first rule Pass A
+    // batching and delta re-checks already use. Only the capped path sorts, so
+    // an uncapped platform's ordering is untouched.
+    toScrape = [...freshEligible].sort((a, b) => b.comments_count - a.comments_count).slice(0, scrapeCap)
+    console.log(`[${adapter.platform}] comment-scrape cap: ${freshEligible.length} eligible → ${scrapeCap} scraped (richest first)`)
+  }
 
   // Delta re-checks: known videos whose comment count grew earn a re-scrape —
   // even outside the window (their NEW comments are this period's conversation;
@@ -614,7 +698,9 @@ export function orderAndChunkPending(
  *  unbounded read. */
 export async function planTranscribeBatches(clientId: string, runId: string, platform: Platform): Promise<string[][]> {
   const admin = createAdminClient()
-  if (!adapters[platform]?.extractMedia) return [] // YouTube: deferred
+  // YouTube: deferred (no media route). Reddit takes the extractTranscript path.
+  const a = adapters[platform]
+  if (!a?.extractMedia && !a?.extractTranscript) return []
   const rawIds = (
     await selectAll<{ video_id: string }>(() =>
       admin
@@ -657,7 +743,8 @@ export async function transcribeBatch(opts: {
   const admin = createAdminClient()
   const adapter = adapters[opts.platform]
   const errors: string[] = []
-  if (!adapter?.extractMedia) return { transcribed: 0, skipped: 0, errors } // YouTube: deferred
+  // YouTube: deferred (no media route). Reddit resolves from the raw item itself.
+  if (!adapter?.extractMedia && !adapter?.extractTranscript) return { transcribed: 0, skipped: 0, errors }
   const startedAt = Date.now()
 
   const rawRows = await selectAll<{ video_id: string; raw: RawItem }>(() => {
@@ -701,7 +788,11 @@ export async function transcribeBatch(opts: {
   const statusCounts: Record<string, number> = {}
   for (const row of pending) {
     try {
-      const t = await resolveTranscript(adapter.extractMedia!(row.raw))
+      // Text-native platforms (Reddit) resolve straight from the stored item —
+      // no fetch, no Whisper, no cost. Everything else goes via media/captions.
+      const t = adapter.extractTranscript
+        ? (adapter.extractTranscript(row.raw) ?? { text: '', lang: null, source: null, status: 'no_media' as const })
+        : await resolveTranscript(adapter.extractMedia!(row.raw))
       // Spend happened the moment Whisper/the gate ran — accumulate BEFORE the
       // persist attempt so a failed update can't under-log real cost.
       whisperMinutes += t.whisperMinutes ?? 0
@@ -780,17 +871,27 @@ export async function runGather(opts: GatherOptions): Promise<PlatformResult[]> 
     }
     const errors: string[] = []
     try {
+      // Same task list the Inngest path plans — keyword searches plus, on
+      // Reddit, one community harvest per active subreddit. Kept identical on
+      // purpose: this is the only path with --dry-run, and a spend-bearing
+      // feature the CLI can't exercise is one that can only be tested in prod.
+      const tasks = [
+        ...buildSearchPlan(config).map((g) => ({ keyword: g.keyword, bucket: g.bucket, community: undefined as string | undefined })),
+        ...(platform === 'reddit' && redditDiscoveryEnabled()
+          ? activeSubreddits(config.subreddits).map((name) => ({ keyword: subredditLabel(name), bucket: 'industry' as KeywordBucket, community: name }))
+          : []),
+      ]
       const searches: SearchResult[] = []
-      for (const group of buildSearchPlan(config)) {
+      for (const task of tasks) {
         try {
           searches.push(await searchOne({
             clientId: opts.clientId, runId: opts.runId, platform,
-            keyword: group.keyword, bucket: group.bucket,
+            keyword: task.keyword, bucket: task.bucket, community: task.community,
             maxVideos: opts.maxVideos, period: opts.period,
           }))
         } catch (e) {
-          errors.push(`search ${group.bucket}:${group.keyword}: ${(e as Error).message}`)
-          searches.push({ keyword: group.keyword, bucket: group.bucket, videos: [] })
+          errors.push(`search ${task.bucket}:${task.keyword}: ${(e as Error).message}`)
+          searches.push({ keyword: task.keyword, bucket: task.bucket, videos: [] })
         }
       }
       const gate = await gatePlatform({

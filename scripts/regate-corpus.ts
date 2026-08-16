@@ -1,5 +1,6 @@
 import { createAdminClient, selectAll } from '../lib/supabase-admin'
 import { classifyRelevance } from '../lib/gather/relevance'
+import { parseSubreddits } from '../lib/gather/subreddits'
 import type { GatherConfig } from '../lib/gather/types'
 
 // Post-hoc relevance re-gate of a client's STORED corpus (teardown 2026-07-09
@@ -66,6 +67,7 @@ async function main() {
     comment_depth: tc.comment_depth ?? 50,
     report_period: tc.report_period ?? 'weekly',
     own_handles: tc.own_handles ?? {},
+    subreddits: parseSubreddits(tc.subreddits),
   }
 
   const videos = (await selectAll<StoredVideo>(() =>

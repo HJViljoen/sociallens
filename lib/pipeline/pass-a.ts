@@ -1,7 +1,7 @@
 import { zodResponseFormat } from 'openai/helpers/zod'
 import { createAdminClient, selectAll } from '../supabase-admin'
 import { openai } from '../openai'
-import { ANALYSIS_MODEL, ANALYSIS_TEMPERATURE, PASS_A_VIDEO_QUOTE_MAX, estimateCost, transcriptsEnabled } from '../config'
+import { ANALYSIS_MODEL, ANALYSIS_TEMPERATURE, PASS_A_VIDEO_QUOTE_MAX, estimateCost, passAMinComments, transcriptsEnabled } from '../config'
 import { PassAVideoSchema, PassAVideoSchemaV4, type PassAVideoOutput, type PassAInsight, type PassAClaim } from './schemas'
 import { filterComments } from './spam-filter'
 import { computeQualityScore } from './metrics'
@@ -9,8 +9,8 @@ import { usableTranscript } from './transcript-input'
 import type { VideoRow, CommentRow } from './types'
 
 // Pass A — per-video analysis (Architecture/Analysis-Passes §Pass A), built in
-// code per Architecture/Migration-to-Code. One GPT call per video (>=5 kept
-// comments): classification + audience insights, each insight carrying verbatim
+// code per Architecture/Migration-to-Code. One GPT call per video that clears
+// the platform's kept-comment floor (config.passAMinComments): classification + audience insights, each insight carrying verbatim
 // evidence tied to a real comment. Validated post-parse and persisted to
 // videos / audience_insights / insight_evidence, with one ai_call_log row.
 //
@@ -24,7 +24,6 @@ import type { VideoRow, CommentRow } from './types'
 
 const PROMPT_VERSION = 'pass_a_v3'
 const PROMPT_VERSION_V4 = 'pass_a_v4'
-const DEFAULT_MIN_COMMENTS = 5
 const MAX_CLAIMS_PER_VIDEO = 3
 
 /** Parsed model output — v3 shape, with v4's claims present when the v4 schema ran. */
@@ -39,7 +38,9 @@ export interface RunPassAOptions {
   videoIds?: string[]
   /** Cap number of videos processed (most-commented first). */
   limit?: number
-  /** Min kept comments for a per-video call (default 5). Below this, skipped (metadata batch is a later step). */
+  /** Min kept comments for a per-video call. Omit to use the platform floor
+   *  (config.passAMinComments: 5, Reddit 3). Below it, skipped — the metadata
+   *  classification batch is what picks those videos up. */
   minComments?: number
   /** Assemble prompts + estimate tokens, no API calls, no writes. */
   dryRun?: boolean
@@ -349,7 +350,9 @@ export async function runPassA(opts: RunPassAOptions): Promise<RunPassASummary> 
     platform,
     videoIds,
     limit,
-    minComments = DEFAULT_MIN_COMMENTS,
+    // Undefined = resolve per-video from the platform floor (below). An explicit
+    // value still overrides everywhere, which is what the operator scripts pass.
+    minComments,
     dryRun = false,
   } = opts
   const persist = opts.persist ?? !dryRun
@@ -466,7 +469,9 @@ export async function runPassA(opts: RunPassAOptions): Promise<RunPassASummary> 
       status: 'skipped_too_few',
     }
 
-    if (kept.length < minComments) {
+    // Second gate, on KEPT comments (post-spam-filter). The plan step already
+    // applied the same floor to RAW counts; a video can still fall out here.
+    if (kept.length < (minComments ?? passAMinComments(v.platform))) {
       summary.videosSkipped++
       summary.perVideo.push(res)
       continue

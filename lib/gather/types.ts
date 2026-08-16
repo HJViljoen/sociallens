@@ -3,7 +3,22 @@
 // analysis pipeline (lib/pipeline). These shapes narrow only the columns gather
 // writes; the live schema source of truth is Architecture/Schema-Actual.
 
-export type Platform = 'tiktok' | 'youtube' | 'instagram'
+export type Platform = 'tiktok' | 'youtube' | 'instagram' | 'reddit'
+
+/** One row of tracking_configs.subreddits (Wave 3). `name` is bare and
+ *  lowercase — no 'r/' prefix; the display layer adds it. */
+export interface SubredditEntry {
+  name: string
+  /** candidate = proposed, unprobed · active = probe passed · rejected = probe failed. */
+  status: 'candidate' | 'active' | 'rejected'
+  discovered_at: string
+  /** What the relevance probe saw, when it ran. Absent on unprobed candidates. */
+  probe?: { sampled: number; kept: number; at: string }
+  /** Consecutive runs this ACTIVE community yielded nothing while other Reddit
+   *  sources did. Reset by any productive run; at the limit the community is
+   *  demoted back to 'candidate' for re-judging. See lib/gather/subreddits.ts. */
+  strikes?: number
+}
 
 /** The tracking_configs subset gather needs. */
 export interface GatherConfig {
@@ -18,6 +33,9 @@ export interface GatherConfig {
   /** Client's own public profiles per platform (YouTube value = channel ID).
    *  Empty = owned layer off for this tenant. */
   own_handles: Record<string, string>
+  /** Reddit communities this tenant searches, with how each earned its place.
+   *  Empty = discovery has never run. See lib/gather/subreddits.ts. */
+  subreddits: SubredditEntry[]
 }
 
 /** A row ready to upsert into `videos`. Only gather-owned columns — Pass A
@@ -99,7 +117,7 @@ export interface MediaRef {
 export interface TranscriptResult {
   text: string
   lang: string | null
-  source: 'tiktok_caption' | 'whisper' | null
+  source: 'tiktok_caption' | 'whisper' | 'reddit_selftext' | null
   status: 'ok' | 'no_speech' | 'lyrics' | 'garbled' | 'no_media' | 'failed'
   /** Whisper audio minutes billed for this video (absent: caption/no-media path). */
   whisperMinutes?: number
@@ -140,7 +158,15 @@ export interface PlatformAdapter {
    * Apify-sourced platforms (TikTok, Instagram) implement this; a platform on a
    * native API (YouTube) provides `fetchVideos` instead — see below.
    */
-  videoSearch?(config: GatherConfig, terms: string[], limit: number): { actor: string; input: RawItem }
+  videoSearch?(
+    config: GatherConfig,
+    terms: string[],
+    limit: number,
+    /** Community harvest (Reddit): pull a whole community's recent posts rather
+     *  than running a keyword search. Absent = keyword search, the behaviour
+     *  every other platform has. Platforms that ignore it are unaffected. */
+    opts?: { community?: string },
+  ): { actor: string; input: RawItem }
   /** Apify actor slug + input for scraping one video's comments. */
   commentScrape?(video: VideoRef, config: GatherConfig): { actor: string; input: RawItem }
   /**
@@ -175,6 +201,16 @@ export interface PlatformAdapter {
    * transcribe step skips it.
    */
   extractMedia?(raw: RawItem): MediaRef
+  /**
+   * Transcript resolvable from the raw item ALONE — no media fetch, no Whisper,
+   * no cost. Reddit uses it: a post's selftext is the OP's own words, which is
+   * exactly what a transcript is on the video platforms, so it flows through the
+   * existing claims/evidence machinery with no Pass A changes.
+   *
+   * Tried BEFORE `extractMedia` in the transcribe step. A platform implements one
+   * or the other, never both. `null` = this item carries no usable text.
+   */
+  extractTranscript?(raw: RawItem): TranscriptResult | null
   /** Raw actor item → VideoInsert. null = skip (unparseable / no url). */
   normaliseVideo(raw: RawItem, ctx: NormaliseCtx): VideoInsert | null
   /** Raw actor item → CommentInsert. null = skip. */

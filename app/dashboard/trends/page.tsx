@@ -505,7 +505,7 @@ export default async function TrendsPage() {
   )
 }
 
-const PLATFORM_LABELS: Record<string, string> = { tiktok: 'TikTok', youtube: 'YouTube', instagram: 'Instagram' }
+const PLATFORM_LABELS: Record<string, string> = { tiktok: 'TikTok', youtube: 'YouTube', instagram: 'Instagram', reddit: 'Reddit' }
 function platformName(p: string): string {
   return PLATFORM_LABELS[p] ?? p.charAt(0).toUpperCase() + p.slice(1)
 }

@@ -91,7 +91,7 @@ interface TopTheme {
 }
 
 const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1)
-const PLATFORM_NAMES: Record<string, string> = { tiktok: 'TikTok', youtube: 'YouTube', instagram: 'Instagram' }
+const PLATFORM_NAMES: Record<string, string> = { tiktok: 'TikTok', youtube: 'YouTube', instagram: 'Instagram', reddit: 'Reddit' }
 
 /** "TikTok, YouTube & Instagram" */
 function listNames(platforms: string[]): string {
@@ -462,7 +462,12 @@ export default async function DashboardPage({
     const rows = (kpRows ?? []) as { run_id: string; keyword: string; videos_found: number; gate_survived: number }[]
     const latestKpRun = rows[0]?.run_id
     const byKeyword = new Map<string, { keyword: string; found: number; relevant: number }>()
-    for (const r of rows.filter((r) => r.run_id === latestKpRun)) {
+    // Reddit community harvests are stored as keyword rows ('r/amputee') so the
+    // ROI tooling works, but they are NOT search terms and this overlay says
+    // they are. They're also deliberately unfiltered, so their gate-survival
+    // rate is low BY DESIGN — showing it to a client next to their own keywords
+    // reads as a quality failure. Operator-only: scripts/subreddit-roi.ts.
+    for (const r of rows.filter((r) => r.run_id === latestKpRun && !r.keyword.startsWith('r/'))) {
       const agg = byKeyword.get(r.keyword) ?? { keyword: r.keyword, found: 0, relevant: 0 }
       agg.found += r.videos_found
       agg.relevant += r.gate_survived

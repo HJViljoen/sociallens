@@ -2,7 +2,17 @@
 // plain module (no 'use server'/'use client') so both sides import one source
 // of truth for the allowed values + numeric bounds.
 
-export const PLATFORMS = ['tiktok', 'youtube', 'instagram'] as const
+// Every platform the pipeline can store data for — the validation vocabulary.
+// Reddit is here so an operator can enable it on a tenant, but see below.
+export const PLATFORMS = ['tiktok', 'youtube', 'instagram', 'reddit'] as const
+
+// What onboarding OFFERS and ACCEPTS. Reddit is deliberately absent: it is a
+// degradable, operator-enabled platform (Wave 3) with no kill switch of its own
+// — the moment 'reddit' lands in a tenant's platforms, paid Apify searches and
+// comment scrapes run. So it must be enabled by an operator on the tenant row,
+// never self-served. Used by BOTH the form and its server-action validator: the
+// form alone is not a control, since a hand-crafted POST bypasses it.
+export const SELECTABLE_PLATFORMS = PLATFORMS.filter((p) => p !== 'reddit')
 export const PERIODS = ['weekly', 'monthly'] as const
 export const DAYS = [
   'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday',

@@ -78,7 +78,7 @@ const median = (nums: number[]): number => {
   return s.length % 2 ? s[mid] : (s[mid - 1] + s[mid]) / 2
 }
 
-const PLATFORM_LABEL: Record<string, string> = { tiktok: 'TikTok', youtube: 'YouTube', instagram: 'Instagram' }
+const PLATFORM_LABEL: Record<string, string> = { tiktok: 'TikTok', youtube: 'YouTube', instagram: 'Instagram', reddit: 'Reddit' }
 const cap = (s: string) => PLATFORM_LABEL[s] ?? s.charAt(0).toUpperCase() + s.slice(1)
 
 function followerSeverity(absPct: number): 1 | 2 | 3 {

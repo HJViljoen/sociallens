@@ -62,6 +62,16 @@ export function transcriptsEnabled(): boolean {
   return v === '1' || v === 'true'
 }
 
+/** Reddit subreddit auto-discovery (Wave 3). OFF unless explicitly enabled, so
+ *  merging the branch cannot change any run's behaviour or spend until it is
+ *  switched on deliberately in Vercel. Note this gates DISCOVERY (the GPT
+ *  proposal + paid probes), not the adapter — a tenant with active subreddits
+ *  already in config is unaffected by this flag. */
+export function redditDiscoveryEnabled(): boolean {
+  const v = process.env.REDDIT_DISCOVERY_ENABLED
+  return v === '1' || v === 'true'
+}
+
 /** OpenAI transcription model for videos without a usable caption track. */
 export const TRANSCRIBE_MODEL = 'whisper-1'
 
@@ -203,10 +213,130 @@ export const APIFY_ACTORS = {
     // expiring media url for transcription) has to go through this one.
     post: process.env.APIFY_IG_POST_ACTOR ?? 'shu8hvrXbJbY3Eb9W',
   },
+  // Reddit (Wave 3): one actor drives both search and per-post comments, like
+  // Instagram's flagship. Env-swappable because every Reddit actor is ToS-grey
+  // post-lockdown and may break without notice — prodiger~reddit-scraper is the
+  // researched fallback. Pay-per-event: $0.02/start + $0.002/result.
+  reddit: {
+    video: process.env.APIFY_REDDIT_ACTOR ?? 'harshmaur~reddit-scraper',
+    comment: process.env.APIFY_REDDIT_ACTOR ?? 'harshmaur~reddit-scraper',
+  },
 } as const
+
+/** Max comments scraped per Reddit post. The actor bills per saved result and
+ *  the spine scrapes one post per actor run, so an unusually fat thread would
+ *  otherwise dominate a run's Reddit spend. Rarely binds: Reddit threads in our
+ *  segment run 3–8 comments. */
+export const REDDIT_COMMENT_DEPTH_CAP = 40
+
+/** Posts pulled per community per run. A harvest ignores keywords, so without a
+ *  cap it would pull `max_videos` (70 for Ossur) from EVERY active community. */
+export const REDDIT_HARVEST_POSTS = 25
+
+/**
+ * Posts per KEYWORD search on Reddit — deliberately far below max_videos.
+ *
+ * Site-wide keyword search was the whole Reddit plan before community harvest
+ * existed. Harvest is strictly better at that job: measured 2026-08-16, 15 of 20
+ * harvested r/amputee posts contained no tracked keyword at all, so a keyword
+ * search cannot see three quarters of the relevant conversation. What keyword
+ * search still adds is reach OUTSIDE the active communities.
+ *
+ * It can't be dropped: a tenant whose discovery hasn't converged yet has no
+ * active communities, and this is then their only Reddit source. So it stays,
+ * at a fraction of the volume — 8 keywords x 70 posts was ~$1.28/run, the
+ * single largest Reddit line item, for the weaker of the two sources.
+ */
+export const REDDIT_KEYWORD_SEARCH_POSTS = 20
+
+/** Fresh comment scrapes per run for Reddit. The dominant cost by far: the actor
+ *  bills $0.02 per START and the spine scrapes one post per run, so ~$0.06 a
+ *  post once a thread's comments are counted. Uncapped, two harvested
+ *  communities would run ~$8/run. TikTok/Instagram don't need this — their
+ *  per-scrape cost is a fraction and their corpora are keyword-bounded already.
+ *
+ *  HONEST CEILING: this caps FRESH scrapes only. Delta re-scrapes are a second,
+ *  independent budget (RECHECK_CAP, also 25), and harvest makes re-checks the
+ *  steady state rather than an edge case — a harvest re-pulls a community's
+ *  newest posts weekly and Reddit threads keep accruing comments, with no free
+ *  count lookup to avoid paying. So Reddit's real comment-scrape ceiling is
+ *  25 + 25 = 50 scrapes ~= $2.60-3.00 — the dominant line by far.
+ *
+ *  Worst case at the Ossur shape (8 keywords, 5 active communities) is
+ *  ~$3.2-3.5/run after REDDIT_KEYWORD_SEARCH_POSTS cut the keyword-search line
+ *  from ~$1.28 to ~$0.48. NOT the ~$2 the original budget note assumed.
+ *
+ *  Note what is NOT a useful lever: the number of active communities. These caps
+ *  are per-run and per-platform, not per-community, so each extra community adds
+ *  only its own harvest search (~$0.07) — and since the fixed scrape budget is
+ *  spent richest-first, MORE communities means a better candidate pool for the
+ *  same money. To go lower, cut these two caps, not the community count.
+ *  Measured 2026-08-16. */
+export const REDDIT_COMMENT_SCRAPE_CAP = 25
+
+// --- Subreddit discovery probe (Wave 3) --------------------------------------
+// A GPT-proposed subreddit is only a candidate. Before it can be searched on
+// real runs it must survive a live sample judged by the existing relevance gate
+// — the structural answer to the Poler/Patagonia homonym lesson, where a name
+// matching a brand word proved nothing about the customers being there.
+
+/** Posts sampled per candidate. Each probe is one actor run: $0.02 start +
+ *  $0.002/post ≈ $0.044 here, so this is a spend lever. Big enough that one
+ *  off-topic post doesn't sink a good community. */
+export const SUBREDDIT_PROBE_SAMPLE = 12
+
+/** Share of the sample the relevance gate must KEEP for a candidate to go
+ *  active. Deliberately not a majority: a genuinely useful community (r/amputee)
+ *  carries plenty of off-category daily chatter around the product talk. */
+export const SUBREDDIT_PROBE_MIN_RATIO = 0.34
+
+/** …and an absolute floor, so a tiny or half-empty sample can't pass on ratio
+ *  alone (2 of 4 is 50% and proves nothing). */
+export const SUBREDDIT_PROBE_MIN_KEPT = 3
+
+/** Probes per run. Bounds BOTH spend and wall-clock. They run SEQUENTIALLY in
+ *  one Inngest step against a 300s cap, so the budget is probes x per-probe
+ *  timeout: 3 x 75s = 225s, plus the gate calls, fits. (At the default 120s
+ *  timeout three would need 360s and blow the cap — the probe sets 75s for
+ *  exactly this reason; change them together.) Discovery therefore ramps over a
+ *  few weeks rather than trying to settle in one run. */
+export const SUBREDDIT_PROBES_PER_RUN = 3
+
+/** Stop proposing once the tenant has this many ACTIVE communities. Without a
+ *  convergence rule the proposal prompt — which excludes everything already
+ *  known — returns the *next* plausible names every week forever, each costing
+ *  a paid probe, eventually inventing them. */
+export const SUBREDDIT_TARGET_ACTIVE = 5
+
+/** …and a hard ceiling on total communities ever considered, so a tenant whose
+ *  category simply lacks 5 good communities still stops paying to look. */
+export const SUBREDDIT_MAX_KNOWN = 20
+
+/** Consecutive barren runs before an ACTIVE community is demoted for re-judging.
+ *  One week is too twitchy — communities have quiet weeks — and five is a month
+ *  of a run closing 'partial' every time before anything self-corrects. */
+export const SUBREDDIT_STRIKE_LIMIT = 3
 
 /** Default min comments before a video is worth a comment scrape (TikTok/Instagram). */
 export const COMMENT_THRESHOLD = 5
+
+/**
+ * Min comments before a video is worth a Pass A GPT call, per platform.
+ *
+ * One global floor of 5 was tuned for TikTok/Instagram, where a thread with
+ * four comments really is noise. Reddit threads in our segment run 3–8 comments
+ * and are far denser per comment (paragraphs, not emoji), so the same floor
+ * would skip most of the platform. Falls back to 5 for anything unlisted.
+ *
+ * Applied at BOTH gates: the plan step (raw counts, inngest/functions/pipeline.ts)
+ * and runPassA itself (kept counts, after the spam filter).
+ */
+export const PASS_A_MIN_COMMENTS_BY_PLATFORM: Record<string, number> = { reddit: 3 }
+export const PASS_A_MIN_COMMENTS_DEFAULT = 5
+
+export function passAMinComments(platform: string): number {
+  return PASS_A_MIN_COMMENTS_BY_PLATFORM[platform] ?? PASS_A_MIN_COMMENTS_DEFAULT
+}
 
 // Order-of-magnitude Apify spend per platform, for RANKING keywords in
 // scripts/keyword-roi.ts — never invoicing. Apify doesn't land per-actor cost
@@ -217,6 +347,11 @@ export const APIFY_COST_ESTIMATES: Record<string, { search: number; perVideoComm
   tiktok: { search: 0.03, perVideoComments: 0.02 },
   instagram: { search: 0.02, perVideoComments: 0.12 },
   youtube: { search: 0, perVideoComments: 0 }, // official Data API — free
+  // Reddit: pay-per-event, so this one is arithmetic rather than a guess.
+  // search = $0.02 start + 50 posts x $0.002; comments = $0.02 start + a ~15
+  // comment thread x $0.002. Measured against the actor's published pricing
+  // 2026-08-13; recheck if the actor changes.
+  reddit: { search: 0.12, perVideoComments: 0.05 },
 }
 
 // --- Delta-scraping (2026-07-16) ---------------------------------------------
