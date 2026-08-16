@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { selectClaims } from './claims'
+import { selectClaims, ownVoice, MAX_CLAIMS_PER_ENTITY } from './claims'
 
 const TRACKED = ['Cotopaxi', 'Topo Designs']
 
@@ -74,5 +74,57 @@ describe('selectClaims', () => {
     expect(capped.competitors.filter((c) => c.competitor === 'Cotopaxi')).toHaveLength(3)
     expect(capped.competitors.filter((c) => c.competitor === 'Topo Designs')).toHaveLength(3)
     expect(capped.client).toHaveLength(3)
+  })
+})
+
+describe('ownVoice — is this client-bucket video the client speaking?', () => {
+  const OSSUR = ['Össur', 'ossur']
+  it('an owned post is own voice regardless of account name', () => {
+    expect(ownVoice({ source: 'owned', account_name: 'whatever' }, OSSUR)).toBe(true)
+  })
+  it("a discovered video from one of the client's own accounts is own voice (name folds to a brand keyword)", () => {
+    expect(ownVoice({ source: 'discovered', account_name: 'ÖSSUR' }, OSSUR)).toBe(true)
+    expect(ownVoice({ source: 'discovered', account_name: 'Össur Academy' }, OSSUR)).toBe(true)
+    expect(ownVoice({ source: 'discovered', account_name: 'Össur DE' }, OSSUR)).toBe(true)
+  })
+  it('a third party talking about the client is NOT own voice — the 2026-08-16 misattribution', () => {
+    expect(ownVoice({ source: 'discovered', account_name: 'McMorris Prosthetic Services' }, OSSUR)).toBe(false)
+    expect(ownVoice({ source: 'discovered', account_name: 'The Sport Verdict' }, OSSUR)).toBe(false)
+    expect(ownVoice({ source: 'discovered', account_name: 'tunl.to' }, ['Sealand', 'Sealand Gear'])).toBe(false)
+  })
+  it('null account, empty keywords, or a too-short keyword never match', () => {
+    expect(ownVoice({ source: 'discovered', account_name: null }, OSSUR)).toBe(false)
+    expect(ownVoice({ source: 'discovered', account_name: 'ÖSSUR' }, [])).toBe(false)
+    expect(ownVoice({ source: 'discovered', account_name: 'ÖSSUR' }, null)).toBe(false)
+    expect(ownVoice({ source: 'discovered', account_name: 'Sport Verdict' }, ['or'])).toBe(false)
+  })
+})
+
+describe('selectClaims — voice split', () => {
+  it('routes client claims by voice: own → client, about → about; competitors untouched', () => {
+    const r = selectClaims([
+      row({ entity: 'client', competitor_name: null, source_video_id: 'own1', claim: 'Proprio Foot adapts to terrain', voice: 'own', account: 'ÖSSUR', platform: 'youtube', url: 'https://youtu.be/x' }),
+      row({ entity: 'client', competitor_name: null, source_video_id: 'rev1', claim: 'ProFlex is the model they base all their feet on', voice: 'about', account: 'McMorris Prosthetic Services', platform: 'youtube', url: 'https://youtu.be/y' }),
+      row(),
+    ], TRACKED)
+    expect(r.client.map((c) => c.claim)).toEqual(['Proprio Foot adapts to terrain'])
+    expect(r.about).toEqual([{ competitor: null, claim: 'ProFlex is the model they base all their feet on', quote: row().quote, voice: 'about', account: 'McMorris Prosthetic Services', platform: 'youtube', url: 'https://youtu.be/y' }])
+    expect(r.competitors).toHaveLength(1)
+  })
+
+  it('a client row without a voice is treated as own voice (pre-voice callers)', () => {
+    const r = selectClaims([row({ entity: 'client', competitor_name: null, source_video_id: 'c1' })], TRACKED)
+    expect(r.client).toHaveLength(1)
+    expect(r.about).toHaveLength(0)
+  })
+
+  it('caps own and about separately — a busy reviewer cannot crowd out the client\'s own words', () => {
+    const rows = [
+      ...Array.from({ length: MAX_CLAIMS_PER_ENTITY + 3 }, (_, i) => row({ entity: 'client', competitor_name: null, source_video_id: `rev${i}`, claim: `review claim ${i}`, voice: 'about' as const })),
+      row({ entity: 'client', competitor_name: null, source_video_id: 'own1', claim: 'own claim', voice: 'own' as const }),
+    ]
+    const r = selectClaims(rows, TRACKED)
+    expect(r.about).toHaveLength(MAX_CLAIMS_PER_ENTITY)
+    expect(r.client.map((c) => c.claim)).toEqual(['own claim'])
   })
 })

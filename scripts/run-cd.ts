@@ -116,7 +116,7 @@ async function main() {
 
   // Brand claims (Step 2b) — all-time, newest-run-per-video, tracked
   // competitors only; empty for tenants that have never run Pass A v4.
-  const claims = await loadBrandClaims(admin, args.clientId, tc?.competitor_names ?? [])
+  const claims = await loadBrandClaims(admin, args.clientId, tc?.competitor_names ?? [], tc?.brand_keywords ?? [])
   if (claims.client.length || claims.competitors.length) {
     console.log(`\nBrand claims: ${claims.client.length} client · ${claims.competitors.length} competitor`)
   }
