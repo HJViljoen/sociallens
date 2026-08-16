@@ -218,7 +218,7 @@ async function main() {
       clientId: args.clientId, runId: args.runId!, metrics, videos,
       periodMetrics, periodVideos,
       ciSummary: d.ciSummary, executiveBrief: d.executiveBrief, sayVsHear: d.sayVsHear,
-      brandVoice: shapeBrandVoice(claims), period: tc?.report_period ?? null,
+      brandVoice: shapeBrandVoice(claims, tc?.brand_keywords ?? []), period: tc?.report_period ?? null,
     })
     console.log('\nrun_summary written.')
   }

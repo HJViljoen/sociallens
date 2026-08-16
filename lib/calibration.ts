@@ -105,7 +105,7 @@ export const GLOSSARY = {
   sentiment: ['Strongly positive → Strongly negative', 'fixed cutoffs on the measured share of rated conversations; Polarized = both sides above 30%'],
   say_vs_hear: ['Say vs hear', "what your own videos claim (from their transcripts), set against what the tracked conversation actually says — 'not talked about yet' means the audience doesn't engage with the claim, not that it's wrong"],
   news: ['In the news', 'published coverage matched to your tracked names by headline — shown as context beside the conversation, never claimed as the cause of anything measured'],
-  about_you: ['About you', "what other people's videos claim about your brand — reviewers, clinics, media — quoted verbatim from their transcripts; their words, never yours, and never counted as your audience"],
+  about_you: ['About you', "what other people's videos say about your brand, quoted verbatim from their transcripts and shown only when they name you — their words, never yours, and never counted as your audience"],
 } as const
 
 export type GlossaryKey = keyof typeof GLOSSARY

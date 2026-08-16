@@ -47,6 +47,8 @@ export interface OwnProfile {
    *  (media/caption fields kept via customMapFunction) · IG: the full post
    *  from a posts-mode refetch (the profile read returns summaries only). */
   raws?: Record<string, RawItem>
+  /** Non-fatal problems worth a run error (e.g. the IG transcript refetch failed). */
+  warnings?: string[]
 }
 
 /** How many recent own posts a profile read pulls (weekly own-post ingestion
@@ -331,14 +333,17 @@ export async function fetchOwnProfile(
     // transcript layer, refetch the recent posts in posts mode — the same
     // by-URL call the backfill uses — and key the full items by shortcode.
     // Best-effort: a refetch failure costs this week's own transcripts, not
-    // the owned layer.
+    // the owned layer — but it is REPORTED (profile.warnings → run errors), so
+    // a week with zero own-voice claims never passes as a clean run.
     if (transcriptsEnabled() && profile.recentPosts.length) {
       try {
         const { actor, input } = instagram.refetchByUrl!(profile.recentPosts.map((p) => p.video_url))
         const full = await runActor(actor, input, { timeoutSecs: 180 })
         profile.raws = igRawsByShortcode(full)
+        const filed = profile.recentPosts.filter((p) => profile.raws![p.video_id]).length
+        if (filed === 0) profile.warnings = [`instagram refetch returned no matching posts (${full.length} items for ${profile.recentPosts.length} posts)`]
       } catch (e) {
-        console.warn(`[owned-posts:instagram] refetch for transcripts failed: ${e instanceof Error ? e.message : String(e)}`)
+        profile.warnings = [`instagram refetch for transcripts failed: ${e instanceof Error ? e.message : String(e)}`]
       }
     }
     return profile
@@ -408,11 +413,16 @@ export async function ingestOwnedPosts(opts: {
   platform: string
   handle: string
   windowStart: string | null
-}): Promise<{ video_id: string; video_url: string; comments_count: number }[]> {
+}): Promise<{
+  refs: { video_id: string; video_url: string; comments_count: number }[]
+  /** Non-fatal degradations the caller should count as run errors. */
+  warnings: string[]
+}> {
   const profile = await fetchOwnProfile(opts.platform, opts.handle, {
     clientId: opts.clientId,
     runId: opts.runId,
   })
+  const warnings: string[] = [...(profile.warnings ?? [])]
   if (emptyProfileIsGlitch(profile.postsCount, profile.recentPosts.length)) {
     throw new Error(
       `owned profile (${opts.platform} @${opts.handle}) returned 0 recent posts but reports ${profile.postsCount} posts — scrape glitch, retrying`,
@@ -445,18 +455,24 @@ export async function ingestOwnedPosts(opts: {
     // owned block runs BEFORE plan-transcribe for exactly this reason). Own
     // posts already known as 'discovered' are included too — harmless upsert,
     // and their NULL status makes them eligible if never transcribed.
+    // NON-FATAL (like gather.ts's own video_raw write): a transcript-layer
+    // hiccup must never take the owned comment layer down with it.
     if (transcriptsEnabled()) {
       const rawRows = ownedRawRows(profile.recentPosts, profile.raws, { clientId: opts.clientId, runId: opts.runId })
       if (rawRows.length) {
         const { error: rawErr } = await admin
           .from('video_raw')
           .upsert(rawRows, { onConflict: 'client_id,platform,video_id,run_id' })
-        if (rawErr) throw new Error(`owned video_raw upsert (${opts.platform}): ${rawErr.message}`)
+        if (rawErr) warnings.push(`video_raw upsert failed: ${rawErr.message}`)
       }
+      console.log(`[owned-posts:${opts.platform}] transcript raws filed: ${rawRows.length}/${profile.recentPosts.length}`)
     }
   }
-  return ownedCommentRefs(profile.recentPosts, {
-    windowStart: opts.windowStart,
-    threshold: opts.platform === 'youtube' ? 1 : COMMENT_THRESHOLD,
-  })
+  return {
+    refs: ownedCommentRefs(profile.recentPosts, {
+      windowStart: opts.windowStart,
+      threshold: opts.platform === 'youtube' ? 1 : COMMENT_THRESHOLD,
+    }),
+    warnings,
+  }
 }

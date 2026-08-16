@@ -280,15 +280,20 @@ export const runPipeline = inngest.createFunction(
         // supportsOwnedProfile: Reddit has no owned-account concept, so an
         // own_handles.reddit entry is skipped rather than thrown (Wave 3).
         if (ownedHandles[platform] && supportsOwnedProfile(platform)) {
-          const ownedRefs = await step
+          const owned = await step
             .run(`owned-posts:${platform}`, () =>
               ingestOwnedPosts({ clientId, runId, platform, handle: ownedHandles[platform], windowStart: ownedPlan.windowStart }),
             )
             .catch((e) => {
               console.error(`[owned-posts:${platform}] out of retries: ${e instanceof Error ? e.message : String(e)}`)
               noteError(`owned-posts:${platform}`, e)
-              return [] as { video_id: string; video_url: string; comments_count: number }[]
+              return { refs: [] as { video_id: string; video_url: string; comments_count: number }[], warnings: [] as string[] }
             })
+          // Best-effort degradations (IG transcript refetch, video_raw write)
+          // count as run errors: the week's own-voice claims are missing, and
+          // a run that says so is the point of 'partial'.
+          for (const w of owned.warnings) noteError(`owned-posts:${platform}`, w)
+          const ownedRefs = owned.refs
           for (let w = 0; w < ownedRefs.length; w += COMMENT_BATCH) {
             await step
               .run(`owned-comments:${platform}:${Math.floor(w / COMMENT_BATCH) + 1}`, () =>
@@ -722,7 +727,7 @@ async function runSynthesisHalf(clientId: string, runId: string) {
     clientId, runId, metrics, videos,
     periodMetrics, periodVideos,
     ciSummary: d.ciSummary, executiveBrief: d.executiveBrief, sayVsHear: d.sayVsHear,
-    brandVoice: shapeBrandVoice(claims), period: tc?.report_period ?? null,
+    brandVoice: shapeBrandVoice(claims, tc?.brand_keywords ?? []), period: tc?.report_period ?? null,
   })
 
   return {

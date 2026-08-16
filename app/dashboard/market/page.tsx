@@ -151,7 +151,9 @@ export default async function MarketIntelligencePage({
   const ciSummary = (summaryRes.data?.consumer_intelligence_summary ?? null) as CiSummary | null
   const sayVsHear = (summaryRes.data?.say_vs_hear ?? null) as SayVsHearEntry[] | null
   const brandVoice = (summaryRes.data?.brand_voice ?? null) as BrandVoiceSnapshot | null
-  const hasBrandVoice = !!brandVoice && (brandVoice.counts.own + brandVoice.counts.about + brandVoice.counts.competitors > 0)
+  // The strip needs a brand-side voice to talk about; competitor claims alone
+  // (or a tenant with no data yet) render nothing.
+  const hasBrandVoice = !!brandVoice && brandVoice.counts.own + brandVoice.counts.about > 0
   const singleSourceThemes = (ssRes.data ?? []) as SingleSourceTheme[]
   const singleSourceTotal = ssRes.count ?? singleSourceThemes.length
 
@@ -277,7 +279,7 @@ export default async function MarketIntelligencePage({
           competitors. Roll-up strip first; the say-vs-hear contrast quotes ONLY
           the client's own voice; "About you" is evidence-only, their words. All
           three self-gate on the run_summary snapshot. */}
-      {hasBrandVoice && <BrandVoiceStrip counts={brandVoice!.counts} />}
+      {hasBrandVoice && !nothingYet && <BrandVoiceStrip counts={brandVoice!.counts} />}
       {sayVsHear && sayVsHear.length > 0 && <SayVsHearSection entries={sayVsHear} themeSlugById={themeSlugById} />}
       {brandVoice && brandVoice.about.length > 0 && <AboutYouSection entries={brandVoice.about} />}
 
@@ -447,9 +449,10 @@ function SayVsHearSection({ entries, themeSlugById }: { entries: SayVsHearEntry[
 }
 
 /** One honest line above the brand-voice blocks: how many claims each speaker
- *  contributes, post-hygiene, uncapped. "Client as a whole" is this roll-up —
- *  never a pooled claim list, which is what misattributed third-party words
- *  as "You say" before 2026-08-16. */
+ *  contributes — ALL-TIME (claims accumulate across updates, decision D1),
+ *  post-hygiene, uncapped, so the label says "so far", not "this update".
+ *  "Client as a whole" is this roll-up — never a pooled claim list, which is
+ *  what misattributed third-party words as "You say" before 2026-08-16. */
 function BrandVoiceStrip({ counts }: { counts: BrandVoiceSnapshot['counts'] }) {
   const part = (n: number, label: string) => (
     <span className="inline-flex items-baseline gap-1.5">
@@ -459,7 +462,7 @@ function BrandVoiceStrip({ counts }: { counts: BrandVoiceSnapshot['counts'] }) {
   )
   return (
     <p className="flex flex-wrap items-baseline gap-x-4 gap-y-1 text-sm text-muted-foreground">
-      <span className="text-xs font-medium uppercase tracking-wide">Brand voice this update</span>
+      <span className="text-xs font-medium uppercase tracking-wide">Brand voice so far</span>
       {part(counts.own, counts.own === 1 ? 'claim in your voice' : 'claims in your voice')}
       <span aria-hidden>·</span>
       {part(counts.about, 'about you')}
@@ -477,7 +480,7 @@ function BrandVoiceStrip({ counts }: { counts: BrandVoiceSnapshot['counts'] }) {
 function AboutYouSection({ entries }: { entries: BrandVoiceSnapshot['about'] }) {
   return (
     <section className="space-y-4">
-      <SectionHeading label="What others say about you" hint="Reviewers, clinics and media, in their own words &mdash; not your audience, and not you" />
+      <SectionHeading label="What others say about you" hint="Other people&rsquo;s videos that name your brand &mdash; their words, not yours, and not your audience" />
       <div className="grid gap-4 md:grid-cols-2">
         {entries.map((e, i) => (
           <Card key={i}>

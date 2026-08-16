@@ -55,15 +55,32 @@ export interface AboutYouEntry {
 }
 export const ABOUT_YOU_MAX = 8
 
+/** Does a claim (or its verbatim quote) actually name the brand? The `about`
+ *  bucket is defined negatively (client-bucket video, not the client's own
+ *  account), and Pass A extracts EVERY brand claim on such a video — including
+ *  claims about the video's OWN third-party brand. Without this gate Sealand's
+ *  block showed a shipping company's marketing copy under "What others say
+ *  about you" (review, 2026-08-16). Product-only claims that never say the
+ *  brand's name are dropped too — under-showing beats misattributing. */
+export function mentionsBrand(c: { claim: string; quote: string }, brandKeywords: string[] | null | undefined): boolean {
+  const hay = fold(`${c.claim} ${c.quote}`)
+  return (brandKeywords ?? []).some((k) => {
+    const kw = fold(k)
+    return kw.length >= 3 && hay.includes(kw)
+  })
+}
+
 /** Pure: shape the About-you block from hygiened claims — newest-first (the
- *  loader's order), at most 2 per source video (keyed by url), exact-normalised
- *  claim dedupe, capped. Evidence only: quote + who said it + where. */
-export function shapeBrandVoice(claims: BrandClaims): BrandVoiceSnapshot {
+ *  loader's order), brand-mention gated, at most 2 per source video (keyed by
+ *  url), exact-normalised claim dedupe, capped. Evidence only: quote + who
+ *  said it + where. Counts are the roll-up (all-time, post-hygiene, pre-cap). */
+export function shapeBrandVoice(claims: BrandClaims, brandKeywords: string[] | null | undefined): BrandVoiceSnapshot {
   const perVideo = new Map<string, number>()
   const seen = new Set<string>()
   const about: AboutYouEntry[] = []
   for (const c of claims.about) {
     if (about.length >= ABOUT_YOU_MAX) break
+    if (!mentionsBrand(c, brandKeywords)) continue
     const key = c.url ?? `${c.account ?? ''}::${c.claim}`
     if ((perVideo.get(key) ?? 0) >= 2) continue
     const norm = normClaim(c.claim)
