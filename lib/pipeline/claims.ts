@@ -36,6 +36,43 @@ export interface BrandClaims {
   /** Third parties speaking about the client. Never enters say-vs-hear. */
   about: BrandClaim[]
   competitors: BrandClaim[]
+  /** Post-hygiene, PRE-cap counts per side — the honest roll-up numbers
+   *  ("N claims in your voice · N about you · N from competitors"). */
+  counts: { own: number; about: number; competitors: number }
+}
+
+/** What Market reads (run_summary.brand_voice) — see the 20260816230000 migration. */
+export interface BrandVoiceSnapshot {
+  counts: { own: number; about: number; competitors: number }
+  about: AboutYouEntry[]
+}
+export interface AboutYouEntry {
+  claim: string
+  quote: string
+  account: string
+  platform: string
+  url: string | null
+}
+export const ABOUT_YOU_MAX = 8
+
+/** Pure: shape the About-you block from hygiened claims — newest-first (the
+ *  loader's order), at most 2 per source video (keyed by url), exact-normalised
+ *  claim dedupe, capped. Evidence only: quote + who said it + where. */
+export function shapeBrandVoice(claims: BrandClaims): BrandVoiceSnapshot {
+  const perVideo = new Map<string, number>()
+  const seen = new Set<string>()
+  const about: AboutYouEntry[] = []
+  for (const c of claims.about) {
+    if (about.length >= ABOUT_YOU_MAX) break
+    const key = c.url ?? `${c.account ?? ''}::${c.claim}`
+    if ((perVideo.get(key) ?? 0) >= 2) continue
+    const norm = normClaim(c.claim)
+    if (seen.has(norm)) continue
+    seen.add(norm)
+    perVideo.set(key, (perVideo.get(key) ?? 0) + 1)
+    about.push({ claim: c.claim, quote: c.quote, account: c.account ?? 'unknown account', platform: c.platform ?? '', url: c.url ?? null })
+  }
+  return { counts: { ...claims.counts }, about }
 }
 
 /**
@@ -103,6 +140,7 @@ export function selectClaims(rows: ClaimRow[], trackedCompetitors: string[], max
   const client: BrandClaim[] = []
   const about: BrandClaim[] = []
   const competitors: BrandClaim[] = []
+  const counts = { own: 0, about: 0, competitors: 0 }
 
   for (const r of rows) {
     if (newestRunByVideo.get(r.source_video_id) !== r.run_id) continue
@@ -116,6 +154,9 @@ export function selectClaims(rows: ClaimRow[], trackedCompetitors: string[], max
     seen.add(key)
 
     const voice: Voice | undefined = isClient ? (r.voice ?? 'own') : undefined
+    if (!isClient) counts.competitors++
+    else if (voice === 'about') counts.about++
+    else counts.own++
     const entityKey = isClient ? `client:${voice}` : `competitor:${fold(name!)}`
     const count = perEntity.get(entityKey) ?? 0
     if (count >= maxPerEntity) continue
@@ -131,7 +172,7 @@ export function selectClaims(rows: ClaimRow[], trackedCompetitors: string[], max
     else client.push(out)
   }
 
-  return { client, about, competitors }
+  return { client, about, competitors, counts }
 }
 
 /** All-time claims for a client, newest-first, hygiened per selectClaims. Joins

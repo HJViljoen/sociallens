@@ -1,6 +1,7 @@
 import { createAdminClient } from '../supabase-admin'
 import type { CiSummary, ExecutiveBrief, SayVsHearEntry } from './schemas'
 import type { VideoRow, Step2aMetrics } from './types'
+import type { BrandVoiceSnapshot } from './claims'
 
 // run_summary writer. The table existed unwritten since v4.1; the pipeline back
 // half now populates one row per run (Redesign Spec §8): deterministic corpus
@@ -25,6 +26,8 @@ export interface WriteRunSummaryArgs {
   executiveBrief?: ExecutiveBrief | null
   /** Pass D-a v5's say-vs-hear entries (claims resolved), or null. */
   sayVsHear?: SayVsHearEntry[] | null
+  /** Brand-voice snapshot (counts + About-you entries), or null. */
+  brandVoice?: BrandVoiceSnapshot | null
   /** tracking_configs.report_period ('weekly' | 'monthly' | …), if known. */
   period?: string | null
 }
@@ -47,7 +50,7 @@ function sentimentShares(videos: VideoRow[]) {
 }
 
 export async function writeRunSummary(args: WriteRunSummaryArgs): Promise<void> {
-  const { clientId, runId, metrics, videos, periodMetrics, periodVideos, ciSummary, executiveBrief, sayVsHear, period } = args
+  const { clientId, runId, metrics, videos, periodMetrics, periodVideos, ciSummary, executiveBrief, sayVsHear, brandVoice, period } = args
   const admin = createAdminClient()
 
   // Corpus (all-time) distribution — the market-map state; raw counts live in
@@ -90,6 +93,7 @@ export async function writeRunSummary(args: WriteRunSummaryArgs): Promise<void> 
     consumer_intelligence_summary: ciSummary,
     executive_brief: executiveBrief ?? null,
     say_vs_hear: sayVsHear ?? null,
+    brand_voice: brandVoice ?? null,
     period: period ?? null,
     run_date: new Date().toISOString(),
   })

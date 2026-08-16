@@ -8,7 +8,7 @@ import { runPassB } from '@/lib/pipeline/pass-b'
 import { runPassC } from '@/lib/pipeline/pass-c'
 import { runPassD } from '@/lib/pipeline/pass-d'
 import { runCrossReference } from '@/lib/pipeline/cross-reference'
-import { loadBrandClaims } from '@/lib/pipeline/claims'
+import { loadBrandClaims, shapeBrandVoice } from '@/lib/pipeline/claims'
 import { attributeRunKeywords } from '@/lib/pipeline/keyword-attribution'
 import { planClassifyMetaBatches, runClassifyMetaBatch } from '@/lib/pipeline/classify-meta'
 import { ingestOwnedPosts, supportsOwnedProfile } from '@/lib/gather/owned'
@@ -721,7 +721,8 @@ async function runSynthesisHalf(clientId: string, runId: string) {
   await writeRunSummary({
     clientId, runId, metrics, videos,
     periodMetrics, periodVideos,
-    ciSummary: d.ciSummary, executiveBrief: d.executiveBrief, sayVsHear: d.sayVsHear, period: tc?.report_period ?? null,
+    ciSummary: d.ciSummary, executiveBrief: d.executiveBrief, sayVsHear: d.sayVsHear,
+    brandVoice: shapeBrandVoice(claims), period: tc?.report_period ?? null,
   })
 
   return {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { selectClaims, ownVoice, MAX_CLAIMS_PER_ENTITY } from './claims'
+import { selectClaims, ownVoice, shapeBrandVoice, MAX_CLAIMS_PER_ENTITY, ABOUT_YOU_MAX } from './claims'
 
 const TRACKED = ['Cotopaxi', 'Topo Designs']
 
@@ -126,5 +126,40 @@ describe('selectClaims — voice split', () => {
     const r = selectClaims(rows, TRACKED)
     expect(r.about).toHaveLength(MAX_CLAIMS_PER_ENTITY)
     expect(r.client.map((c) => c.claim)).toEqual(['own claim'])
+  })
+})
+
+describe('selectClaims counts + shapeBrandVoice', () => {
+  const about = (i: number, url = `https://youtu.be/v${i}`, claim = `about claim ${i}`) =>
+    row({ entity: 'client', competitor_name: null, source_video_id: `rev${i}`, claim, voice: 'about' as const, account: `Reviewer ${i}`, platform: 'youtube', url })
+
+  it('counts are post-hygiene but PRE-cap, so the roll-up stays honest past 12', () => {
+    const rows = [
+      ...Array.from({ length: 15 }, (_, i) => about(i)),
+      row({ entity: 'client', competitor_name: null, source_video_id: 'own1', claim: 'own', voice: 'own' as const }),
+      row(),
+    ]
+    const r = selectClaims(rows, TRACKED)
+    expect(r.counts).toEqual({ own: 1, about: 15, competitors: 1 })
+    expect(r.about).toHaveLength(MAX_CLAIMS_PER_ENTITY)
+  })
+
+  it('shapes the About-you block: ≤2 per video, claim-text dedupe, capped, speaker + platform + url carried', () => {
+    const rows = [
+      about(1, 'https://youtu.be/A', 'A first'), about(2, 'https://youtu.be/A', 'A second'), about(3, 'https://youtu.be/A', 'A third'),
+      about(4, 'https://youtu.be/B', 'Same words'), about(5, 'https://youtu.be/C', 'same  words'),
+      ...Array.from({ length: 10 }, (_, i) => about(10 + i, `https://youtu.be/D${i}`, `unique ${i}`)),
+    ]
+    const snap = shapeBrandVoice(selectClaims(rows, TRACKED, 100))
+    expect(snap.about.filter((e) => e.url === 'https://youtu.be/A')).toHaveLength(2)
+    expect(snap.about.filter((e) => e.claim.toLowerCase().replace(/\s+/g, ' ') === 'same words')).toHaveLength(1)
+    expect(snap.about).toHaveLength(ABOUT_YOU_MAX)
+    expect(snap.about[0]).toEqual({ claim: 'A first', quote: row().quote, account: 'Reviewer 1', platform: 'youtube', url: 'https://youtu.be/A' })
+    expect(snap.counts.about).toBe(15)
+  })
+
+  it('an empty about side yields an empty block but keeps the counts', () => {
+    const snap = shapeBrandVoice(selectClaims([row()], TRACKED))
+    expect(snap).toEqual({ counts: { own: 0, about: 0, competitors: 1 }, about: [] })
   })
 })
