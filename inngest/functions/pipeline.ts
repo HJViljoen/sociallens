@@ -271,6 +271,35 @@ export const runPipeline = inngest.createFunction(
             }),
           )
         }
+        // Owned layer (Wave 2): the client's own recent posts + their comments,
+        // stamped source:'owned' — feeds Step 2c, never the discovered-corpus
+        // metrics (SoV guard). Non-fatal: catch on the step promise.
+        // Runs BEFORE the transcribe steps (moved 2026-08-16, Brand Voice) so
+        // the own posts' video_raw rows are in this run's transcribe plan —
+        // step IDs unchanged, order only.
+        // supportsOwnedProfile: Reddit has no owned-account concept, so an
+        // own_handles.reddit entry is skipped rather than thrown (Wave 3).
+        if (ownedHandles[platform] && supportsOwnedProfile(platform)) {
+          const ownedRefs = await step
+            .run(`owned-posts:${platform}`, () =>
+              ingestOwnedPosts({ clientId, runId, platform, handle: ownedHandles[platform], windowStart: ownedPlan.windowStart }),
+            )
+            .catch((e) => {
+              console.error(`[owned-posts:${platform}] out of retries: ${e instanceof Error ? e.message : String(e)}`)
+              noteError(`owned-posts:${platform}`, e)
+              return [] as { video_id: string; video_url: string; comments_count: number }[]
+            })
+          for (let w = 0; w < ownedRefs.length; w += COMMENT_BATCH) {
+            await step
+              .run(`owned-comments:${platform}:${Math.floor(w / COMMENT_BATCH) + 1}`, () =>
+                scrapeCommentsBatch({ clientId, runId, platform: platform as Platform, refs: ownedRefs.slice(w, w + COMMENT_BATCH), source: 'owned' }),
+              )
+              .catch((e) => {
+                noteError(`owned-comments:${platform}`, e)
+                return { comments: 0, errors: ['owned comment scrape failed'] }
+              })
+          }
+        }
         // Transcripts (flag-gated), fanned out like Pass A: a plan step chunks
         // this run's pending candidates signal-first (TRANSCRIBE_BATCH per
         // step), then batches dispatch in parallel waves. One sequential
@@ -305,32 +334,6 @@ export const runPipeline = inngest.createFunction(
           }
         }
 
-        // Owned layer (Wave 2): the client's own recent posts + their comments,
-        // stamped source:'owned' — feeds Step 2c, never the discovered-corpus
-        // metrics (SoV guard). Non-fatal: catch on the step promise.
-        // supportsOwnedProfile: Reddit has no owned-account concept, so an
-        // own_handles.reddit entry is skipped rather than thrown (Wave 3).
-        if (ownedHandles[platform] && supportsOwnedProfile(platform)) {
-          const ownedRefs = await step
-            .run(`owned-posts:${platform}`, () =>
-              ingestOwnedPosts({ clientId, runId, platform, handle: ownedHandles[platform], windowStart: ownedPlan.windowStart }),
-            )
-            .catch((e) => {
-              console.error(`[owned-posts:${platform}] out of retries: ${e instanceof Error ? e.message : String(e)}`)
-              noteError(`owned-posts:${platform}`, e)
-              return [] as { video_id: string; video_url: string; comments_count: number }[]
-            })
-          for (let w = 0; w < ownedRefs.length; w += COMMENT_BATCH) {
-            await step
-              .run(`owned-comments:${platform}:${Math.floor(w / COMMENT_BATCH) + 1}`, () =>
-                scrapeCommentsBatch({ clientId, runId, platform: platform as Platform, refs: ownedRefs.slice(w, w + COMMENT_BATCH), source: 'owned' }),
-              )
-              .catch((e) => {
-                noteError(`owned-comments:${platform}`, e)
-                return { comments: 0, errors: ['owned comment scrape failed'] }
-              })
-          }
-        }
       } catch (e) {
         noteError(`platform:${platform}`, e)
       }
