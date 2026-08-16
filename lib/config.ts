@@ -107,6 +107,12 @@ export const TRANSCRIBE_PARALLEL = 4
  *  represent it and estimateCost('whisper-1', …) returns 0. */
 export const WHISPER_PER_MINUTE = 0.006
 
+/** Estimated per-item price of the YouTube transcript actor (see APIFY_ACTORS.
+ *  youtube). Not billed by us — logged into the transcribe row's `response`
+ *  as `apify_est_usd` so a run's caption spend is visible next to its Whisper
+ *  spend. Apify spend is otherwise unrecorded in the DB for every platform. */
+export const YT_TRANSCRIPT_PER_ITEM_USD = 0.001
+
 /** Skip Whisper for media larger than this (bytes) — the API's own file cap. */
 export const TRANSCRIBE_MAX_BYTES = 25 * 1024 * 1024
 
@@ -201,8 +207,14 @@ export const APIFY_ACTORS = {
     video: process.env.APIFY_TT_VIDEO_ACTOR ?? '5K30i8aFccKNF5ICs',
     comment: process.env.APIFY_TT_COMMENT_ACTOR ?? 'XomSRf7d0qf3mVj1y',
   },
-  // YouTube moved to the official Data API v3 (2026-07-05) — see
-  // lib/gather/platforms/youtube.ts. It uses YOUTUBE_API_KEY, no Apify actor.
+  // YouTube discovery + comments use the official Data API v3 (2026-07-05,
+  // YOUTUBE_API_KEY, no actor). Only its TRANSCRIPTS go through Apify (Wave 4,
+  // 2026-08-16): the free caption route is pot-gated from datacenter IPs. Chosen
+  // by live bake-off over supreme_coder (8/10 vs 6/10, auto-language, 7s vs
+  // 41s); pay-per-event $0.001/item, charged for caption-less items too.
+  youtube: {
+    transcript: process.env.APIFY_YT_TRANSCRIPT_ACTOR ?? 'scrape-creators~best-youtube-transcripts-scraper',
+  },
   instagram: {
     video: process.env.APIFY_IG_VIDEO_ACTOR ?? 'reGe1ST3OBgYZSsZJ', // apify/instagram-hashtag-scraper
     // apify/instagram-scraper (flagship) in `comments` mode — replaced

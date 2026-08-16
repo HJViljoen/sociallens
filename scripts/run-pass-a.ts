@@ -52,7 +52,7 @@ async function main() {
   console.log(`run id:            ${summary.runId}`)
   console.log(`model:             ${summary.model}`)
   console.log(`videos processed:  ${summary.videosProcessed}`)
-  console.log(`  analyzed:        ${summary.videosAnalyzed}`)
+  console.log(`  analyzed:        ${summary.videosAnalyzed} (claims lane: ${summary.videosClaimsOnly})`)
   console.log(`  skipped (<min):  ${summary.videosSkipped}`)
   console.log(`insights kept:     ${summary.insightsKept}`)
   console.log(`insights dropped:  ${summary.insightsDropped}`)

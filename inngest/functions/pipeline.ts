@@ -2,7 +2,7 @@ import { randomUUID } from 'crypto'
 import { inngest } from '@/inngest/client'
 import { createAdminClient, selectAll } from '@/lib/supabase-admin'
 import { planGatherSearches, searchOne, gatePlatform, scrapeCommentsBatch, transcribeBatch, planTranscribeBatches, resolveGatherWindow, inWindow, loadGatherConfig, type SearchResult } from '@/lib/gather/gather'
-import { runPassA } from '@/lib/pipeline/pass-a'
+import { runPassA, passALane } from '@/lib/pipeline/pass-a'
 import { loadGroupedInsights, runStepA2Bucket, type StepA2BucketResult } from '@/lib/pipeline/step-a2'
 import { runPassB } from '@/lib/pipeline/pass-b'
 import { runPassC } from '@/lib/pipeline/pass-c'
@@ -21,7 +21,7 @@ import { persistThemes, loadThemes } from '@/lib/pipeline/themes'
 import { writeRunSummary } from '@/lib/pipeline/run-summary'
 import { computeMetrics } from '@/lib/pipeline/metrics'
 import { sendAlertEmail } from '@/lib/email'
-import { CLUSTER_SIMILARITY_THRESHOLD, EVIDENCE_FLOOR, TRANSCRIBE_PARALLEL, passAMinComments, redditDiscoveryEnabled, transcriptsEnabled } from '@/lib/config'
+import { CLUSTER_SIMILARITY_THRESHOLD, EVIDENCE_FLOOR, TRANSCRIBE_PARALLEL, redditDiscoveryEnabled, transcriptsEnabled } from '@/lib/config'
 import type { Platform } from '@/lib/gather/types'
 import type { VideoRow, CommentRow } from '@/lib/pipeline/types'
 
@@ -368,7 +368,7 @@ export const runPipeline = inngest.createFunction(
     //    filter only shrinks a video's count, so raw < min are guaranteed
     //    skips) and chunks richest-first, mirroring runPassA's own ordering.
     const batches = await step.run('plan-pass-a', () => planPassABatches(clientId))
-    const passA = { analyzed: 0, skipped: 0, insights: 0, languageSamples: 0, cost: 0 }
+    const passA = { analyzed: 0, claimsOnly: 0, skipped: 0, insights: 0, languageSamples: 0, cost: 0 }
     // Batches dispatch in parallel waves — batches are disjoint video sets, so
     // ordering is irrelevant to output; this is purely wall-time (a serial
     // pass over a depth-100 corpus measured ~3 videos/min). Wave size stays
@@ -378,12 +378,13 @@ export const runPipeline = inngest.createFunction(
         batches.slice(w, w + PASS_A_PARALLEL).map((videoIds, j) =>
           step.run(`pass-a:${w + j + 1}-of-${batches.length}`, async () => {
             const s = await runPassA({ clientId, runId, videoIds, persist: true })
-            return { analyzed: s.videosAnalyzed, skipped: s.videosSkipped, insights: s.insightsKept, languageSamples: s.languageSamples, cost: s.costUsd }
+            return { analyzed: s.videosAnalyzed, claimsOnly: s.videosClaimsOnly, skipped: s.videosSkipped, insights: s.insightsKept, languageSamples: s.languageSamples, cost: s.costUsd }
           }),
         ),
       )
       for (const r of wave) {
         passA.analyzed += r.analyzed
+        passA.claimsOnly += r.claimsOnly ?? 0
         passA.skipped += r.skipped
         passA.insights += r.insights
         passA.languageSamples += r.languageSamples
@@ -620,8 +621,8 @@ async function planPassABatches(clientId: string): Promise<string[][]> {
   const admin = createAdminClient()
   // Discovered corpus only — owned posts must never enter Pass A (their fans'
   // comments would contaminate audience themes; Step 2c is their consumer).
-  const videos = await selectAll<{ id: string; platform: string; video_id: string }>(() =>
-    admin.from('videos').select('id, platform, video_id').eq('client_id', clientId).eq('source', 'discovered').order('id', { ascending: true }),
+  const videos = await selectAll<{ id: string; platform: string; video_id: string; is_client: boolean | null; is_competitor: boolean | null; transcript_status: string | null }>(() =>
+    admin.from('videos').select('id, platform, video_id, is_client, is_competitor, transcript_status').eq('client_id', clientId).eq('source', 'discovered').order('id', { ascending: true }),
   )
   const counts = new Map<string, number>()
   const comments = await selectAll<{ platform: string; video_id: string }>(() =>
@@ -632,10 +633,14 @@ async function planPassABatches(clientId: string): Promise<string[][]> {
     counts.set(key, (counts.get(key) ?? 0) + 1)
   }
   // Per-platform floor: Reddit threads run short but dense, so a single global
-  // 5 would skip most of the platform (lib/config.ts passAMinComments).
+  // 5 would skip most of the platform (lib/config.ts passAMinComments). Below
+  // the floor, brand-side videos with a usable transcript still enter via the
+  // claims lane (Wave 4) — same rule as runPassA's second gate, via passALane.
+  const withTranscripts = transcriptsEnabled()
   const eligible = videos
-    .map((v) => ({ id: v.id, platform: v.platform, n: counts.get(`${v.platform}::${v.video_id}`) ?? 0 }))
-    .filter((v) => v.n >= passAMinComments(v.platform))
+    .map((v) => ({ id: v.id, n: counts.get(`${v.platform}::${v.video_id}`) ?? 0,
+      lane: passALane({ ...v, transcript_status: withTranscripts ? v.transcript_status : null }, counts.get(`${v.platform}::${v.video_id}`) ?? 0) }))
+    .filter((v) => v.lane !== 'skip')
     .sort((a, b) => b.n - a.n)
   const batches: string[][] = []
   for (let i = 0; i < eligible.length; i += PASS_A_BATCH) {

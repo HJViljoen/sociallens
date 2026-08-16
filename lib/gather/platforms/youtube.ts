@@ -1,6 +1,8 @@
-import type { PlatformAdapter, GatherConfig, VideoRef, RawItem } from '../types'
+import type { PlatformAdapter, GatherConfig, VideoRef, RawItem, FetchedTranscript } from '../types'
 import { num, str, first, getPath, toDateOnly, engagementRate } from '../util'
 import { tagVideo } from '../tagging'
+import { runActor } from '../apify'
+import { APIFY_ACTORS } from '../../config'
 
 // YouTube adapter — official YouTube Data API v3 (replaced the Apify actor on
 // 2026-07-05). YouTube is the one platform with a free, complete, reliable
@@ -61,6 +63,49 @@ async function fetchSubscribers(channelIds: string[], key: string): Promise<Map<
     } catch {
       // best-effort — leave this batch's channels at 0
     }
+  }
+  return out
+}
+
+// ---- Transcripts (Wave 4) ---------------------------------------------------
+// Discovery and comments stay on the free Data API, but caption TEXT is not
+// retrievable from it (captions.download needs OAuth + ownership) and every
+// free HTTP route returns 200 + empty body from datacenter IPs (pot-gated —
+// see Architecture/Video-Transcripts). So captions come from a paid Apify actor
+// by video id, in one call per transcribe batch. No raw item, no media handle.
+
+const WATCH_URL = 'https://www.youtube.com/watch?v='
+
+/** `v=` param of a watch URL, or '' — the fallback key when an item lacks `id`. */
+export function idFromWatchUrl(url: string): string {
+  try {
+    return new URL(url).searchParams.get('v') ?? ''
+  } catch {
+    return ''
+  }
+}
+
+/**
+ * Actor dataset items → per-video raw text. Field paths PINNED to a live run of
+ * scrape-creators~best-youtube-transcripts-scraper (2026-08-16):
+ *   { id, url, transcript_only_text, transcript: [{ text, startMs, endMs, startTimeText }], language }
+ * A caption-less video is the same shape with every field null (no error
+ * field), so null text ⇒ null entry ('no_media' downstream). Text is rebuilt
+ * from the segments — `transcript_only_text` carries a double-space-per-word
+ * quirk — with the flat field as fallback. `lang` is the actor's human-readable
+ * name ("English"); the caller normalises. Exported for tests.
+ */
+export function parseTranscriptItems(items: RawItem[]): Map<string, FetchedTranscript | null> {
+  const out = new Map<string, FetchedTranscript | null>()
+  for (const it of items) {
+    if (!it || typeof it !== 'object') continue
+    const id = str(it.id) || idFromWatchUrl(str(it.url))
+    if (!id || out.has(id)) continue // first item per id wins
+    const segs = Array.isArray(it.transcript) ? (it.transcript as RawItem[]) : null
+    let text = segs ? segs.map((s) => str(s.text)).filter(Boolean).join(' ') : ''
+    if (!text) text = str(it.transcript_only_text)
+    text = text.replace(/\s+/g, ' ').trim()
+    out.set(id, text ? { text, lang: str(it.language) || null, source: 'youtube_caption' } : null)
   }
   return out
 }
@@ -210,6 +255,21 @@ export const youtube: PlatformAdapter = {
       comment_date: toDateOnly(getPath(top, ['publishedAt'])),
       text,
     }
+  },
+
+  // Wave 4: batched caption fetch. One actor run per transcribe batch (8 ids ≈
+  // 7s live). runActor retries transient failures up to 3× — at 60s per attempt
+  // the worst case (~190s) still leaves the batch's gate calls inside the 300s
+  // step cap. Throws on actor failure — the step retries, and the ids stay NULL
+  // for the next run if it never lands.
+  async fetchTranscripts(videoIds) {
+    if (!videoIds.length) return new Map()
+    const items = await runActor(
+      APIFY_ACTORS.youtube.transcript,
+      { videoUrls: videoIds.map((id) => `${WATCH_URL}${id}`) },
+      { timeoutSecs: 60 },
+    )
+    return parseTranscriptItems(items)
   },
 
   // commentCount exists but is unreliable for gating (disabled/hidden comments) —

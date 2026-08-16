@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { validateInsights, validateClaims, buildSystemPrompt } from './pass-a'
+import { validateInsights, validateClaims, buildSystemPrompt, passALane } from './pass-a'
 import { usableTranscript } from './transcript-input'
 import { PASS_A_VIDEO_QUOTE_MAX, TRANSCRIPT_PROMPT_CHARS } from '../config'
 import type { PassAVideoOutput, PassAInsight } from './schemas'
@@ -145,5 +145,40 @@ describe('usableTranscript', () => {
     const out = usableTranscript({ transcript: long, transcript_status: 'ok' })
     expect(out).not.toBeNull()
     expect((out as string).length).toBeLessThanOrEqual(TRANSCRIPT_PROMPT_CHARS)
+  })
+})
+
+describe('passALane — the comment floor vs the Wave 4 claims lane', () => {
+  const yt = (over: Partial<{ is_client: boolean; is_competitor: boolean; transcript_status: string | null }> = {}) => ({
+    platform: 'youtube', is_client: false, is_competitor: false, transcript_status: null, ...over,
+  })
+
+  it('at or above the floor is the full lane, transcript or not', () => {
+    expect(passALane(yt(), 5)).toBe('full')
+    expect(passALane(yt({ is_client: true, transcript_status: 'ok' }), 12)).toBe('full')
+  })
+
+  it('a client video below the floor with a usable transcript enters the claims lane', () => {
+    expect(passALane(yt({ is_client: true, transcript_status: 'ok' }), 0)).toBe('claims_only')
+    expect(passALane(yt({ is_competitor: true, transcript_status: 'ok' }), 4)).toBe('claims_only')
+  })
+
+  it('an industry video below the floor is skipped even with a transcript — its voice is evidence, and evidence needs the floor', () => {
+    expect(passALane(yt({ transcript_status: 'ok' }), 4)).toBe('skip')
+  })
+
+  it('a brand-side video below the floor without a USABLE transcript is skipped (lyrics/garbled/null never count)', () => {
+    expect(passALane(yt({ is_client: true, transcript_status: 'lyrics' }), 2)).toBe('skip')
+    expect(passALane(yt({ is_client: true, transcript_status: null }), 2)).toBe('skip')
+  })
+
+  it('respects the per-platform floor (Reddit 3) and an explicit override', () => {
+    expect(passALane({ ...yt(), platform: 'reddit' }, 3)).toBe('full')
+    expect(passALane(yt(), 3)).toBe('skip')
+    expect(passALane(yt(), 3, 3)).toBe('full')
+  })
+
+  it('is disabled by passing transcript_status null when transcripts are off', () => {
+    expect(passALane(yt({ is_client: true, transcript_status: null }), 0)).toBe('skip')
   })
 })

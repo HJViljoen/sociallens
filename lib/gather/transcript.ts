@@ -52,6 +52,8 @@ const LANG_CODES: Record<string, string> = {
   chinese: 'zh', japanese: 'ja', korean: 'ko', russian: 'ru', turkish: 'tr',
   thai: 'th', vietnamese: 'vi', polish: 'pl', swedish: 'sv', danish: 'da',
   norwegian: 'no', filipino: 'tl', tagalog: 'tl',
+  // Seen as YouTube caption language names on the first Össur backfill (2026-08-16).
+  bengali: 'bn', hungarian: 'hu', nepali: 'ne', ukrainian: 'uk', greek: 'el', czech: 'cs', romanian: 'ro', hebrew: 'he', persian: 'fa', finnish: 'fi',
 }
 
 export function normaliseLang(lang: string | null | undefined): string | null {
@@ -166,11 +168,14 @@ async function whisperMedia(url: string): Promise<{ text: string; lang: string |
 
 /** Apply both gates to a resolved text: the cheap letter count first (silent or
  *  music-only never reaches the classifier), then the content gate. Carries the
- *  cost facts (Whisper minutes, gate tokens) so the caller can log spend. */
-async function settle(
+ *  cost facts (Whisper minutes, gate tokens) so the caller can log spend.
+ *  Exported (Wave 4) so a platform whose text arrives already fetched — YouTube
+ *  captions via `fetchTranscripts` — is judged by exactly the same gate as a
+ *  Whisper result: an auto-caption of a music video is lyrics either way. */
+export async function gateTranscript(
   text: string,
   lang: string | null,
-  source: 'tiktok_caption' | 'whisper',
+  source: TranscriptResult['source'],
   whisperMinutes?: number,
 ): Promise<TranscriptResult> {
   if (speechLen(text) < MIN_TRANSCRIPT_CHARS) return { text, lang, source, status: 'no_speech', whisperMinutes }
@@ -198,7 +203,7 @@ export async function resolveTranscript(media: MediaRef): Promise<TranscriptResu
         if (speechLen(text) >= MIN_TRANSCRIPT_CHARS) {
           // A caption track transcribes the SAME audio Whisper would, so a
           // lyrics/garbled verdict here wouldn't change on a second pass — settle it.
-          return await settle(text, normaliseLang(track.lang), 'tiktok_caption')
+          return await gateTranscript(text, normaliseLang(track.lang), 'tiktok_caption')
         }
         // caption present but empty/music-only → fall through to Whisper if we have media
       } catch (e) {
@@ -207,7 +212,7 @@ export async function resolveTranscript(media: MediaRef): Promise<TranscriptResu
     }
     if (media.mediaUrl) {
       const { text, lang, minutes } = await whisperMedia(media.mediaUrl)
-      return await settle(text, lang, 'whisper', minutes)
+      return await gateTranscript(text, lang, 'whisper', minutes)
     }
     return { text: '', lang: null, source: null, status: 'no_media' }
   } catch (e) {

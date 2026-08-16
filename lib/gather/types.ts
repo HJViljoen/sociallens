@@ -117,12 +117,20 @@ export interface MediaRef {
 export interface TranscriptResult {
   text: string
   lang: string | null
-  source: 'tiktok_caption' | 'whisper' | 'reddit_selftext' | null
+  source: 'tiktok_caption' | 'whisper' | 'reddit_selftext' | 'youtube_caption' | null
   status: 'ok' | 'no_speech' | 'lyrics' | 'garbled' | 'no_media' | 'failed'
   /** Whisper audio minutes billed for this video (absent: caption/no-media path). */
   whisperMinutes?: number
   /** Content-gate token usage (absent when the letter gate short-circuited). */
   gateTokens?: { prompt: number; completion: number }
+}
+
+/** Raw text a `fetchTranscripts` hook hands back — pre-gate. `lang` is whatever
+ *  the platform reports (a name or a code); the caller normalises. */
+export interface FetchedTranscript {
+  text: string
+  lang: string | null
+  source: NonNullable<TranscriptResult['source']>
 }
 
 /** Client/run ids + config threaded into the normalisers. */
@@ -190,15 +198,15 @@ export interface PlatformAdapter {
    * search. Media and caption URLs are signed and expiring, so a video stored by
    * an earlier run has no live handle to transcribe — this refreshes it without
    * gathering anything new. Used by the transcript backfill; not part of a run.
-   * Absent on YouTube (transcripts deferred — see Architecture/Video-Transcripts).
+   * Absent on YouTube: its transcripts come from `fetchTranscripts` by video id,
+   * which needs no live media handle.
    */
   refetchByUrl?(videoUrls: string[]): { actor: string; input: RawItem }
   /**
    * Extract the direct media URL + any caption tracks from a raw item, for
-   * transcript resolution (Step 1). Absent on platforms with no usable route:
-   * YouTube is deferred (its transcript text is pot-gated — see
-   * Architecture/Video-Transcripts), so it simply doesn't implement this and the
-   * transcribe step skips it.
+   * transcript resolution (Step 1). TikTok + Instagram. Absent on YouTube (its
+   * caption text is pot-gated on the free path, so it goes through the paid
+   * `fetchTranscripts` route instead) and on Reddit (`extractTranscript`).
    */
   extractMedia?(raw: RawItem): MediaRef
   /**
@@ -207,10 +215,22 @@ export interface PlatformAdapter {
    * exactly what a transcript is on the video platforms, so it flows through the
    * existing claims/evidence machinery with no Pass A changes.
    *
-   * Tried BEFORE `extractMedia` in the transcribe step. A platform implements one
-   * or the other, never both. `null` = this item carries no usable text.
+   * Tried BEFORE `extractMedia` in the transcribe step. A platform implements
+   * exactly one of `extractMedia` / `extractTranscript` / `fetchTranscripts`.
+   * `null` = this item carries no usable text.
    */
   extractTranscript?(raw: RawItem): TranscriptResult | null
+  /**
+   * Batched transcript fetch for platforms whose text lives behind a paid API
+   * (Wave 4: YouTube captions via an Apify actor — the free timedtext route
+   * returns 200 + empty body from datacenter IPs). Keyed by platform video id;
+   * needs no raw item and no live media handle. Returns RAW text — the caller
+   * runs the shared gate (letter + content) so every source is judged
+   * identically. `null` value = the platform has no caption for that video
+   * (→ 'no_media'); a MISSING key = the fetch dropped it (→ 'failed', retried
+   * next run); a thrown error fails the whole batch (→ step retry).
+   */
+  fetchTranscripts?(videoIds: string[]): Promise<Map<string, FetchedTranscript | null>>
   /** Raw actor item → VideoInsert. null = skip (unparseable / no url). */
   normaliseVideo(raw: RawItem, ctx: NormaliseCtx): VideoInsert | null
   /** Raw actor item → CommentInsert. null = skip. */
