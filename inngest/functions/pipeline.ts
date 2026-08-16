@@ -2,7 +2,7 @@ import { randomUUID } from 'crypto'
 import { inngest } from '@/inngest/client'
 import { createAdminClient, selectAll } from '@/lib/supabase-admin'
 import { planGatherSearches, searchOne, gatePlatform, scrapeCommentsBatch, transcribeBatch, planTranscribeBatches, resolveGatherWindow, inWindow, loadGatherConfig, type SearchResult } from '@/lib/gather/gather'
-import { runPassA } from '@/lib/pipeline/pass-a'
+import { runPassA, passALane } from '@/lib/pipeline/pass-a'
 import { loadGroupedInsights, runStepA2Bucket, type StepA2BucketResult } from '@/lib/pipeline/step-a2'
 import { runPassB } from '@/lib/pipeline/pass-b'
 import { runPassC } from '@/lib/pipeline/pass-c'
@@ -21,7 +21,7 @@ import { persistThemes, loadThemes } from '@/lib/pipeline/themes'
 import { writeRunSummary } from '@/lib/pipeline/run-summary'
 import { computeMetrics } from '@/lib/pipeline/metrics'
 import { sendAlertEmail } from '@/lib/email'
-import { CLUSTER_SIMILARITY_THRESHOLD, EVIDENCE_FLOOR, TRANSCRIBE_PARALLEL, passAMinComments, redditDiscoveryEnabled, transcriptsEnabled } from '@/lib/config'
+import { CLUSTER_SIMILARITY_THRESHOLD, EVIDENCE_FLOOR, TRANSCRIBE_PARALLEL, redditDiscoveryEnabled, transcriptsEnabled } from '@/lib/config'
 import type { Platform } from '@/lib/gather/types'
 import type { VideoRow, CommentRow } from '@/lib/pipeline/types'
 
@@ -620,8 +620,8 @@ async function planPassABatches(clientId: string): Promise<string[][]> {
   const admin = createAdminClient()
   // Discovered corpus only — owned posts must never enter Pass A (their fans'
   // comments would contaminate audience themes; Step 2c is their consumer).
-  const videos = await selectAll<{ id: string; platform: string; video_id: string }>(() =>
-    admin.from('videos').select('id, platform, video_id').eq('client_id', clientId).eq('source', 'discovered').order('id', { ascending: true }),
+  const videos = await selectAll<{ id: string; platform: string; video_id: string; is_client: boolean | null; is_competitor: boolean | null; transcript_status: string | null }>(() =>
+    admin.from('videos').select('id, platform, video_id, is_client, is_competitor, transcript_status').eq('client_id', clientId).eq('source', 'discovered').order('id', { ascending: true }),
   )
   const counts = new Map<string, number>()
   const comments = await selectAll<{ platform: string; video_id: string }>(() =>
@@ -632,10 +632,14 @@ async function planPassABatches(clientId: string): Promise<string[][]> {
     counts.set(key, (counts.get(key) ?? 0) + 1)
   }
   // Per-platform floor: Reddit threads run short but dense, so a single global
-  // 5 would skip most of the platform (lib/config.ts passAMinComments).
+  // 5 would skip most of the platform (lib/config.ts passAMinComments). Below
+  // the floor, brand-side videos with a usable transcript still enter via the
+  // claims lane (Wave 4) — same rule as runPassA's second gate, via passALane.
+  const withTranscripts = transcriptsEnabled()
   const eligible = videos
-    .map((v) => ({ id: v.id, platform: v.platform, n: counts.get(`${v.platform}::${v.video_id}`) ?? 0 }))
-    .filter((v) => v.n >= passAMinComments(v.platform))
+    .map((v) => ({ id: v.id, n: counts.get(`${v.platform}::${v.video_id}`) ?? 0,
+      lane: passALane({ ...v, transcript_status: withTranscripts ? v.transcript_status : null }, counts.get(`${v.platform}::${v.video_id}`) ?? 0) }))
+    .filter((v) => v.lane !== 'skip')
     .sort((a, b) => b.n - a.n)
   const batches: string[][] = []
   for (let i = 0; i < eligible.length; i += PASS_A_BATCH) {

@@ -57,6 +57,8 @@ export interface PerVideoResult {
   keptComments: number
   droppedLowSignal: number
   status: 'analyzed' | 'skipped_too_few' | 'dry_run' | 'refused' | 'error'
+  /** Wave 4 claims lane: analysed with no comments in the prompt (claims + classification only). */
+  claimsOnly?: boolean
   insightsKept?: number
   insightsDropped?: number
   evidenceDropped?: number
@@ -75,6 +77,8 @@ export interface RunPassASummary {
   dryRun: boolean
   videosProcessed: number
   videosAnalyzed: number
+  /** Subset of videosAnalyzed that went through the claims lane. */
+  videosClaimsOnly: number
   videosSkipped: number
   insightsKept: number
   insightsDropped: number
@@ -101,6 +105,33 @@ function ownerLabel(v: VideoRow): string {
   if (v.is_client) return 'the CLIENT brand'
   if (v.is_competitor) return `a COMPETITOR (${v.competitor_name ?? 'unknown'})`
   return 'an industry/other account'
+}
+
+export type PassALane = 'full' | 'claims_only' | 'skip'
+
+/**
+ * Which lane a video enters Pass A through — used by BOTH gates (the plan
+ * step on raw counts, runPassA on kept counts) so they cannot drift.
+ *   full        — comments ≥ the platform floor: the normal analysis.
+ *   claims_only — below the floor, but a brand-side (client/competitor) video
+ *                 with a usable transcript (Wave 4). It enters with NO comments
+ *                 in the prompt, so it can only yield claims + classification:
+ *                 no audience insights, sentiment forced null. The comment
+ *                 floor keeps governing audience evidence; the transcript
+ *                 governs brand claims. Why: 0 of Össur's 22 client YouTube
+ *                 videos in run 147899d3 had even 3 comments — the captions
+ *                 are where brand claims live, and the floor hid every one.
+ *   skip        — everything else.
+ * Pass `transcript_status: null` when transcripts are off to disable the lane.
+ */
+export function passALane(
+  v: { platform: string; is_client: boolean | null; is_competitor: boolean | null; transcript_status: string | null },
+  comments: number,
+  floor: number = passAMinComments(v.platform),
+): PassALane {
+  if (comments >= floor) return 'full'
+  if ((v.is_client || v.is_competitor) && v.transcript_status === 'ok') return 'claims_only'
+  return 'skip'
 }
 
 /** Exported for tests — the v4 line rewrites are exact-string-matched against
@@ -436,6 +467,7 @@ export async function runPassA(opts: RunPassAOptions): Promise<RunPassASummary> 
     dryRun,
     videosProcessed: 0,
     videosAnalyzed: 0,
+    videosClaimsOnly: 0,
     videosSkipped: 0,
     insightsKept: 0,
     insightsDropped: 0,
@@ -470,14 +502,24 @@ export async function runPassA(opts: RunPassAOptions): Promise<RunPassASummary> 
     }
 
     // Second gate, on KEPT comments (post-spam-filter). The plan step already
-    // applied the same floor to RAW counts; a video can still fall out here.
-    if (kept.length < (minComments ?? passAMinComments(v.platform))) {
+    // applied the same lane rule to RAW counts; a video can still fall out here.
+    const lane = passALane(
+      { ...v, transcript_status: useTranscripts ? (v.transcript_status ?? null) : null },
+      kept.length,
+      minComments ?? passAMinComments(v.platform),
+    )
+    if (lane === 'skip') {
       summary.videosSkipped++
       summary.perVideo.push(res)
       continue
     }
+    const claimsOnly = lane === 'claims_only'
+    res.claimsOnly = claimsOnly || undefined
 
-    const refs: CommentRef[] = kept.map((c, i) => ({ label: `c${i + 1}`, realId: c.id, text: c.text ?? '' }))
+    // Claims lane: the comments never reach the prompt — below the floor they
+    // are too thin to be evidence, and showing them would let the model mint
+    // insights the floor exists to prevent.
+    const refs: CommentRef[] = claimsOnly ? [] : kept.map((c, i) => ({ label: `c${i + 1}`, realId: c.id, text: c.text ?? '' }))
     const transcript = useTranscripts ? usableTranscript(v) : null
     const userPrompt = buildUserPrompt(v, refs, transcript)
 
@@ -553,6 +595,13 @@ export async function runPassA(opts: RunPassAOptions): Promise<RunPassASummary> 
       : ownerIndustry
         ? { kept: [], dropped: parsed.claims?.length ?? 0 }
         : validateClaims(parsed.claims, transcript)
+    // Claims lane: no comments were shown, so nothing can be audience evidence —
+    // enforce it in code rather than trust the prompt (brand-side transcripts
+    // are never evidence anyway, so validation should already be empty).
+    if (claimsOnly) {
+      validation.kept = []
+      validation.samples = []
+    }
     summary.insightsKept += validation.kept.length
     summary.insightsDropped += validation.insightsDropped
     summary.evidenceDropped += validation.evidenceDropped
@@ -568,6 +617,7 @@ export async function runPassA(opts: RunPassAOptions): Promise<RunPassASummary> 
       res.claimsDropped = claims.dropped
     }
     summary.videosAnalyzed++
+    if (claimsOnly) summary.videosClaimsOnly++
 
     if (persist) {
       await persistVideo(admin, {
@@ -578,6 +628,7 @@ export async function runPassA(opts: RunPassAOptions): Promise<RunPassASummary> 
         samples: validation.samples,
         qualityScore: computeQualityScore(all),
         claims: claims?.kept ?? null,
+        claimsOnly,
       })
       await logCall(admin, {
         clientId,
@@ -619,10 +670,14 @@ interface PersistArgs {
   /** v4 brand claims for this video; null = v3 (video_claims never touched —
    *  the table may not exist pre-migration). */
   claims: PassAClaim[] | null
+  /** Wave 4 claims lane: the model saw no comments, so its sentiment is a guess
+   *  about the video, not a read of its audience — and run_summary's sentiment
+   *  shares are built from this column. Forced null. */
+  claimsOnly?: boolean
 }
 
 async function persistVideo(admin: ReturnType<typeof createAdminClient>, args: PersistArgs): Promise<void> {
-  const { video, runId, parsed, validated, samples, qualityScore, claims } = args
+  const { video, runId, parsed, validated, samples, qualityScore, claims, claimsOnly } = args
   const c = parsed.classification
 
   // Idempotent at the step level (invariant 6): clear this video's prior insights for the run.
@@ -637,7 +692,7 @@ async function persistVideo(admin: ReturnType<typeof createAdminClient>, args: P
       hook_style: c.hook_style,
       hook_text: c.hook_text,
       topics: c.topics,
-      sentiment: c.sentiment,
+      sentiment: claimsOnly ? null : c.sentiment,
       comment_quality_score: qualityScore,
     })
     .eq('id', video.id)
