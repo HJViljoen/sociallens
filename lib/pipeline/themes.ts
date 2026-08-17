@@ -1,6 +1,7 @@
 import { createAdminClient, selectAll } from '../supabase-admin'
-import { THEME_MATCH_THRESHOLD } from '../config'
+import { THEME_MATCH_THRESHOLD, REGISTRY_DORMANT_RUNS, themeRegistryEnabled } from '../config'
 import { embedTexts, cosine } from './cluster'
+import { matchThemes, dormantIds, matchTally, type MatchKind, type RegistryEntry } from './theme-registry'
 import type { AggregatedTheme } from './types'
 
 // Theme persistence + mini theme-matching (Redesign Spec 2026-07-03 §8).
@@ -14,6 +15,9 @@ import type { AggregatedTheme } from './types'
 export interface PersistThemesResult {
   inserted: number
   firstSeen: number
+  /** Registry match tally when THEME_REGISTRY is on — the run log's read on how
+   *  stable identity actually was this week. Absent when the flag is off. */
+  registry?: Record<MatchKind, number> & { entries: number; dormant: number }
   /** False on the client's first themed run — every theme is trivially "new",
    *  so pages should suppress the badge (detectable: no earlier themed run). */
   hadPreviousRun: boolean
@@ -98,6 +102,120 @@ export async function persistThemes(
     return !prevEmbeddings.some((prev) => cosine(vec, prev) >= THEME_MATCH_THRESHOLD)
   })
 
+  // ---- theme identity (shape B-lite) --------------------------------------
+  // Match this run's themes to the client's persistent registry on MEMBERSHIP,
+  // not on the label: with Pass A incremental, an unchanged theme carries an
+  // identical supporting_insight_ids set, while its label churns ~88% of the
+  // time. Off → registryIds stays empty and first_seen keeps the old
+  // label-embedding meaning, byte for byte.
+  const registryOn = themeRegistryEnabled()
+  const registryIds: (string | null)[] = themes.map(() => null)
+  const registryKinds: MatchKind[] = themes.map(() => 'new')
+  const registryScores: number[] = themes.map(() => 0)
+  let registrySummary: PersistThemesResult['registry']
+
+  if (registryOn) {
+    const entries = await selectAll<RegistryEntry & { last_seen_run_id: string | null; observation_count: number | null }>(() =>
+      admin.from('theme_registry')
+        .select('id, bucket, member_insight_ids, embedding, status, canonical_label, last_seen_run_id, observation_count')
+        .eq('client_id', clientId).order('id', { ascending: true }),
+    )
+    const results = matchThemes(
+      themes.map((t, i) => ({
+        key: String(i),
+        bucket: t.bucket,
+        memberInsightIds: t.supportingInsightIds,
+        label: t.label ?? t.theme,
+        embedding: embeddings[i],
+      })),
+      entries,
+      { cosine },
+    )
+    const nowIso = new Date().toISOString()
+    for (const r of results) {
+      const i = Number(r.key)
+      const t = themes[i]
+      const label = t.label ?? t.theme
+      if (r.themeId) {
+        // Refresh the entry to this observation: the label is deliberately the
+        // LATEST one (display stays fresh, the id carries continuity).
+        const prior = entries.find((e) => e.id === r.themeId)
+        const { error } = await admin.from('theme_registry').update({
+          observation_count: (prior?.observation_count ?? 0) + 1,
+          canonical_label: label,
+          description: t.description ?? null,
+          member_insight_ids: t.supportingInsightIds,
+          member_slugs: t.memberThemes,
+          embedding: embeddings[i].map(round6),
+          status: 'active',
+          last_seen_run_id: runId,
+          last_seen_at: nowIso,
+        }).eq('id', r.themeId)
+        if (error) throw new Error(`update theme_registry: ${error.message}`)
+        registryIds[i] = r.themeId
+      } else {
+        const { data, error } = await admin.from('theme_registry').insert({
+          client_id: clientId,
+          bucket: t.bucket,
+          canonical_label: label,
+          description: t.description ?? null,
+          member_insight_ids: t.supportingInsightIds,
+          member_slugs: t.memberThemes,
+          embedding: embeddings[i].map(round6),
+          status: 'active',
+          first_seen_run_id: runId,
+          last_seen_run_id: runId,
+          last_seen_at: nowIso,
+          observation_count: 1,
+          ...(r.splitFrom ? { parent_theme_id: r.splitFrom } : {}),
+        }).select('id').single()
+        if (error || !data) throw new Error(`insert theme_registry: ${error?.message ?? 'no row'}`)
+        registryIds[i] = data.id as string
+      }
+      registryKinds[i] = r.kind
+      registryScores[i] = r.score
+    }
+
+    // One observation per (theme, run). Upsert so a step retry is idempotent.
+    if (themes.length) {
+      const obs = themes.map((t, i) => ({
+        theme_id: registryIds[i],
+        client_id: clientId,
+        run_id: runId,
+        evidence_count: t.evidenceCount,
+        strength_score: t.strengthScore,
+        dominant_emotion: t.dominantEmotion,
+        dominant_sentiment_impact: t.dominantSentimentImpact,
+        single_source: t.singleSource,
+        category: t.category,
+        label: t.label ?? t.theme,
+        member_insight_ids: t.supportingInsightIds,
+        match_kind: registryKinds[i],
+        match_score: registryScores[i],
+      }))
+      const { error } = await admin.from('theme_observations').upsert(obs, { onConflict: 'theme_id,run_id' })
+      if (error) throw new Error(`insert theme_observations: ${error.message}`)
+    }
+
+    // Dormancy: unseen across the last REGISTRY_DORMANT_RUNS themed runs.
+    const recentRuns = await selectAll<{ run_id: string }>(() =>
+      admin.from('theme_observations').select('run_id').eq('client_id', clientId)
+        .order('created_at', { ascending: false }).limit(2000),
+    )
+    const ordered: string[] = []
+    for (const r of recentRuns) if (r.run_id && !ordered.includes(r.run_id)) ordered.push(r.run_id)
+    const stale = dormantIds(
+      entries.map((e) => ({ id: e.id, last_seen_run_id: registryIds.includes(e.id) ? runId : e.last_seen_run_id, status: e.status })),
+      ordered,
+      REGISTRY_DORMANT_RUNS,
+    )
+    if (stale.length) {
+      const { error } = await admin.from('theme_registry').update({ status: 'dormant' }).in('id', stale)
+      if (error) throw new Error(`mark dormant: ${error.message}`)
+    }
+    registrySummary = { ...matchTally(results), entries: entries.length + results.filter((r) => !r.themeId).length, dormant: stale.length }
+  }
+
   // Replace per (client, run) — invariant 6.
   const { error: delErr } = await admin.from('themes').delete().eq('client_id', clientId).eq('run_id', runId)
   if (delErr) throw new Error(`clear themes: ${delErr.message}`)
@@ -118,8 +236,12 @@ export async function persistThemes(
       dominant_emotion: t.dominantEmotion,
       dominant_sentiment_impact: t.dominantSentimentImpact,
       single_source: t.singleSource,
-      first_seen: firstSeenFlags[i],
+      // With the registry on, "new" means a theme with no prior identity —
+      // not "the labeller chose different words", which is what the
+      // label-embedding rule actually measured (48 of 58 false positives).
+      first_seen: registryOn ? registryKinds[i] === 'new' : firstSeenFlags[i],
       embedding: embeddings[i].map(round6),
+      ...(registryOn ? { registry_id: registryIds[i] } : {}),
     }))
     const { error } = await admin.from('themes').insert(rows)
     if (error) throw new Error(`persist themes: ${error.message}`)
@@ -127,7 +249,8 @@ export async function persistThemes(
 
   return {
     inserted: themes.length,
-    firstSeen: firstSeenFlags.filter(Boolean).length,
+    firstSeen: registryOn ? registryKinds.filter((k) => k === 'new').length : firstSeenFlags.filter(Boolean).length,
     hadPreviousRun: prevEmbeddings.length > 0,
+    ...(registrySummary ? { registry: registrySummary } : {}),
   }
 }
