@@ -52,7 +52,7 @@ export interface VideoInsert {
   caption: string
   hashtags: string[]
   content_format: string
-  views: number | null
+  views: number // videos.views is NOT NULL — platforms without a view metric (IG, Reddit) write 0
   likes: number
   shares: number
   comments_count: number
@@ -227,8 +227,10 @@ export interface PlatformAdapter {
    * needs no raw item and no live media handle. Returns RAW text — the caller
    * runs the shared gate (letter + content) so every source is judged
    * identically. `null` value = the platform has no caption for that video
-   * (→ 'no_media'); a MISSING key = the fetch dropped it (→ 'failed', retried
-   * next run); a thrown error fails the whole batch (→ step retry).
+   * (→ 'no_media'); a MISSING key = the fetch dropped it (left NULL + run
+   * error, re-planned next run); a thrown error fails the whole batch (→ step
+   * retry) — except an Apify 400 run-failed, which fetchTranscriptsIsolating
+   * refetches id-by-id (an id failing alone while mates resolve → 'failed').
    */
   fetchTranscripts?(videoIds: string[]): Promise<Map<string, FetchedTranscript | null>>
   /** Raw actor item → VideoInsert. null = skip (unparseable / no url). */

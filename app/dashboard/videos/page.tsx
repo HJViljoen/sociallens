@@ -629,7 +629,7 @@ export default async function ContentPage({
                     </td>
                     <td className="py-2 text-xs text-muted-foreground whitespace-nowrap">{v.upload_date ?? '—'}</td>
                     <td className="py-2 text-xs text-muted-foreground whitespace-nowrap">{Number(v.duration_seconds) > 0 ? durationLabel(Number(v.duration_seconds)) : '—'}</td>
-                    <td className="py-2 text-right">{v.views != null ? fmt(Number(v.views)) : '—'}</td>
+                    <td className="py-2 text-right">{Number(v.views) > 0 ? fmt(Number(v.views)) : '—'}</td>
                     <td className="py-2 text-right text-muted-foreground">{v.likes != null ? fmt(Number(v.likes)) : '—'}</td>
                     <td className="py-2 text-right">{v.engagement_rate != null ? `${v.engagement_rate}%` : '—'}</td>
                     <td className="py-2">{v.sentiment ? <span className={`inline-block px-2 py-0.5 rounded-full text-xs font-medium capitalize ${SENTIMENT_BADGE[v.sentiment] ?? 'bg-muted text-muted-foreground'}`}>{v.sentiment}</span> : <span className="text-muted-foreground">—</span>}</td>
