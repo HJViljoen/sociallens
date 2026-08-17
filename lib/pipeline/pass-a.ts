@@ -524,6 +524,19 @@ export async function runPassA(opts: RunPassAOptions): Promise<RunPassASummary> 
     if (lane === 'skip') {
       summary.videosSkipped++
       summary.perVideo.push(res)
+      // Incremental Pass A: bookkeep the skip (no rows) so plan-pass-a does not
+      // re-load this video every run until its comments actually grow — the
+      // pointer moves to this run, so any older rows become stale and prune.
+      if (persist && runId) {
+        await admin.from('videos').update({
+          analyzed_at: new Date().toISOString(),
+          analyzed_run_id: runId,
+          analyzed_comment_count: all.length,
+          analyzed_prompt_version: promptVersion,
+          analyzed_lane: 'skip',
+          analyzed_with_transcript: useTranscripts && usableTranscript(v) !== null,
+        }).eq('id', v.id)
+      }
       continue
     }
     const claimsOnly = lane === 'claims_only'
@@ -642,6 +655,7 @@ export async function runPassA(opts: RunPassAOptions): Promise<RunPassASummary> 
         qualityScore: computeQualityScore(all),
         claims: claims?.kept ?? null,
         claimsOnly,
+        bookkeeping: { storedComments: all.length, promptVersion, lane: claimsOnly ? 'claims_only' : 'full', withTranscript: transcript !== null },
       })
       await logCall(admin, {
         clientId,
@@ -687,13 +701,20 @@ interface PersistArgs {
    *  about the video, not a read of its audience. The column is left untouched
    *  (classify-meta's framing sentiment stays; run_summary's shares read it). */
   claimsOnly?: boolean
+  /** Incremental Pass A (2026-08-17): what this read saw, written onto the
+   *  video LAST so the pointer only moves once every row is in. */
+  bookkeeping: { storedComments: number; promptVersion: string; lane: 'full' | 'claims_only'; withTranscript: boolean }
 }
 
 async function persistVideo(admin: ReturnType<typeof createAdminClient>, args: PersistArgs): Promise<void> {
-  const { video, runId, parsed, validated, samples, qualityScore, claims, claimsOnly } = args
+  const { video, runId, parsed, validated, samples, qualityScore, claims, claimsOnly, bookkeeping } = args
   const c = parsed.classification
 
-  // Idempotent at the step level (invariant 6): clear this video's prior insights for the run.
+  // Idempotent at the step level (invariant 6): clear this video's prior insights
+  // for THIS run (a retried batch step). Rows from earlier runs are left alone —
+  // they stay resolvable for the dashboard's displayed run until the pointer
+  // below moves and the next successful close-run prunes them (incremental
+  // Pass A: videos.analyzed_run_id names the current rows; see pass-a-plan.ts).
   await admin.from('audience_insights').delete().eq('client_id', video.client_id).eq('run_id', runId).eq('source_video_id', video.id)
   await admin.from('language_samples').delete().eq('client_id', video.client_id).eq('run_id', runId).eq('source_video_id', video.id)
 
@@ -794,6 +815,19 @@ async function persistVideo(admin: ReturnType<typeof createAdminClient>, args: P
       })),
     )
   }
+
+  // Move the pointer LAST: from here this run's rows are the video's current
+  // analysis. If this update fails the old pointer stands, this run's rows are
+  // stale-but-newer, and the retried step redoes the video — never a half state.
+  const { error: bkErr } = await admin.from('videos').update({
+    analyzed_at: new Date().toISOString(),
+    analyzed_run_id: runId,
+    analyzed_comment_count: bookkeeping.storedComments,
+    analyzed_prompt_version: bookkeeping.promptVersion,
+    analyzed_lane: bookkeeping.lane,
+    analyzed_with_transcript: bookkeeping.withTranscript,
+  }).eq('id', video.id)
+  if (bkErr) throw new Error(`update video analysis bookkeeping: ${bkErr.message}`)
 }
 
 interface LogArgs {
