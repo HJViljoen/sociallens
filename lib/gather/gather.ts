@@ -1,6 +1,6 @@
 import { createAdminClient, selectAll } from '../supabase-admin'
 import { ANALYSIS_MODEL, REDDIT_COMMENT_SCRAPE_CAP, redditDiscoveryEnabled, periodWindowDays, RECHECK_MIN_GROWTH, RECHECK_CAP, RECHECK_WINDOW_DAYS, TRANSCRIBE_CAP, TRANSCRIBE_BATCH, TRANSCRIBE_MODEL, CONTENT_GATE_MODEL, WHISPER_PER_MINUTE, YT_TRANSCRIPT_PER_ITEM_USD, estimateCost, transcriptsEnabled } from '../config'
-import { runActor } from './apify'
+import { runActor, isActorRunFailedError } from './apify'
 import { adapters } from './platforms'
 import { parseSubreddits, activeSubreddits, subredditLabel } from './subreddits'
 import { logAiCall } from '../pipeline/ai-log'
@@ -744,6 +744,68 @@ export async function planTranscribeBatches(clientId: string, runId: string, pla
   return orderAndChunkPending(rows, TRANSCRIBE_BATCH, TRANSCRIBE_CAP)
 }
 
+/** Wall-clock budget for one chunk's fetch (batch attempt + isolation pass,
+ *  measured from before the batch attempt). A transcribe step also carries the
+ *  gate calls; 200s leaves room under the 300s Vercel step cap. */
+const ISOLATION_DEADLINE_MS = 200_000
+
+/** Batch caption fetch with per-id isolation. One actor run per batch is the
+ *  cheap path; but when the actor's run FAILS on a batch (Apify 400
+ *  run-failed — e.g. the 11-hour livestream that crashed the caption actor on
+ *  Sealand run f4c5d868), retrying the same 8 ids just fails the same way on
+ *  every Inngest retry and leaves all 8 NULL — re-planned and re-failed every
+ *  run. So: on a run-failed batch, refetch id-by-id. An id is returned in
+ *  `failed` ONLY when it failed alone AND at least one batch-mate resolved in
+ *  the same pass — the mates resolving is the evidence that the actor is
+ *  healthy and the failure is this input's. If nothing in the chunk resolves
+ *  (actor globally broken, YouTube change, proxy exhaustion), or the chunk is
+ *  a single id (no evidence possible), the ORIGINAL batch error is rethrown:
+ *  ids stay NULL, the step retries with backoff, and they re-plan next run
+ *  with mates. Any non-run-failed error (401/402/403/404/408, 5xx, 429,
+ *  network) propagates untouched — isolating during an outage would only
+ *  multiply the failures. `deadlineMs` bounds the isolation pass so a slow
+ *  actor can't walk a step past the 300s cap; past it the original error is
+ *  rethrown too. Pure over the injected `fetch`; unit-tested with a fake. */
+export async function fetchTranscriptsIsolating(
+  fetch: (ids: string[]) => Promise<Map<string, FetchedTranscript | null>>,
+  ids: string[],
+  batchSize: number,
+  opts: { deadlineMs?: number; now?: () => number } = {},
+): Promise<{ fetched: Map<string, FetchedTranscript | null>; failed: Map<string, string> }> {
+  const fetched = new Map<string, FetchedTranscript | null>()
+  const failed = new Map<string, string>()
+  const now = opts.now ?? Date.now
+  const deadline = now() + (opts.deadlineMs ?? ISOLATION_DEADLINE_MS)
+  for (let i = 0; i < ids.length; i += batchSize) {
+    const chunk = ids.slice(i, i + batchSize)
+    let batchErr: unknown
+    try {
+      for (const [k, v] of await fetch(chunk)) fetched.set(k, v)
+      continue
+    } catch (e) {
+      if (!isActorRunFailedError(e) || chunk.length === 1) throw e
+      batchErr = e
+    }
+    console.warn(`[transcript] batch of ${chunk.length} run-failed, isolating per id: ${(batchErr as Error).message.slice(0, 160)}`)
+    const chunkFetched = new Map<string, FetchedTranscript | null>()
+    const chunkFailed = new Map<string, string>()
+    for (const id of chunk) {
+      if (now() > deadline) throw batchErr // out of budget: leave the whole chunk NULL for the retry
+      try {
+        for (const [k, v] of await fetch([id])) chunkFetched.set(k, v)
+      } catch (e) {
+        if (!isActorRunFailedError(e)) throw e
+        chunkFailed.set(id, (e as Error).message.slice(0, 200))
+      }
+    }
+    // No mate resolved → no evidence the actor is healthy → not a verdict.
+    if (chunkFetched.size === 0) throw batchErr
+    for (const [k, v] of chunkFetched) fetched.set(k, v)
+    for (const [k, v] of chunkFailed) failed.set(k, v)
+  }
+  return { fetched, failed }
+}
+
 export async function transcribeBatch(opts: {
   clientId: string
   runId: string
@@ -805,12 +867,15 @@ export async function transcribeBatch(opts: {
   // (fan-out passes 8; the CLI/backfill path could pass up to TRANSCRIBE_CAP)
   // so one actor call never carries hundreds of ids into a 60s timeout.
   let fetched: Map<string, FetchedTranscript | null> | null = null
+  let fetchFailed = new Map<string, string>()
   if (adapter.fetchTranscripts && pending.length) {
-    fetched = new Map()
-    for (let i = 0; i < pending.length; i += TRANSCRIBE_BATCH) {
-      const part = await adapter.fetchTranscripts(pending.slice(i, i + TRANSCRIBE_BATCH).map((r) => r.video_id))
-      for (const [k, v] of part) fetched.set(k, v)
-    }
+    const r = await fetchTranscriptsIsolating(
+      (ids) => adapter.fetchTranscripts!(ids),
+      pending.map((p) => p.video_id),
+      TRANSCRIBE_BATCH,
+    )
+    fetched = r.fetched
+    fetchFailed = r.failed
   }
   let transcribed = 0
   let skipped = 0
@@ -818,6 +883,26 @@ export async function transcribeBatch(opts: {
   const gate = { prompt: 0, completion: 0 }
   const statusCounts: Record<string, number> = {}
   for (const row of pending) {
+    if (fetched && fetchFailed.has(row.video_id)) {
+      // The actor's run failed on this id ALONE while its batch-mates resolved
+      // in the same pass (fetchTranscriptsIsolating enforces that) — a
+      // per-video verdict, same as the Whisper path's 'failed'. Stamp it so it
+      // stops poisoning a batch on every future run; counted as skipped (Whisper
+      // parity), not a run error.
+      console.warn(`[transcript] ${opts.platform} ${row.video_id} run-failed in isolation: ${fetchFailed.get(row.video_id)}`)
+      statusCounts.failed = (statusCounts.failed ?? 0) + 1
+      skipped++
+      if (!opts.dryRun) {
+        const { error } = await admin
+          .from('videos')
+          .update({ transcript: null, transcript_lang: null, transcript_source: null, transcript_status: 'failed' })
+          .eq('client_id', opts.clientId)
+          .eq('platform', opts.platform)
+          .eq('video_id', row.video_id)
+        if (error) errors.push(`transcript update (${row.video_id}): ${error.message}`)
+      }
+      continue
+    }
     // An id the fetch did not return (actor dropped it, or a 200 with an
     // empty/non-array body — runActor maps that to []) is an ERROR, not a
     // verdict: count it so the run closes partial, and write nothing so the

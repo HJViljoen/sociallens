@@ -82,7 +82,7 @@ describe('reddit.normaliseVideo', () => {
     postType: 'text',
   }
 
-  it('maps a post onto a VideoInsert (subreddit as account, null views/engagement)', () => {
+  it('maps a post onto a VideoInsert (subreddit as account, views 0 — column is NOT NULL — null engagement)', () => {
     const v = reddit.normaliseVideo(post, ctx)!
     expect(v).not.toBeNull()
     expect(v.platform).toBe('reddit')
@@ -93,7 +93,7 @@ describe('reddit.normaliseVideo', () => {
     expect(v.caption).toBe('Wearing flip flops with a prosthetic foot\n\nI am a below knee amputee and i have an ossur foot cover.')
     expect(v.hashtags).toEqual([])
     expect(v.content_format).toBe('text')
-    expect(v.views).toBeNull()
+    expect(v.views).toBe(0) // videos.views is NOT NULL; null killed the whole gate:reddit upsert on the first live run (Sealand f4c5d868)
     expect(v.likes).toBe(7)
     expect(v.shares).toBe(0)
     expect(v.comments_count).toBe(16)

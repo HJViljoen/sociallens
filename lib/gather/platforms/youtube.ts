@@ -260,8 +260,10 @@ export const youtube: PlatformAdapter = {
   // Wave 4: batched caption fetch. One actor run per transcribe batch (8 ids ≈
   // 7s live). runActor retries transient failures up to 3× — at 60s per attempt
   // the worst case (~190s) still leaves the batch's gate calls inside the 300s
-  // step cap. Throws on actor failure — the step retries, and the ids stay NULL
-  // for the next run if it never lands.
+  // step cap. Throws on actor failure — transcribeBatch's isolating fetch
+  // refetches a run-failed batch id-by-id (a poison input such as an 11-hour
+  // livestream) and everything else propagates so the step retries and the
+  // ids stay NULL for the next run.
   async fetchTranscripts(videoIds) {
     if (!videoIds.length) return new Map()
     const items = await runActor(

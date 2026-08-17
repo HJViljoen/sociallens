@@ -7,6 +7,18 @@ const APIFY_BASE = 'https://api.apify.com/v2'
 
 export class ApifyError extends Error {}
 
+/** True ONLY when Apify says the actor ran on this input and died —
+ *  `HTTP 400` with `"type":"run-failed"` / `"run-aborted"` (the run-sync
+ *  endpoint's shape for an actor crash). That is the one 4xx that can be a
+ *  per-input verdict. Every other 4xx is about US, not the input — 401 token,
+ *  402 usage limit (month-end!), 403 rental, 404 actor renamed, 408 run
+ *  timeout, 400 memory-limit under fan-out — and must propagate so the step
+ *  retries / re-plans instead of stamping healthy videos 'failed'. Transient
+ *  5xx/429/network are retried inside runActor and also propagate. */
+export function isActorRunFailedError(e: unknown): boolean {
+  return e instanceof ApifyError && /^Apify 400\b/.test(e.message) && /"type"\s*:\s*"run-(failed|aborted)"/.test(e.message)
+}
+
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 
 /**

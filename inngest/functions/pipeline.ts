@@ -327,7 +327,7 @@ export const runPipeline = inngest.createFunction(
                     // exhausting its retries must not abandon the remaining
                     // waves — hundreds of this run's videos would silently
                     // stay untranscribed and are never re-planned.
-                    .catch(() => ({ transcribed: 0, skipped: 0, errors: ['transcribe step failed'] })),
+                    .catch((e: unknown) => ({ transcribed: 0, skipped: 0, errors: [`transcribe step failed: ${e instanceof Error ? e.message.slice(0, 200) : String(e).slice(0, 200)}`] })),
                 ),
               )
               for (const t of wave) {
