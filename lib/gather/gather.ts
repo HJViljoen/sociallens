@@ -744,9 +744,9 @@ export async function planTranscribeBatches(clientId: string, runId: string, pla
   return orderAndChunkPending(rows, TRANSCRIBE_BATCH, TRANSCRIBE_CAP)
 }
 
-/** Wall-clock budget for one isolation pass (batch attempt excluded). A
- *  transcribe step also carries the gate calls; 200s leaves room under the
- *  300s Vercel step cap. */
+/** Wall-clock budget for one chunk's fetch (batch attempt + isolation pass,
+ *  measured from before the batch attempt). A transcribe step also carries the
+ *  gate calls; 200s leaves room under the 300s Vercel step cap. */
 const ISOLATION_DEADLINE_MS = 200_000
 
 /** Batch caption fetch with per-id isolation. One actor run per batch is the

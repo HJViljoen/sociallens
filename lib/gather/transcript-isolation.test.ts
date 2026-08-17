@@ -20,6 +20,8 @@ describe('isActorRunFailedError', () => {
   it('matches only Apify 400 run-failed / run-aborted', () => {
     expect(isActorRunFailedError(RUN_FAILED())).toBe(true)
     expect(isActorRunFailedError(new ApifyError('Apify 400: {"error":{"type":"run-aborted"}}'))).toBe(true)
+    // the pretty-printed body fetchWithRetry actually slices (observed live on Sealand f4c5d868)
+    expect(isActorRunFailedError(new ApifyError('Apify 400: {\n  "error": {\n    "type": "run-failed",\n    "message": "Actor run did not succeed (run ID: GTy2ItB8qj45bKQQd, status: FAILED)."\n  }\n}'))).toBe(true)
     for (const m of [
       'Apify 400: {"error":{"type":"actor-memory-limit-exceeded"}}',
       'Apify 401: {"error":{"type":"token-not-found"}}',
