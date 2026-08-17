@@ -120,8 +120,9 @@ export async function persistThemes(
   // up quietly. Without this, the first flag-on run would badge all ~537 Voice
   // cards and email "122 new themes" on a week where nothing actually changed.
   let seeding = false
+  let registryFailed = false
 
-  if (registryOn) {
+  if (registryOn) try {
     const entries = await selectAll<RegistryEntry & { last_seen_run_id: string | null; first_seen_run_id: string | null; observation_count: number | null }>(() =>
       admin.from('theme_registry')
         .select('id, bucket, member_insight_ids, embedding, status, canonical_label, last_seen_run_id, first_seen_run_id, observation_count')
@@ -249,6 +250,18 @@ export async function persistThemes(
       if (error) throw new Error(`mark dormant: ${error.message}`)
     }
     registrySummary = { ...matchTally(results), entries: entries.length + results.filter((r) => !r.themeId).length, dormant: stale.length }
+  } catch (e) {
+    // The registry is a side layer: it makes "new" honest and gives Trends a
+    // stable key, but a client's weekly report must never die because identity
+    // bookkeeping failed. Degrade to the pre-registry behaviour — first_seen
+    // falls back to the label-embedding rule, themes rows carry no registry_id,
+    // and the next run picks the registry up again (matching is stateless, so
+    // nothing half-written misleads it: entries keep their old membership until
+    // a run completes the update).
+    console.error(`[theme-registry] skipped: ${e instanceof Error ? e.message : String(e)}`)
+    registryFailed = true
+    for (let i = 0; i < registryIds.length; i++) registryIds[i] = null
+    registrySummary = undefined
   }
 
   // Replace per (client, run) — invariant 6.
@@ -274,9 +287,9 @@ export async function persistThemes(
       // With the registry on, "new" means a theme with no prior identity —
       // not "the labeller chose different words", which is what the
       // label-embedding rule actually measured (48 of 58 false positives).
-      first_seen: registryOn && !seeding ? registryFirstSeen[i] : firstSeenFlags[i],
+      first_seen: registryOn && !seeding && !registryFailed ? registryFirstSeen[i] : firstSeenFlags[i],
       embedding: embeddings[i].map(round6),
-      ...(registryOn ? { registry_id: registryIds[i] } : {}),
+      ...(registryOn && !registryFailed ? { registry_id: registryIds[i] } : {}),
     }))
     const { error } = await admin.from('themes').insert(rows)
     if (error) throw new Error(`persist themes: ${error.message}`)
@@ -284,7 +297,7 @@ export async function persistThemes(
 
   return {
     inserted: themes.length,
-    firstSeen: registryOn && !seeding ? registryFirstSeen.filter(Boolean).length : firstSeenFlags.filter(Boolean).length,
+    firstSeen: registryOn && !seeding && !registryFailed ? registryFirstSeen.filter(Boolean).length : firstSeenFlags.filter(Boolean).length,
     hadPreviousRun: prevEmbeddings.length > 0,
     ...(registrySummary ? { registry: registrySummary } : {}),
   }
