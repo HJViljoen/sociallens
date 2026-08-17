@@ -374,6 +374,38 @@ export function incrementalPassAEnabled(): boolean {
 export const PASS_A_RECHECK_MIN = 3
 export const PASS_A_RECHECK_SHARE = 0.2
 
+/** Theme registry (shape B-lite, 2026-08-17). OFF unless set, so merging the
+ *  branch changes nothing until it is switched on in Vercel. Gates the registry
+ *  write + the `first_seen`-from-registry rule only; the tables and the
+ *  `themes.registry_id` column are inert without it. */
+export function themeRegistryEnabled(): boolean {
+  const v = process.env.THEME_REGISTRY
+  return v === '1' || v === 'true'
+}
+
+/**
+ * Theme identity is matched on MEMBERSHIP (which insights are in the theme),
+ * not on the label — measured on two Sealand runs whose Pass A output was
+ * byte-identical (shape A froze it): 507 of 537 themes had an exactly identical
+ * supporting_insight_ids set, while 48 of the 58 themes the label-embedding rule
+ * called "new" were the same theme with a new label. Cosine among
+ * provably-identical themes ran 0.51-1.00 — overlapping the "different theme"
+ * band, so no threshold rescues it.
+ *
+ * STRONG: Jaccard at or above this is the same theme outright (the exact-set
+ * case scores 1.0). 0.5 sits below the measured merge/split band (0.3-0.9) but
+ * far above unrelated pairs, which share almost no insights at all.
+ * WEAK: the ambiguous band. A match here ALSO needs label cosine >=
+ * THEME_MATCH_THRESHOLD — this is where a cluster genuinely reshaped and the
+ * two signals have to agree before a time series is continued.
+ */
+export const REGISTRY_MATCH_STRONG = 0.5
+export const REGISTRY_MATCH_WEAK = 0.25
+
+/** Themed runs a registry entry can go unobserved before it is marked dormant.
+ *  It revives on the next match — dormancy hides an entry, it never deletes it. */
+export const REGISTRY_DORMANT_RUNS = 3
+
 // Order-of-magnitude Apify spend per platform, for RANKING keywords in
 // scripts/keyword-roi.ts — never invoicing. Apify doesn't land per-actor cost
 // in our DB (runActor returns items only), so these are coarse constants
