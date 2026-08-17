@@ -34,6 +34,7 @@ interface RunSummary {
 
 interface ThemeRow {
   run_id: string
+  registry_id: string | null
   label: string
   category: string
   bucket: string
@@ -104,7 +105,7 @@ export default async function TrendsPage() {
     ),
     selectAll<ThemeRow>(() =>
       supabase.from('themes')
-        .select('run_id, label, category, bucket, strength_score, evidence_count, first_seen')
+        .select('run_id, registry_id, label, category, bucket, strength_score, evidence_count, first_seen')
         .eq('client_id', clientId).order('run_id', { ascending: true }),
     ),
     // selectAll: daily snapshots (3 platforms) cross the 1000-row cap in
@@ -181,21 +182,29 @@ export default async function TrendsPage() {
   const sentDelta = delta(sentSeries)
   const volDelta = delta(volSeries)
 
-  // ---- theme trajectories: join by label across updates, keep repeat themes ----
+  // ---- theme trajectories ----
+  // Joined on the theme's REGISTRY ID (stable across runs); the label is only a
+  // fallback for rows written before the registry existed. Measured reason: on
+  // two runs with identical inputs, 446 of 507 unchanged themes were relabelled,
+  // so a label join drops most lines and invents new ones (2026-08-17).
   const runDate = new Map(summaries.map((s) => [s.run_id, s.run_date]))
   const earliestDate = dates[0]
-  const byLabel = new Map<string, { date: string; strength: number; evidence: number; category: string; bucket: string }[]>()
+  const byLabel = new Map<string, { date: string; strength: number; evidence: number; category: string; bucket: string; label: string }[]>()
   for (const t of themesRaw) {
     const d = runDate.get(t.run_id)
     if (!d) continue
-    const arr = byLabel.get(t.label) ?? []
-    arr.push({ date: d, strength: Number(t.strength_score ?? 0), evidence: Number(t.evidence_count ?? 0), category: t.category, bucket: t.bucket })
-    byLabel.set(t.label, arr)
+    const key = t.registry_id ?? `label:${t.label}`
+    const arr = byLabel.get(key) ?? []
+    arr.push({ date: d, strength: Number(t.strength_score ?? 0), evidence: Number(t.evidence_count ?? 0), category: t.category, bucket: t.bucket, label: t.label })
+    byLabel.set(key, arr)
   }
 
   const trajectories: Trajectory[] = [...byLabel.entries()]
-    .map(([label, ptsRaw]) => {
+    .map(([, ptsRaw]) => {
       const pts = ptsRaw.sort((a, b) => a.date.localeCompare(b.date))
+      // Display the LATEST label — the identity is the key, the wording is
+      // whatever this week's labeller chose.
+      const label = pts[pts.length - 1].label
       const strength = pts.map((p) => p.strength)
       const d = strength[strength.length - 1] - strength[0]
       const emerged = pts[0].date > earliestDate

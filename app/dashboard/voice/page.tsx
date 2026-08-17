@@ -29,6 +29,7 @@ interface ThemeRow {
   label: string
   description: string | null
   member_themes: string[]
+  registry_id: string | null
   supporting_insight_ids: string[]
   supporting_video_ids: string[]
   evidence_count: number
@@ -103,7 +104,7 @@ export default async function VoiceOfCustomerPage({
 
   const [themesRes, earlierRes, samplesRes, clientRes] = await Promise.all([
     supabase.from('themes')
-      .select('id, bucket, category, label, description, member_themes, supporting_insight_ids, supporting_video_ids, evidence_count, strength_score, dominant_emotion, dominant_sentiment_impact, single_source, first_seen')
+      .select('id, registry_id, bucket, category, label, description, member_themes, supporting_insight_ids, supporting_video_ids, evidence_count, strength_score, dominant_emotion, dominant_sentiment_impact, single_source, first_seen')
       .eq('client_id', clientId).eq('run_id', runId)
       .order('strength_score', { ascending: false }).order('evidence_count', { ascending: false }),
     supabase.from('themes').select('id')
@@ -241,15 +242,19 @@ export default async function VoiceOfCustomerPage({
     return out
   }
 
-  // Theme history for the overlay — same-label rows across earlier runs
-  // (labels are how Trends joins trajectories too). Self-gates: with one
-  // themed run there is no history and nothing renders.
+  // Theme history for the overlay — the same THEME across earlier runs, keyed
+  // on its registry id (stable identity); falls back to the label for rows
+  // written before the registry existed. Self-gates: with one themed run there
+  // is no history and nothing renders.
   let detailHistory: number[] = []
   if (detailTheme) {
-    const { data: hist } = await supabase.from('themes')
+    const histQ = supabase.from('themes')
       .select('evidence_count, created_at')
-      .eq('client_id', clientId).eq('label', detailTheme.label)
-      .order('created_at', { ascending: true })
+      .eq('client_id', clientId)
+    const { data: hist } = await (detailTheme.registry_id
+      ? histQ.eq('registry_id', detailTheme.registry_id)
+      : histQ.eq('label', detailTheme.label)
+    ).order('created_at', { ascending: true })
     detailHistory = ((hist ?? []) as { evidence_count: number }[]).map((h) => h.evidence_count)
   }
 
