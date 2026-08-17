@@ -26,6 +26,14 @@ const PROMPT_VERSION = 'pass_a_v3'
 const PROMPT_VERSION_V4 = 'pass_a_v4'
 const MAX_CLAIMS_PER_VIDEO = 3
 
+/** The Pass A prompt version a run writes — v4 with transcripts, v3 without.
+ *  Also the value plan-pass-a compares against videos.analyzed_prompt_version:
+ *  a bump here (or flipping TRANSCRIPTS_ENABLED) re-reads every eligible video
+ *  once on the next run (incremental Pass A, 2026-08-17). */
+export function passAPromptVersion(useTranscripts: boolean): string {
+  return useTranscripts ? PROMPT_VERSION_V4 : PROMPT_VERSION
+}
+
 /** Parsed model output — v3 shape, with v4's claims present when the v4 schema ran. */
 type ParsedPassA = PassAVideoOutput & { claims?: PassAClaim[] }
 
@@ -393,7 +401,7 @@ export async function runPassA(opts: RunPassAOptions): Promise<RunPassASummary> 
   } = opts
   const persist = opts.persist ?? !dryRun
   const useTranscripts = opts.transcripts ?? transcriptsEnabled()
-  const promptVersion = useTranscripts ? PROMPT_VERSION_V4 : PROMPT_VERSION
+  const promptVersion = passAPromptVersion(useTranscripts)
   const responseSchema = useTranscripts ? PassAVideoSchemaV4 : PassAVideoSchema
   const admin = createAdminClient()
 

@@ -2,7 +2,8 @@ import { randomUUID } from 'crypto'
 import { inngest } from '@/inngest/client'
 import { createAdminClient, selectAll } from '@/lib/supabase-admin'
 import { planGatherSearches, searchOne, gatePlatform, scrapeCommentsBatch, transcribeBatch, planTranscribeBatches, resolveGatherWindow, inWindow, loadGatherConfig, type SearchResult } from '@/lib/gather/gather'
-import { runPassA, passALane } from '@/lib/pipeline/pass-a'
+import { runPassA, passALane, passAPromptVersion } from '@/lib/pipeline/pass-a'
+import { decideAnalysis, emptyReasonTally, type SelectReason } from '@/lib/pipeline/pass-a-plan'
 import { loadGroupedInsights, runStepA2Bucket, type StepA2BucketResult } from '@/lib/pipeline/step-a2'
 import { runPassB } from '@/lib/pipeline/pass-b'
 import { runPassC } from '@/lib/pipeline/pass-c'
@@ -21,7 +22,7 @@ import { persistThemes, loadThemes } from '@/lib/pipeline/themes'
 import { writeRunSummary } from '@/lib/pipeline/run-summary'
 import { computeMetrics } from '@/lib/pipeline/metrics'
 import { sendAlertEmail } from '@/lib/email'
-import { CLUSTER_SIMILARITY_THRESHOLD, EVIDENCE_FLOOR, TRANSCRIBE_PARALLEL, redditDiscoveryEnabled, transcriptsEnabled } from '@/lib/config'
+import { CLUSTER_SIMILARITY_THRESHOLD, EVIDENCE_FLOOR, TRANSCRIBE_PARALLEL, incrementalPassAEnabled, redditDiscoveryEnabled, transcriptsEnabled } from '@/lib/config'
 import type { Platform } from '@/lib/gather/types'
 import type { VideoRow, CommentRow } from '@/lib/pipeline/types'
 
@@ -57,6 +58,11 @@ export interface PipelineRunOptions {
   // re-paying a 1-2h Apify gather.
   runId?: string
   skipGather?: boolean
+  // Incremental Pass A (2026-08-17): re-read every eligible video this run even
+  // when nothing changed — the operator lever after a prompt/model change that
+  // did not bump the version string, or to rebuild bookkeeping. No effect when
+  // INCREMENTAL_PASS_A is off (everything is re-read anyway).
+  forcePassA?: boolean
 }
 
 export const runPipeline = inngest.createFunction(
@@ -426,8 +432,14 @@ export const runPipeline = inngest.createFunction(
     //    step cap. The plan step pre-filters on RAW comment count (the spam
     //    filter only shrinks a video's count, so raw < min are guaranteed
     //    skips) and chunks richest-first, mirroring runPassA's own ordering.
-    const batches = await step.run('plan-pass-a', () => planPassABatches(clientId, runId))
-    const passA = { analyzed: 0, claimsOnly: 0, skipped: 0, insights: 0, languageSamples: 0, cost: 0 }
+    //    Incremental Pass A (2026-08-17): with INCREMENTAL_PASS_A on, the plan
+    //    selects only videos whose prompt input changed since their last read
+    //    (videos.analyzed_* bookkeeping, lib/pipeline/pass-a-plan.ts); off, it
+    //    selects every eligible video exactly as before. The step result keeps
+    //    the per-reason tally so a run log shows what drove the re-reads.
+    const passAPlan = await step.run('plan-pass-a', () => planPassABatches(clientId, runId, !!options.forcePassA))
+    const batches = passAPlan.batches
+    const passA = { analyzed: 0, claimsOnly: 0, skipped: 0, insights: 0, languageSamples: 0, cost: 0, planned: passAPlan.selected, considered: passAPlan.considered, reused: passAPlan.reasons.unchanged, planReasons: passAPlan.reasons }
     // Batches dispatch in parallel waves — batches are disjoint video sets, so
     // ordering is irrelevant to output; this is purely wall-time (a serial
     // pass over a depth-100 corpus measured ~3 videos/min). Wave size stays
@@ -631,14 +643,29 @@ const THEMES_PARALLEL = 2
 // Eligible video ids (raw comment count >= 5, richest first), chunked into
 // batches. Comments are scanned once and joined in memory — same URL-overflow
 // avoidance as everywhere else.
-async function planPassABatches(clientId: string, runId: string): Promise<string[][]> {
+export interface PassAPlan {
+  batches: string[][]
+  /** Videos that qualified for a lane (full / claims_only) before the change check. */
+  considered: number
+  selected: number
+  reasons: Record<SelectReason, number>
+}
+
+async function planPassABatches(clientId: string, runId: string, force: boolean): Promise<PassAPlan> {
   const admin = createAdminClient()
   // Discovered corpus + the client's OWN posts. Owned posts never take the
   // full lane (their fans' comments would contaminate audience themes; Step 2c
   // is their consumer) — passALane admits them to the claims lane only, when
   // they carry a usable transcript (Brand Voice, 2026-08-16).
-  const videos = await selectAll<{ id: string; platform: string; video_id: string; is_client: boolean | null; is_competitor: boolean | null; transcript_status: string | null; source: string | null; run_id: string | null }>(() =>
-    admin.from('videos').select('id, platform, video_id, is_client, is_competitor, transcript_status, source, run_id').eq('client_id', clientId).in('source', ['discovered', 'owned']).order('id', { ascending: true }),
+  const videos = await selectAll<{
+    id: string; platform: string; video_id: string; is_client: boolean | null; is_competitor: boolean | null
+    transcript_status: string | null; source: string | null; run_id: string | null
+    analyzed_run_id: string | null; analyzed_comment_count: number | null; analyzed_prompt_version: string | null
+    analyzed_lane: string | null; analyzed_with_transcript: boolean | null
+  }>(() =>
+    admin.from('videos')
+      .select('id, platform, video_id, is_client, is_competitor, transcript_status, source, run_id, analyzed_run_id, analyzed_comment_count, analyzed_prompt_version, analyzed_lane, analyzed_with_transcript')
+      .eq('client_id', clientId).in('source', ['discovered', 'owned']).order('id', { ascending: true }),
   )
   const counts = new Map<string, number>()
   const comments = await selectAll<{ platform: string; video_id: string }>(() =>
@@ -652,25 +679,40 @@ async function planPassABatches(clientId: string, runId: string): Promise<string
   // 5 would skip most of the platform (lib/config.ts passAMinComments). Below
   // the floor, brand-side videos with a usable transcript still enter via the
   // claims lane (Wave 4) — same rule as runPassA's second gate, via passALane.
-  // The full lane stays corpus-wide (the analysis map layer re-reads every
-  // analysable video each run). The CLAIMS lane is RUN-SCOPED: only videos
-  // stamped with this run — gather restamps videos.run_id on every re-find
-  // whose upload_date is inside the report window; owned ingestion restamps
-  // its recent posts unconditionally — otherwise every brand-side transcript
-  // ever captured re-enters Pass A weekly, unbounded (+103 videos on
-  // 2026-08-16 alone). A video's claims refresh while it is in-window; older
-  // claims persist via loadBrandClaims' all-time read.
+  //
+  // Incremental Pass A (2026-08-17): a video is re-read only when its prompt
+  // input changed since videos.analyzed_run_id produced its current rows —
+  // new / grew / transcript landed / lane changed / prompt bumped / forced
+  // (decideAnalysis). With the flag OFF the decision is always "select", i.e.
+  // the pre-2026-08-17 behaviour: full lane corpus-wide, claims lane RUN-SCOPED
+  // (only videos stamped with this run — otherwise every brand-side transcript
+  // ever captured re-entered Pass A weekly, unbounded, +103 videos on
+  // 2026-08-16 alone). With the flag ON, "changed" is that bound for both lanes.
   const withTranscripts = transcriptsEnabled()
-  const eligible = videos
-    .map((v) => ({ id: v.id, n: counts.get(`${v.platform}::${v.video_id}`) ?? 0, run_id: v.run_id,
-      lane: passALane({ ...v, transcript_status: withTranscripts ? v.transcript_status : null }, counts.get(`${v.platform}::${v.video_id}`) ?? 0) }))
-    .filter((v) => v.lane === 'full' || (v.lane === 'claims_only' && v.run_id === runId))
-    .sort((a, b) => b.n - a.n)
+  const incremental = incrementalPassAEnabled()
+  const promptVersion = passAPromptVersion(withTranscripts)
+  const reasons = emptyReasonTally()
+  let considered = 0
+  const eligible: { id: string; n: number }[] = []
+  for (const v of videos) {
+    const n = counts.get(`${v.platform}::${v.video_id}`) ?? 0
+    const transcriptUsableNow = withTranscripts && v.transcript_status === 'ok'
+    const lane = passALane({ ...v, transcript_status: withTranscripts ? v.transcript_status : null }, n)
+    if (lane === 'skip') continue
+    considered++
+    if (!incremental && lane === 'claims_only' && v.run_id !== runId) { reasons.unchanged++; continue }
+    const d = decideAnalysis({
+      state: v, laneNow: lane, storedComments: n, transcriptUsableNow, promptVersion, incremental, force, runId,
+    })
+    reasons[d.reason]++
+    if (d.select) eligible.push({ id: v.id, n })
+  }
+  eligible.sort((a, b) => b.n - a.n)
   const batches: string[][] = []
   for (let i = 0; i < eligible.length; i += PASS_A_BATCH) {
     batches.push(eligible.slice(i, i + PASS_A_BATCH).map((v) => v.id))
   }
-  return batches
+  return { batches, considered, selected: eligible.length, reasons }
 }
 
 // Back half, synthesis step: metrics → Pass C → Pass D (a+b) → run_summary,
