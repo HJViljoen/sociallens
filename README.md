@@ -48,13 +48,22 @@ each sized to fit the 300s cap:
    transcript batches (flag-gated by `TRANSCRIPTS_ENABLED`). Delta-scraping
    skips unchanged re-finds and re-checks grown videos.
 2. **Pass A** — per-video GPT insight extraction, fanned out in batches.
+   **Incremental since 2026-08-17** (flag `INCREMENTAL_PASS_A`): insights are
+   durable facts about a *video* — `videos.analyzed_run_id` points at the run
+   that produced a video's current rows, and `plan-pass-a` re-reads a video only
+   when it is new, its stored comments grew (≥ min(3, 20%) since last analysis),
+   a usable transcript landed, its lane changed, the prompt version bumped, or
+   `options.forcePassA` is set. Flag off = every eligible video re-read (the
+   pre-2026-08-17 behaviour) on the same bookkeeping. "Current corpus" reads go
+   through the `audience_insights_current` / `language_samples_current` views;
+   stale rows are pruned after `close-run`.
 3. **Cross-reference** — deterministic client-brand mention detection.
 4. **Themes** — fan-out per entity bucket (`plan-themes` → `themes:<bucket>`
    clustering + LLM label-merge → `pass-b` labels → `persist-themes`).
 5. **Synthesize** — metrics → Pass C (competitive) → Pass D (market insights,
    recommendations, executive brief) → `run_summary`.
-6. **Close run** → optionally emit `report/send.requested` →
-   `sendWeeklyReport` (Resend + `weekly_reports` row).
+6. **Close run** → `prune-stale-analysis` → optionally emit
+   `report/send.requested` → `sendWeeklyReport` (Resend + `weekly_reports` row).
 
 A daily cron (`inngest/functions/scheduler.ts`, 06:00 Africa/Johannesburg)
 dispatches runs for clients whose `report_day`/`report_period` are due.
@@ -86,7 +95,9 @@ functions (defined in the baseline).
   <service-role key>` and body `{"clientId": "..."}`. Add
   `"options": {"runId": "...", "skipGather": true}` for an **analysis-only
   resume** — reuses the stored corpus, the recovery lever when a run's
-  analysis half dies.
+  analysis half dies. Add `"forcePassA": true` to re-read every eligible video
+  even if nothing changed (after a prompt/model change that kept the version
+  string; no effect while `INCREMENTAL_PASS_A` is off).
 - **Report preview/send**: `scripts/send-report.ts` (safe preview by default;
   `--commit` persists, `--no-send` skips email) or `POST /api/admin/send-report`.
 - Run state lives in `pipeline_runs.status`
@@ -100,9 +111,9 @@ All run as `node --env-file=.env.local --import tsx scripts/<name>.ts`.
 | Script | Purpose |
 | --- | --- |
 | `run-gather.ts` | CLI gather stage (Apify spend!) |
-| `run-pass-a.ts` | CLI Pass A iteration |
+| `run-pass-a.ts` | CLI Pass A iteration (also the per-video re-read lever: `--video <id>` re-analyses and moves the video's pointer) |
 | `run-a2.ts` | Step A2 inspector (`--debug` prints similarity matrices) |
-| `run-cd.ts` | Back half locally: metrics → A2 → Pass B/C/D → run_summary |
+| `run-cd.ts` | Back half locally: metrics → A2 → Pass B/C/D → run_summary (A2 reads the corpus's *current* insights via `audience_insights_current`; `--run` is the run the output is written under) |
 | `run-recs.ts` | Regenerate one run's recommendations only |
 | `run-relevance.ts` | Relevance gate dry-run over stored videos (no spend) |
 | `run-tagging.ts` | Entity-tagging strategy comparison |

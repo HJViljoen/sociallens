@@ -15,6 +15,16 @@ This version has breaking changes — APIs, conventions, and file structure may 
 - **Tests are pure-logic only** (`lib/**/*.test.ts`, vitest — no network, DB,
   or GPT). New pure pipeline logic gets a test; don't mock the world to test
   I/O glue.
+- **Insights belong to videos, not runs (incremental Pass A, 2026-08-17).**
+  `videos.analyzed_run_id` names the run whose `audience_insights` /
+  `language_samples` rows are a video's current analysis. Population reads
+  ("all current insights") go through the `audience_insights_current` /
+  `language_samples_current` views — never `audience_insights … eq('run_id')`
+  (that means "produced by this run", which is only what
+  `keyword-attribution.ts` wants). Id-set lookups (by `audience_insight_id`)
+  stay on the base tables so they resolve rows an in-flight run has superseded
+  but not yet pruned. A Pass A prompt-version bump re-reads the whole corpus
+  on the next run — that is the cost of a change, budget for it.
 - **The Supabase client is untyped** (no `Database` generic). Reads past 1000
   rows must use `selectAll` (`lib/supabase-admin.ts`) — a bare `.select()`
   silently caps at 1000.
