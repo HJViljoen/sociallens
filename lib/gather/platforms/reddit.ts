@@ -5,7 +5,7 @@ import { tagVideo } from '../tagging'
 
 // Reddit adapter (Wave 3). A subreddit post maps onto a "video" and its comment
 // tree onto `comments`, so the whole gather → gate → Pass A–D spine works
-// unchanged (Reddit has no views/shares — those stay null/0 like Instagram).
+// unchanged (Reddit has no views/shares — both 0 like Instagram; the videos.views column is NOT NULL).
 //
 // FETCH LAYER: Apify, not Reddit's own API. Reddit closed self-service API keys
 // under the Nov-2025 Responsible Builder Policy, and unauthenticated public JSON
@@ -125,7 +125,7 @@ export const reddit: PlatformAdapter = {
       caption,
       hashtags,
       content_format: str(first(v.postType, v.mediaType)) || 'link',
-      views: null, // Reddit doesn't expose per-post views
+      views: 0, // Reddit doesn't expose per-post views; 0 per the schema's NOT NULL count convention (same as Instagram) — null failed the whole gate:reddit upsert on the first live run
       likes: num(first(v.score, v.upVotes)), // net upvotes
       shares: 0, // no share metric
       comments_count: num(v.commentsCount),

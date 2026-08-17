@@ -7,6 +7,15 @@ const APIFY_BASE = 'https://api.apify.com/v2'
 
 export class ApifyError extends Error {}
 
+/** True when Apify answered with a definitive 4xx (not 429) — the actor
+ *  rejected or failed on THIS input, and retrying the same call won't change
+ *  it. Transient failures (5xx / 429 / network) are already retried inside
+ *  runActor and surface as different messages; callers should let those
+ *  propagate so the Inngest step retries with backoff. */
+export function isNonTransientApifyError(e: unknown): boolean {
+  return e instanceof ApifyError && /^Apify 4\d\d\b/.test(e.message) && !/^Apify 429\b/.test(e.message)
+}
+
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 
 /**
