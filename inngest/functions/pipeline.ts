@@ -3,7 +3,7 @@ import { inngest } from '@/inngest/client'
 import { createAdminClient, selectAll } from '@/lib/supabase-admin'
 import { planGatherSearches, searchOne, gatePlatform, scrapeCommentsBatch, transcribeBatch, planTranscribeBatches, resolveGatherWindow, inWindow, loadGatherConfig, type SearchResult } from '@/lib/gather/gather'
 import { runPassA, passALane, passAPromptVersion } from '@/lib/pipeline/pass-a'
-import { decideAnalysis, emptyReasonTally, type SelectReason } from '@/lib/pipeline/pass-a-plan'
+import { decideAnalysis, emptyReasonTally, staleInsightIds, type SelectReason } from '@/lib/pipeline/pass-a-plan'
 import { loadGroupedInsights, runStepA2Bucket, type StepA2BucketResult } from '@/lib/pipeline/step-a2'
 import { runPassB } from '@/lib/pipeline/pass-b'
 import { runPassC } from '@/lib/pipeline/pass-c'
@@ -565,6 +565,21 @@ export const runPipeline = inngest.createFunction(
       }).eq('id', runId)
     })
 
+    // 7b. Prune stale analysis rows (incremental Pass A, 2026-08-17): insight
+    //    and language-sample rows no video's analyzed_run_id names any more —
+    //    superseded by this run's re-reads, or left by older runs. AFTER
+    //    close-run on purpose: the dashboard flips to this run on that status
+    //    write, so the previous run's quotes resolve right up to the flip. Only
+    //    completed/partial runs reach here (a failed run's stale rows wait for
+    //    the next successful close). Non-fatal and uncounted — leftovers are
+    //    harmless, just storage.
+    const pruned = await step
+      .run('prune-stale-analysis', () => pruneStaleAnalysis(clientId))
+      .catch((e) => {
+        console.error(`[prune-stale-analysis] out of retries: ${e instanceof Error ? e.message : String(e)}`)
+        return { insights: 0, languageSamples: 0, failed: true }
+      })
+
     // 8. Periodic report — only when requested (the scheduler sets this), so a
     //    manual "Run now" refreshes data without emailing the client.
     if (options.sendReport) {
@@ -600,7 +615,7 @@ export const runPipeline = inngest.createFunction(
         })
     }
 
-    return { runId, status: totalErrors > 0 ? 'partial' : 'completed', totalVideos, ...passA, classifyMeta: classify, brandMentions: crossRef.mentionsFlagged, ...themedSummary, ...synth }
+    return { runId, status: totalErrors > 0 ? 'partial' : 'completed', totalVideos, ...passA, classifyMeta: classify, brandMentions: crossRef.mentionsFlagged, ...themedSummary, ...synth, pruned }
   },
 )
 
@@ -713,6 +728,32 @@ async function planPassABatches(clientId: string, runId: string, force: boolean)
     batches.push(eligible.slice(i, i + PASS_A_BATCH).map((v) => v.id))
   }
   return { batches, considered, selected: eligible.length, reasons }
+}
+
+/** Delete every audience_insights / language_samples row that is not the
+ *  current analysis of its video (staleInsightIds, lib/pipeline/pass-a-plan.ts).
+ *  Chunked deletes; insight_evidence cascades. video_claims is left alone —
+ *  its reader is already newest-run-wins (lib/pipeline/claims.ts). */
+async function pruneStaleAnalysis(clientId: string): Promise<{ insights: number; languageSamples: number }> {
+  const admin = createAdminClient()
+  const videos = await selectAll<{ id: string; analyzed_run_id: string | null }>(() =>
+    admin.from('videos').select('id, analyzed_run_id').eq('client_id', clientId).order('id', { ascending: true }),
+  )
+  const out = { insights: 0, languageSamples: 0 }
+  for (const table of ['audience_insights', 'language_samples'] as const) {
+    const rows = await selectAll<{ id: string; run_id: string | null; source_video_id: string | null }>(() =>
+      admin.from(table).select('id, run_id, source_video_id').eq('client_id', clientId).order('id', { ascending: true }),
+    )
+    const stale = staleInsightIds(videos, rows)
+    for (let i = 0; i < stale.length; i += 500) {
+      const chunk = stale.slice(i, i + 500)
+      const { error } = await admin.from(table).delete().in('id', chunk)
+      if (error) throw new Error(`prune ${table}: ${error.message}`)
+    }
+    if (table === 'audience_insights') out.insights = stale.length
+    else out.languageSamples = stale.length
+  }
+  return out
 }
 
 // Back half, synthesis step: metrics → Pass C → Pass D (a+b) → run_summary,
