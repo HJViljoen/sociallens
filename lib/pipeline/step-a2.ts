@@ -109,7 +109,8 @@ export interface InsightCorpus {
 }
 
 /**
- * Load a run's Pass A insights, attach each one's entity bucket (derived from
+ * Load the corpus's CURRENT Pass A insights (audience_insights_current —
+ * incremental Pass A, 2026-08-17), attach each one's entity bucket (derived from
  * its source video), and group by (bucket, category). Shared by runStepA2, the
  * per-bucket pipeline step and the debug inspector so all see identical grouping.
  */

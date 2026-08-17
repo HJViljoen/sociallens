@@ -90,9 +90,18 @@ describe('decideAnalysis', () => {
   it('a lane change re-reads (claims_only → full after crossing the floor)', () => {
     expect(decideAnalysis({ ...base, state: state({ analyzed_lane: 'claims_only', analyzed_with_transcript: true }), transcriptUsableNow: true }))
       .toEqual({ select: true, reason: 'lane' })
-    // a bookkept skip that now qualifies for full is a lane change too
-    expect(decideAnalysis({ ...base, state: state({ analyzed_lane: 'skip', analyzed_comment_count: 3 }), storedComments: 6 }))
-      .toEqual({ select: true, reason: 'lane' })
+  })
+
+  it('a bookkept skip is not re-read every run — only real growth brings it back', () => {
+    // Second gate: raw count clears the floor, kept count does not. laneNow is
+    // 'full' forever, so the lane rule must NOT fire; growth against the stored
+    // raw count decides.
+    const skipped = state({ analyzed_lane: 'skip', analyzed_comment_count: 6 })
+    expect(decideAnalysis({ ...base, state: skipped, storedComments: 7 })).toEqual({ select: false, reason: 'unchanged' })
+    expect(decideAnalysis({ ...base, state: skipped, storedComments: 9 })).toEqual({ select: true, reason: 'grew' })
+    // but a transcript landing on a skipped video still re-reads it
+    expect(decideAnalysis({ ...base, state: skipped, laneNow: 'claims_only', storedComments: 6, transcriptUsableNow: true }))
+      .toEqual({ select: true, reason: 'transcript' })
   })
 
   it('claims lane ignores comment growth below the floor', () => {

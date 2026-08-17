@@ -13,7 +13,7 @@ import { FindingTile } from '@/components/finding-tile'
 import { InsightNarrative, type Verdict } from '@/components/insight-narrative'
 import { composeDashboardNarrative, type NarrativeFigures } from '@/lib/dashboard-narrative'
 import type { ExecutiveBrief } from '@/lib/pipeline/schemas'
-import { rankByTheme, fetchQuotesByAudience, createQuotePicker, bucketByAudienceId, scopeToClientVoices, type ThemeBucketRow } from '@/lib/quotes'
+import { rankByTheme, fetchQuotesByAudience, fetchInsightsByIds, createQuotePicker, bucketByAudienceId, scopeToClientVoices, type ThemeBucketRow } from '@/lib/quotes'
 
 // Dashboard — the state snapshot ("Where do we stand?", Redesign Spec §2), NOT
 // this week's news (that's the report's job) and no longer the pipeline readout
@@ -384,13 +384,18 @@ export default async function DashboardPage({
   if (oneThing) {
     const marketInsights = (miRes.data ?? []) as { id: string; evidence: { supporting_theme_ids?: string[] } | null }[]
     const miEvidenceById = new Map(marketInsights.map((m) => [m.id, m.evidence]))
-    const themeSlugById = new Map(audienceInsights.map((a) => [a.id, a.theme]))
     const { data: bucketData } = await supabase.from('themes')
       .select('bucket, supporting_insight_ids')
       .eq('client_id', clientId).eq('run_id', runId)
     const bucketById = bucketByAudienceId((bucketData ?? []) as ThemeBucketRow[])
     const supportIds: string[] = []
     for (const id of oneThing.based_on?.insight_ids ?? []) supportIds.push(...(miEvidenceById.get(id)?.supporting_theme_ids ?? []))
+    // Slug map for the ids THIS run's recommendation cites — read by id from the
+    // base table (see fetchInsightsByIds): a newer in-flight run may already
+    // have superseded some of those videos' rows in the current view.
+    const themeSlugById = new Map(
+      (await fetchInsightsByIds<{ id: string; theme: string }>(supabase, supportIds, 'id, theme')).map((a) => [a.id, a.theme]),
+    )
     const scopedIds = scopeToClientVoices(supportIds, bucketById)
     const claim = `${oneThing.title} ${oneThing.reasoning}`
     const pool = rankByTheme(scopedIds, claim, themeSlugById).slice(0, 120)

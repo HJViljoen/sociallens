@@ -1,6 +1,7 @@
 import Link from 'next/link'
 import { MessagesSquare, Quote, Sparkles, BarChart3, Users, Target, Layers } from 'lucide-react'
 import { getSessionContext } from '@/lib/auth'
+import { fetchInsightsByIds } from '@/lib/quotes'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { categoryTint, SENTIMENT_BADGE, PREVALENCE_BADGE } from '@/lib/ui-colors'
 import { gateTier, CURATION_GATE } from '@/lib/curation'
@@ -100,17 +101,13 @@ export default async function VoiceOfCustomerPage({
   }
   const runId = latestRun.id as string
 
-  const [themesRes, earlierRes, insightsRes, samplesRes, clientRes] = await Promise.all([
+  const [themesRes, earlierRes, samplesRes, clientRes] = await Promise.all([
     supabase.from('themes')
       .select('id, bucket, category, label, description, member_themes, supporting_insight_ids, supporting_video_ids, evidence_count, strength_score, dominant_emotion, dominant_sentiment_impact, single_source, first_seen')
       .eq('client_id', clientId).eq('run_id', runId)
       .order('strength_score', { ascending: false }).order('evidence_count', { ascending: false }),
     supabase.from('themes').select('id')
       .eq('client_id', clientId).neq('run_id', runId).limit(1),
-    // Current rows (the *_current views: what each video's analyzed_run_id
-    // names), not this run's stamps — Pass A is incremental since 2026-08-17.
-    supabase.from('audience_insights_current').select('id, journey_stage')
-      .eq('client_id', clientId),
     supabase.from('language_samples_current')
       .select('phrase, platform', { count: 'exact' })
       .eq('client_id', clientId)
@@ -141,8 +138,16 @@ export default async function VoiceOfCustomerPage({
     bucket === 'client' ? 'Your audience'
       : bucket === 'industry-other' ? 'Wider category'
         : `${bucket.replace(/^competitor:/, '')}’s audience`
+  // Journey stage per insight, for the stage filter — read by id from the base
+  // table (fetchInsightsByIds), not the current view: the ids come from THIS
+  // run's themes, and a newer in-flight run may already have superseded some of
+  // those videos' rows (incremental Pass A, 2026-08-17).
   const stageByInsight = new Map(
-    ((insightsRes.data ?? []) as { id: string; journey_stage: string | null }[]).map((i) => [i.id, i.journey_stage]),
+    (await fetchInsightsByIds<{ id: string; journey_stage: string | null }>(
+      supabase,
+      themes.flatMap((t) => t.supporting_insight_ids ?? []),
+      'id, journey_stage',
+    )).map((i) => [i.id, i.journey_stage]),
   )
   const stagesPresent = new Set([...stageByInsight.values()].filter(Boolean))
   const samples = (samplesRes.data ?? []) as { phrase: string; platform: string | null }[]

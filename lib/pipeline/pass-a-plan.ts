@@ -68,7 +68,12 @@ export function decideAnalysis(a: DecideAnalysisArgs): { select: boolean; reason
   if (a.force) return { select: true, reason: 'forced' }
   if (!s.analyzed_run_id) return { select: true, reason: 'new' }
   if (s.analyzed_prompt_version !== a.promptVersion) return { select: true, reason: 'version' }
-  if (s.analyzed_lane !== a.laneNow) return { select: true, reason: 'lane' }
+  // Lane change re-reads — EXCEPT out of 'skip'. A video bookkept as skip fell
+  // below the floor on KEPT comments (second gate) while its RAW count clears
+  // it, so laneNow is 'full' every run: firing on the lane would re-load it
+  // weekly, spam-filter it, skip it again. Let the growth rule decide instead
+  // (its baseline is the raw count that was stored with the skip).
+  if (s.analyzed_lane !== 'skip' && s.analyzed_lane !== a.laneNow) return { select: true, reason: 'lane' }
   if (a.transcriptUsableNow && !s.analyzed_with_transcript) return { select: true, reason: 'transcript' }
   // Comment growth only matters to the full lane — the claims lane sends zero
   // comments, so growth below the floor changes nothing it sees (crossing the

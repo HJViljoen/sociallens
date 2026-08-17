@@ -21,11 +21,18 @@
 -- 1. Per-video analysis bookkeeping ------------------------------------------
 alter table public.videos
   add column if not exists analyzed_at timestamptz,
-  add column if not exists analyzed_run_id uuid,
+  add column if not exists analyzed_run_id uuid,   -- FK added below
   add column if not exists analyzed_comment_count integer,
   add column if not exists analyzed_prompt_version text,
   add column if not exists analyzed_lane text,
   add column if not exists analyzed_with_transcript boolean;
+
+-- Deleting a run nulls the pointer (never restricts the delete): the video then
+-- reads as "never analysed" and is re-selected as new, which is exactly right —
+-- its rows went with the run (audience_insights.run_id → set null → pruned).
+alter table public.videos drop constraint if exists videos_analyzed_run_id_fkey;
+alter table public.videos add constraint videos_analyzed_run_id_fkey
+  foreign key (analyzed_run_id) references public.pipeline_runs(id) on delete set null;
 
 alter table public.videos drop constraint if exists videos_analyzed_lane_check;
 alter table public.videos add constraint videos_analyzed_lane_check
@@ -35,7 +42,7 @@ create index if not exists videos_analyzed_run_idx
   on public.videos using btree (client_id, analyzed_run_id);
 
 comment on column public.videos.analyzed_run_id is
-  'Pointer to the run that produced this video''s authoritative Pass A output. Current insights/language samples = rows with run_id = analyzed_run_id. No FK on purpose: a deleted run leaves the pointer dangling, which reads as "no current analysis" and the video is re-selected as new.';
+  'Pointer to the run that produced this video''s authoritative Pass A output. Current insights/language samples = rows with run_id = analyzed_run_id. FK on delete set null: deleting a run nulls the pointer and the video is re-analysed as new.';
 comment on column public.videos.analyzed_comment_count is
   'Stored comment rows for the video at analysis time — the growth baseline for re-selection (min(3, 20%) growth, cumulative).';
 comment on column public.videos.analyzed_lane is
@@ -124,6 +131,10 @@ set analyzed_run_id          = t.run_id,
     analyzed_at              = coalesce(t.completed_at, now()),
     analyzed_lane            = t.lane,
     analyzed_prompt_version  = pv.prompt_version,
+    -- Imprecise by construction: a transcript that landed AFTER L (e.g. via
+    -- scripts/backfill-transcripts.ts) reads as "already seen", so that video
+    -- won't earn a transcript re-read. It still re-reads on comment growth or
+    -- the next prompt bump; force with options.forcePassA if it matters.
     analyzed_with_transcript = (v.transcript_status = 'ok'),
     analyzed_comment_count   = (
       select count(*) from public.comments c
@@ -136,7 +147,8 @@ where v.id = t.video_id
   and v.analyzed_run_id is null;
 
 -- Post-apply check (run by hand): per client, current-view count must equal the
--- latest run's insight count.
+-- latest run's insight count for rows with a source video (legacy rows with a
+-- null source_video_id can never be "current" — the view joins on it).
 --   select v.client_id, count(*) from public.audience_insights_current v group by 1;
 --   select ai.client_id, count(*) from public.audience_insights ai
 --     join (select distinct on (client_id) client_id, id from public.pipeline_runs

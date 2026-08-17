@@ -136,7 +136,7 @@ async function main() {
     if (!industry || !brand) throw new Error('smoke needs one industry and one client/competitor transcript-ok video')
     const ids = [industry.id, brand.id]
     console.error(`smoke (arm B only): industry=${industry.video_url} brand=${brand.video_url}`)
-    const s = await runPassA({ clientId: opts.clientId, videoIds: ids, transcripts: true, dryRun: opts.dryRun })
+    const s = await runPassA({ clientId: opts.clientId, videoIds: ids, transcripts: true, dryRun: opts.dryRun, trackAnalysis: false })
     const tallies = opts.dryRun ? null : await armTallies(admin, opts.clientId, s.runId, byVideo)
     const claims = opts.dryRun
       ? []
@@ -149,12 +149,12 @@ async function main() {
 
   // Arm A — no transcripts (v3 behaviour).
   console.error('arm A (no transcripts)…')
-  const armA = await runPassA({ clientId: opts.clientId, videoIds: ids, transcripts: false, dryRun: opts.dryRun })
+  const armA = await runPassA({ clientId: opts.clientId, videoIds: ids, transcripts: false, dryRun: opts.dryRun, trackAnalysis: false })
   const snapA = opts.dryRun ? new Map<string, Classification>() : await classificationSnapshot(admin, ids)
 
   // Arm B — transcripts on (v4).
   console.error('arm B (transcripts)…')
-  const armB = await runPassA({ clientId: opts.clientId, videoIds: ids, transcripts: true, dryRun: opts.dryRun })
+  const armB = await runPassA({ clientId: opts.clientId, videoIds: ids, transcripts: true, dryRun: opts.dryRun, trackAnalysis: false })
   const snapB = opts.dryRun ? new Map<string, Classification>() : await classificationSnapshot(admin, ids)
 
   if (opts.dryRun) {

@@ -97,7 +97,10 @@ functions (defined in the baseline).
   resume** — reuses the stored corpus, the recovery lever when a run's
   analysis half dies. Add `"forcePassA": true` to re-read every eligible video
   even if nothing changed (after a prompt/model change that kept the version
-  string; no effect while `INCREMENTAL_PASS_A` is off).
+  string; no effect while `INCREMENTAL_PASS_A` is off). Note `forcePassA` does
+  **not** re-read videos this same run already analysed — on a `skipGather`
+  resume of the *same* `runId` those are already this run's output; use a new
+  run id to force a genuine re-read.
 - **Report preview/send**: `scripts/send-report.ts` (safe preview by default;
   `--commit` persists, `--no-send` skips email) or `POST /api/admin/send-report`.
 - Run state lives in `pipeline_runs.status`
@@ -111,7 +114,7 @@ All run as `node --env-file=.env.local --import tsx scripts/<name>.ts`.
 | Script | Purpose |
 | --- | --- |
 | `run-gather.ts` | CLI gather stage (Apify spend!) |
-| `run-pass-a.ts` | CLI Pass A iteration (also the per-video re-read lever: `--video <id>` re-analyses and moves the video's pointer) |
+| `run-pass-a.ts` | CLI Pass A iteration (also the per-video re-read lever: `--video <id>` re-analyses and moves the video's pointer). **Persisting runs move `videos.analyzed_*` for every video they touch** — a `--min-comments`/`--limit`/`--platform` slice therefore rewrites what the corpus counts as current (and a below-override video is bookkept `skip`). Use `--dry-run`, or pass `trackAnalysis: false` when calling `runPassA` from a harness |
 | `run-a2.ts` | Step A2 inspector (`--debug` prints similarity matrices) |
 | `run-cd.ts` | Back half locally: metrics → A2 → Pass B/C/D → run_summary (A2 reads the corpus's *current* insights via `audience_insights_current`; `--run` is the run the output is written under) |
 | `run-recs.ts` | Regenerate one run's recommendations only |
@@ -122,6 +125,6 @@ All run as `node --env-file=.env.local --import tsx scripts/<name>.ts`.
 | `seed-demo.ts` | Idempotent demo-tenant seeder (careful: doesn't recreate account_events/weekly_reports; after a re-seed, re-run the backfill block of `supabase/migrations/20260818090000_incremental_pass_a.sql` so the demo videos' `analyzed_run_id` points at W6 — the `*_current` views are empty until it does) |
 | `regate-corpus.ts` | Re-apply the relevance gate post-hoc (`--apply` deletes) |
 | `backfill-transcripts.ts` | Transcript backfill for stored corpus |
-| `ab-pass-a.ts` | Pass A transcript A/B harness |
+| `ab-pass-a.ts` | Pass A transcript A/B harness (runs with `trackAnalysis: false` — arms write rows under throwaway runs without moving the corpus pointer) |
 | `citation-floor.ts` | Citation-relevance floor calibrator (read-only) |
 | `keyword-roi.ts` | Keyword ROI pruning table, worst first |

@@ -8,7 +8,7 @@ import { priorityWord, glossaryRule } from '@/lib/calibration'
 import { HowToRead } from '@/components/how-to-read'
 import { Quotes } from '@/components/quotes'
 import type { GlossaryKey } from '@/lib/calibration'
-import { rankByTheme, fetchQuotesByAudience, createQuotePicker, bucketByAudienceId, scopeToClientVoices, type ThemeBucketRow } from '@/lib/quotes'
+import { rankByTheme, fetchQuotesByAudience, fetchInsightsByIds, createQuotePicker, bucketByAudienceId, scopeToClientVoices, type ThemeBucketRow } from '@/lib/quotes'
 import type { CiSummary, SayVsHearEntry } from '@/lib/pipeline/schemas'
 import type { BrandVoiceSnapshot } from '@/lib/pipeline/claims'
 
@@ -116,7 +116,7 @@ export default async function MarketIntelligencePage({
   }
   const runId = latestRun.id as string
 
-  const [miRes, recRes, aiRes, ciRes, summaryRes, ssRes, bucketRes] = await Promise.all([
+  const [miRes, recRes, ciRes, summaryRes, ssRes, bucketRes] = await Promise.all([
     supabase.from('market_insights')
       .select('id, insight_type, title, description, evidence, confidence_score, opportunity_score, hero_quote')
       .eq('client_id', clientId).eq('run_id', runId)
@@ -124,10 +124,6 @@ export default async function MarketIntelligencePage({
     supabase.from('recommendations')
       .select('id, type, title, reasoning, priority, based_on, hero_quote')
       .eq('client_id', clientId).eq('run_id', runId),
-    // Current insights (audience_insights_current), not this run's stamps —
-    // Pass A is incremental since 2026-08-17.
-    supabase.from('audience_insights_current').select('id, theme, source_video_id')
-      .eq('client_id', clientId),
     supabase.from('competitive_insights').select('id, evidence, impact_level')
       .eq('client_id', clientId).eq('run_id', runId),
     supabase.from('run_summary').select('consumer_intelligence_summary, say_vs_hear, brand_voice')
@@ -161,7 +157,17 @@ export default async function MarketIntelligencePage({
 
   const miById = new Map(insights.map((mi) => [mi.id, mi]))
   const competitiveById = new Map(competitive.map((c) => [c.id, c]))
-  const audienceRows = (aiRes.data ?? []) as { id: string; theme: string; source_video_id: string | null }[]
+  // Slugs + source videos for the ids THIS run cites (market-insight evidence
+  // and its themes' membership) — read by id from the base table
+  // (fetchInsightsByIds), not the current view: a newer in-flight run may have
+  // superseded some of those videos' rows, which would silently shrink the
+  // measured grounding counts below (incremental Pass A, 2026-08-17).
+  const citedIds = new Set<string>()
+  for (const mi of insights) for (const id of mi.evidence?.supporting_theme_ids ?? []) citedIds.add(id)
+  for (const t of (bucketRes.data ?? []) as ThemeBucketRow[]) for (const id of t.supporting_insight_ids ?? []) citedIds.add(id)
+  const audienceRows = await fetchInsightsByIds<{ id: string; theme: string; source_video_id: string | null }>(
+    supabase, [...citedIds], 'id, theme, source_video_id',
+  )
   const themeSlugById = new Map(audienceRows.map((a) => [a.id, a.theme]))
   const videoByInsight = new Map(audienceRows.map((a) => [a.id, a.source_video_id]))
 

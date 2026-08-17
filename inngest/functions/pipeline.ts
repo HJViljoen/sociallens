@@ -333,7 +333,7 @@ export const runPipeline = inngest.createFunction(
                     // exhausting its retries must not abandon the remaining
                     // waves — hundreds of this run's videos would silently
                     // stay untranscribed and are never re-planned.
-                    .catch(() => ({ transcribed: 0, skipped: 0, errors: ['transcribe step failed'] })),
+                    .catch((e: unknown) => ({ transcribed: 0, skipped: 0, errors: [`transcribe step failed: ${e instanceof Error ? e.message.slice(0, 200) : String(e).slice(0, 200)}`] })),
                 ),
               )
               for (const t of wave) {
@@ -439,7 +439,7 @@ export const runPipeline = inngest.createFunction(
     //    the per-reason tally so a run log shows what drove the re-reads.
     const passAPlan = await step.run('plan-pass-a', () => planPassABatches(clientId, runId, !!options.forcePassA))
     const batches = passAPlan.batches
-    const passA = { analyzed: 0, claimsOnly: 0, skipped: 0, insights: 0, languageSamples: 0, cost: 0, planned: passAPlan.selected, considered: passAPlan.considered, reused: passAPlan.reasons.unchanged, planReasons: passAPlan.reasons }
+    const passA = { analyzed: 0, claimsOnly: 0, skipped: 0, insights: 0, languageSamples: 0, cost: 0, planned: passAPlan.selected, considered: passAPlan.considered, unchanged: passAPlan.reasons.unchanged, planReasons: passAPlan.reasons }
     // Batches dispatch in parallel waves — batches are disjoint video sets, so
     // ordering is irrelevant to output; this is purely wall-time (a serial
     // pass over a depth-100 corpus measured ~3 videos/min). Wave size stays
@@ -745,8 +745,11 @@ async function pruneStaleAnalysis(clientId: string): Promise<{ insights: number;
       admin.from(table).select('id, run_id, source_video_id').eq('client_id', clientId).order('id', { ascending: true }),
     )
     const stale = staleInsightIds(videos, rows)
-    for (let i = 0; i < stale.length; i += 500) {
-      const chunk = stale.slice(i, i + 500)
+    // Chunk 200, not 500: ~500 uuids in an `in.()` filter overflows the
+    // PostgREST URL cap ("fetch failed" — the lesson behind every other chunked
+    // .in() in this repo). A first prune on a real tenant is thousands of rows.
+    for (let i = 0; i < stale.length; i += 200) {
+      const chunk = stale.slice(i, i + 200)
       const { error } = await admin.from(table).delete().in('id', chunk)
       if (error) throw new Error(`prune ${table}: ${error.message}`)
     }

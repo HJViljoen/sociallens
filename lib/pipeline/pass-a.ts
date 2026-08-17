@@ -54,6 +54,11 @@ export interface RunPassAOptions {
   dryRun?: boolean
   /** Write results to DB. Defaults to !dryRun. */
   persist?: boolean
+  /** Move the per-video analysis pointer (videos.analyzed_*). Default true.
+   *  A/B harnesses pass FALSE: their arms write real rows under a throwaway run,
+   *  and moving the pointer would make an experiment the corpus's current
+   *  analysis (and prune the real rows at the next close-run). */
+  trackAnalysis?: boolean
   /** Read transcripts (Pass A v4). Defaults to TRANSCRIPTS_ENABLED — explicit
    *  override exists for the A/B measurement harness. */
   transcripts?: boolean
@@ -400,6 +405,7 @@ export async function runPassA(opts: RunPassAOptions): Promise<RunPassASummary> 
     dryRun = false,
   } = opts
   const persist = opts.persist ?? !dryRun
+  const trackAnalysis = opts.trackAnalysis ?? true
   const useTranscripts = opts.transcripts ?? transcriptsEnabled()
   const promptVersion = passAPromptVersion(useTranscripts)
   const responseSchema = useTranscripts ? PassAVideoSchemaV4 : PassAVideoSchema
@@ -527,7 +533,7 @@ export async function runPassA(opts: RunPassAOptions): Promise<RunPassASummary> 
       // Incremental Pass A: bookkeep the skip (no rows) so plan-pass-a does not
       // re-load this video every run until its comments actually grow — the
       // pointer moves to this run, so any older rows become stale and prune.
-      if (persist && runId) {
+      if (persist && trackAnalysis && runId) {
         await admin.from('videos').update({
           analyzed_at: new Date().toISOString(),
           analyzed_run_id: runId,
@@ -655,7 +661,9 @@ export async function runPassA(opts: RunPassAOptions): Promise<RunPassASummary> 
         qualityScore: computeQualityScore(all),
         claims: claims?.kept ?? null,
         claimsOnly,
-        bookkeeping: { storedComments: all.length, promptVersion, lane: claimsOnly ? 'claims_only' : 'full', withTranscript: transcript !== null },
+        bookkeeping: trackAnalysis
+          ? { storedComments: all.length, promptVersion, lane: claimsOnly ? 'claims_only' : 'full', withTranscript: transcript !== null }
+          : null,
       })
       await logCall(admin, {
         clientId,
@@ -702,8 +710,9 @@ interface PersistArgs {
    *  (classify-meta's framing sentiment stays; run_summary's shares read it). */
   claimsOnly?: boolean
   /** Incremental Pass A (2026-08-17): what this read saw, written onto the
-   *  video LAST so the pointer only moves once every row is in. */
-  bookkeeping: { storedComments: number; promptVersion: string; lane: 'full' | 'claims_only'; withTranscript: boolean }
+   *  video LAST so the pointer only moves once every row is in. Null = harness
+   *  run (trackAnalysis:false): rows are written, the pointer is not moved. */
+  bookkeeping: { storedComments: number; promptVersion: string; lane: 'full' | 'claims_only'; withTranscript: boolean } | null
 }
 
 async function persistVideo(admin: ReturnType<typeof createAdminClient>, args: PersistArgs): Promise<void> {
@@ -819,6 +828,7 @@ async function persistVideo(admin: ReturnType<typeof createAdminClient>, args: P
   // Move the pointer LAST: from here this run's rows are the video's current
   // analysis. If this update fails the old pointer stands, this run's rows are
   // stale-but-newer, and the retried step redoes the video — never a half state.
+  if (!bookkeeping) return
   const { error: bkErr } = await admin.from('videos').update({
     analyzed_at: new Date().toISOString(),
     analyzed_run_id: runId,

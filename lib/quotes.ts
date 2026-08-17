@@ -152,6 +152,23 @@ export async function fetchQuotesByAudience(
   return byAudience
 }
 
+/** Insight fields for a SET OF IDS, chunked to stay under the PostgREST URL cap.
+ *  Reads the BASE table, never `audience_insights_current`: ids stored by the
+ *  run a page is displaying must still resolve while a NEWER run has superseded
+ *  those videos' rows but not yet pruned them, and after a failed run whose
+ *  Pass A moved pointers its themes never used (incremental Pass A, 2026-08-17).
+ *  Population reads ("all current insights") use the view instead. */
+export async function fetchInsightsByIds<T>(client: unknown, ids: string[], select: string): Promise<T[]> {
+  const c = client as EvidenceClient
+  const unique = [...new Set(ids)]
+  const out: T[] = []
+  for (let i = 0; i < unique.length; i += 120) {
+    const { data } = await c.from('audience_insights').select(select).in('id', unique.slice(i, i + 120))
+    out.push(...((data ?? []) as T[]))
+  }
+  return out
+}
+
 /** A per-page quote picker with cross-card de-duplication (no voice repeats on a
  *  page). Lead with the pipeline's `heroQuote` when present, then fill from the
  *  heuristic pool. */

@@ -4,7 +4,7 @@ import { categoryTint, levelBadge, accentSolid } from '@/lib/ui-colors'
 import { HowToRead } from '@/components/how-to-read'
 import type { GlossaryKey } from '@/lib/calibration'
 import { Quotes } from '@/components/quotes'
-import { rankByTheme, fetchQuotesByAudience, createQuotePicker, bucketByAudienceId, scopeToCompetitor, type ThemeBucketRow } from '@/lib/quotes'
+import { rankByTheme, fetchQuotesByAudience, fetchInsightsByIds, createQuotePicker, bucketByAudienceId, scopeToCompetitor, type ThemeBucketRow } from '@/lib/quotes'
 
 // Competitive Intelligence — renders Pass C's competitive_insights for the latest
 // run: qualitative cross-bucket intelligence drawn from competitors' customers'
@@ -72,11 +72,8 @@ export default async function CompetitiveIntelligencePage({
   // Insights + grounding themes for this run; Share of Tracked Conversation
   // comes from run_summary (the pipeline's corpus-computed snapshot — the
   // numbers rule: never recounted per page, and owned-account posts stay out).
-  const [{ data: ciData }, { data: aiData }, { data: summaryData }, { data: bucketData }, { data: clientRow }] = await Promise.all([
+  const [{ data: ciData }, { data: summaryData }, { data: bucketData }, { data: clientRow }] = await Promise.all([
     supabase.from('competitive_insights').select('*').eq('client_id', clientId).eq('run_id', runId),
-    // Current insights (audience_insights_current), not this run's stamps —
-    // Pass A is incremental since 2026-08-17.
-    supabase.from('audience_insights_current').select('id, category, theme, description').eq('client_id', clientId),
     supabase.from('run_summary').select('total_videos, share_of_voice').eq('client_id', clientId).eq('run_id', runId).maybeSingle(),
     // Entity buckets per audience insight — a card about a competitor quotes
     // THAT competitor's audience, never the client's own customers.
@@ -86,7 +83,14 @@ export default async function CompetitiveIntelligencePage({
   const brand = (clientRow?.company_name as string | undefined) ?? 'Your brand'
 
   const insights = (ciData ?? []) as CompetitiveInsight[]
-  const audienceInsights = (aiData ?? []) as AudienceInsight[]
+  // Grounding slugs for the ids THIS run's insights/themes cite — read by id
+  // from the base table (fetchInsightsByIds), not the current view: a newer
+  // in-flight run may already have superseded some of those videos' rows
+  // (incremental Pass A, 2026-08-17).
+  const citedIds = new Set<string>()
+  for (const ci of insights) for (const id of ci.evidence?.supporting_theme_ids ?? []) citedIds.add(id)
+  for (const t of (bucketData ?? []) as ThemeBucketRow[]) for (const id of t.supporting_insight_ids ?? []) citedIds.add(id)
+  const audienceInsights = await fetchInsightsByIds<AudienceInsight>(supabase, [...citedIds], 'id, category, theme, description')
   const aiById = new Map(audienceInsights.map((a) => [a.id, a]))
 
   // Supporting themes (deduped) per competitive insight — grounding shown as chips.
