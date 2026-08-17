@@ -188,13 +188,16 @@ export async function loadEngageCandidates(
   const insights = await selectAll<{
     id: string; category: string; theme: string; description: string; strength_score: number | null
   }>(() =>
-    db.from('audience_insights')
+    // Current insights of the corpus (audience_insights_current), not this
+    // run's stamps — Pass A is incremental since 2026-08-17. The 7-day comment
+    // window below still decides freshness; runId stays for the callers.
+    db.from('audience_insights_current')
       .select('id, category, theme, description, strength_score')
       .eq('client_id', clientId)
-      .eq('run_id', runId)
       .in('category', [...ENGAGE_CATEGORIES, 'misinformation'])
       .order('id'),
   )
+  void runId
   if (insights.length === 0) return []
   const byInsight = new Map(insights.map((i) => [i.id, i]))
 

@@ -107,11 +107,13 @@ export default async function VoiceOfCustomerPage({
       .order('strength_score', { ascending: false }).order('evidence_count', { ascending: false }),
     supabase.from('themes').select('id')
       .eq('client_id', clientId).neq('run_id', runId).limit(1),
-    supabase.from('audience_insights').select('id, journey_stage')
-      .eq('client_id', clientId).eq('run_id', runId),
-    supabase.from('language_samples')
+    // Current rows (the *_current views: what each video's analyzed_run_id
+    // names), not this run's stamps — Pass A is incremental since 2026-08-17.
+    supabase.from('audience_insights_current').select('id, journey_stage')
+      .eq('client_id', clientId),
+    supabase.from('language_samples_current')
       .select('phrase, platform', { count: 'exact' })
-      .eq('client_id', clientId).eq('run_id', runId)
+      .eq('client_id', clientId)
       .limit(PHRASES_SHOWN),
     supabase.from('clients').select('company_name').eq('id', clientId).maybeSingle(),
   ])

@@ -74,7 +74,9 @@ export default async function CompetitiveIntelligencePage({
   // numbers rule: never recounted per page, and owned-account posts stay out).
   const [{ data: ciData }, { data: aiData }, { data: summaryData }, { data: bucketData }, { data: clientRow }] = await Promise.all([
     supabase.from('competitive_insights').select('*').eq('client_id', clientId).eq('run_id', runId),
-    supabase.from('audience_insights').select('id, category, theme, description').eq('client_id', clientId).eq('run_id', runId),
+    // Current insights (audience_insights_current), not this run's stamps —
+    // Pass A is incremental since 2026-08-17.
+    supabase.from('audience_insights_current').select('id, category, theme, description').eq('client_id', clientId),
     supabase.from('run_summary').select('total_videos, share_of_voice').eq('client_id', clientId).eq('run_id', runId).maybeSingle(),
     // Entity buckets per audience insight — a card about a competitor quotes
     // THAT competitor's audience, never the client's own customers.

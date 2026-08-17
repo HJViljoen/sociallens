@@ -124,8 +124,10 @@ export default async function MarketIntelligencePage({
     supabase.from('recommendations')
       .select('id, type, title, reasoning, priority, based_on, hero_quote')
       .eq('client_id', clientId).eq('run_id', runId),
-    supabase.from('audience_insights').select('id, theme, source_video_id')
-      .eq('client_id', clientId).eq('run_id', runId),
+    // Current insights (audience_insights_current), not this run's stamps —
+    // Pass A is incremental since 2026-08-17.
+    supabase.from('audience_insights_current').select('id, theme, source_video_id')
+      .eq('client_id', clientId),
     supabase.from('competitive_insights').select('id, evidence, impact_level')
       .eq('client_id', clientId).eq('run_id', runId),
     supabase.from('run_summary').select('consumer_intelligence_summary, say_vs_hear, brand_voice')

@@ -173,9 +173,12 @@ export default async function DashboardPage({
       .select('run_id, total_videos, total_comments, period_videos, period_comments, share_of_voice, sentiment_drivers')
       .eq('client_id', clientId).neq('run_id', runId)
       .order('run_date', { ascending: false }).limit(1).maybeSingle(),
-    supabase.from('audience_insights')
+    // Current insights of the corpus (audience_insights_current — the rows each
+    // video's analyzed_run_id names), not "rows stamped with this run": Pass A
+    // is incremental since 2026-08-17, so a run only rewrites changed videos.
+    supabase.from('audience_insights_current')
       .select('id, category, theme, description, strength_score, emotion')
-      .eq('client_id', clientId).eq('run_id', runId),
+      .eq('client_id', clientId),
     supabase.from('recommendations')
       .select('id, type, title, reasoning, priority, based_on, hero_quote')
       .eq('client_id', clientId).eq('run_id', runId),

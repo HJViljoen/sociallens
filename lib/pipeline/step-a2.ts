@@ -116,19 +116,25 @@ export interface InsightCorpus {
 export async function loadGroupedInsights(clientId: string, runId: string): Promise<InsightCorpus> {
   const admin = createAdminClient()
 
-  // 1. Pull this run's insights (paginated past the 1000-row cap).
+  // 1. Pull the corpus's CURRENT insights (paginated past the 1000-row cap).
+  //    Incremental Pass A (2026-08-17): insights outlive runs — a video's
+  //    current rows are the ones its videos.analyzed_run_id names, which is
+  //    exactly what the audience_insights_current view returns. This run's
+  //    Pass A already moved the pointer for every video it re-read, so the
+  //    view is "this run's analysis of the whole corpus" (runId is kept for
+  //    the callers' labels/logging only).
   const insightsBase = await selectAll<{
     id: string; category: string; theme: string; description: string
     strength_score: number; emotion: string | null; sentiment_impact: string | null
     source_video_id: string; platform: string
   }>(() =>
     admin
-      .from('audience_insights')
+      .from('audience_insights_current')
       .select('id, category, theme, description, strength_score, emotion, sentiment_impact, source_video_id, platform')
       .eq('client_id', clientId)
-      .eq('run_id', runId)
       .order('id', { ascending: true }),
   )
+  void runId
 
   // 2. Fetch the referenced videos for entity flags; join in code (avoids
   //    PostgREST FK-name ambiguity on source_video_id).
