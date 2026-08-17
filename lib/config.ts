@@ -350,6 +350,30 @@ export function passAMinComments(platform: string): number {
   return PASS_A_MIN_COMMENTS_BY_PLATFORM[platform] ?? PASS_A_MIN_COMMENTS_DEFAULT
 }
 
+/** Incremental Pass A (Theme Registry shape A, 2026-08-17). OFF unless set, so
+ *  merging the branch changes nothing until it is switched on in Vercel. Gates
+ *  SELECTION only — with the flag off, plan-pass-a still selects every eligible
+ *  video (today's corpus-wide re-read) while the new per-video bookkeeping,
+ *  the *_current views and the prune step run unconditionally. Flipping it on
+ *  makes plan-pass-a select only videos that changed since their last analysis
+ *  (see lib/pipeline/pass-a-plan.ts). Read at call-time (serverless). */
+export function incrementalPassAEnabled(): boolean {
+  const v = process.env.INCREMENTAL_PASS_A
+  return v === '1' || v === 'true'
+}
+
+/** Re-analysis growth rule: a video is re-read when its STORED comment rows
+ *  grew by at least min(PASS_A_RECHECK_MIN, ceil(PASS_A_RECHECK_SHARE × count
+ *  at last analysis)) since that analysis — cumulative, so a trickle across
+ *  several scrapes still adds up. Small videos (5–14 comments) re-read on +1/+2
+ *  because that is a ≥20% change of the whole prompt input; ≥15 comments need
+ *  +3. Measured on Össur run 147899d3 vs ef1e28a3 under exactly this rule:
+ *  153 of 496 analysed videos qualified (342 had no new comments at all).
+ *  Analogous to RECHECK_MIN_GROWTH on the scrape side; kept separate because
+ *  the baselines differ (platform-reported count vs stored rows). */
+export const PASS_A_RECHECK_MIN = 3
+export const PASS_A_RECHECK_SHARE = 0.2
+
 // Order-of-magnitude Apify spend per platform, for RANKING keywords in
 // scripts/keyword-roi.ts — never invoicing. Apify doesn't land per-actor cost
 // in our DB (runActor returns items only), so these are coarse constants
