@@ -25,6 +25,11 @@ This version has breaking changes — APIs, conventions, and file structure may 
   stay on the base tables so they resolve rows an in-flight run has superseded
   but not yet pruned. A Pass A prompt-version bump re-reads the whole corpus
   on the next run — that is the cost of a change, budget for it.
+- **Theme identity lives in `theme_registry`.** `themes.id` is a per-run row id
+  (the table is fully replaced each run) and must NEVER be used as a cross-run
+  key; `themes.registry_id` is the stable identity, and cross-run joins use it.
+  Do not join themes by `label` — labels churn ~88% run to run because a
+  reasoning model writes them and reasoning models take no temperature.
 - **The Supabase client is untyped** (no `Database` generic). Reads past 1000
   rows must use `selectAll` (`lib/supabase-admin.ts`) — a bare `.select()`
   silently caps at 1000.

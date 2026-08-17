@@ -60,6 +60,14 @@ each sized to fit the 300s cap:
 3. **Cross-reference** — deterministic client-brand mention detection.
 4. **Themes** — fan-out per entity bucket (`plan-themes` → `themes:<bucket>`
    clustering + LLM label-merge → `pass-b` labels → `persist-themes`).
+   **Theme identity** (flag `THEME_REGISTRY`): `persist-themes` matches this
+   run's themes to a per-client `theme_registry` on **membership** (the
+   `supporting_insight_ids` set, durable since Pass A went incremental), not on
+   the label — measured, 507 of 537 themes had an identical member set run to
+   run while 48 of 58 "new" flags were the same theme relabelled. Each match
+   writes a `theme_observations` row and stamps `themes.registry_id`;
+   `first_seen` then means *genuinely new*. Trends and the Voice history join on
+   that id instead of the label string.
 5. **Synthesize** — metrics → Pass C (competitive) → Pass D (market insights,
    recommendations, executive brief) → `run_summary`.
 6. **Close run** → `prune-stale-analysis` → optionally emit
@@ -126,5 +134,6 @@ All run as `node --env-file=.env.local --import tsx scripts/<name>.ts`.
 | `regate-corpus.ts` | Re-apply the relevance gate post-hoc (`--apply` deletes) |
 | `backfill-transcripts.ts` | Transcript backfill for stored corpus |
 | `ab-pass-a.ts` | Pass A transcript A/B harness (runs with `trackAnalysis: false` — arms write rows under throwaway runs without moving the corpus pointer) |
-| `citation-floor.ts` | Citation-relevance floor calibrator (read-only) |
+| `citation-floor.ts` | Citation-relevance floor calibrator (read-only). Aimed at an OLD run it now under-reports: that run's insights are pruned once a newer run supersedes them (incremental Pass A) |
+| `theme-registry.ts` | Theme-identity inspector + repair lever — entries, observations, label history, weak-band matches; `--merge` / `--dormant` / `--revive` need `--apply` |
 | `keyword-roi.ts` | Keyword ROI pruning table, worst first |
