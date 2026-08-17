@@ -119,7 +119,7 @@ All run as `node --env-file=.env.local --import tsx scripts/<name>.ts`.
 | `run-tagging.ts` | Entity-tagging strategy comparison |
 | `run-owned-events.ts` | Owned-account event detection |
 | `send-report.ts` | Weekly report preview/send |
-| `seed-demo.ts` | Idempotent demo-tenant seeder (careful: doesn't recreate account_events/weekly_reports) |
+| `seed-demo.ts` | Idempotent demo-tenant seeder (careful: doesn't recreate account_events/weekly_reports; after a re-seed, re-run the backfill block of `supabase/migrations/20260818090000_incremental_pass_a.sql` so the demo videos' `analyzed_run_id` points at W6 — the `*_current` views are empty until it does) |
 | `regate-corpus.ts` | Re-apply the relevance gate post-hoc (`--apply` deletes) |
 | `backfill-transcripts.ts` | Transcript backfill for stored corpus |
 | `ab-pass-a.ts` | Pass A transcript A/B harness |
