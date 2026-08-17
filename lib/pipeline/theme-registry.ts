@@ -57,9 +57,10 @@ export interface MatchOptions {
 export function jaccard(a: string[], b: string[]): number {
   if (a.length === 0 && b.length === 0) return 0
   const A = new Set(a)
+  const B = new Set(b)
   let inter = 0
-  for (const id of new Set(b)) if (A.has(id)) inter++
-  const union = A.size + new Set(b).size - inter
+  for (const id of B) if (A.has(id)) inter++
+  const union = A.size + B.size - inter
   return union === 0 ? 0 : inter / union
 }
 
@@ -137,13 +138,21 @@ export function matchThemes(
   }
 
   const dormantById = new Map(registry.map((e) => [e.id, e.status === 'dormant']))
+  const membersById = new Map(registry.map((e) => [e.id, e.member_insight_ids]))
   return incoming.map((t) => {
     const c = assigned.get(t.key)
     const overlapped = overlapByKey.get(t.key) ?? []
     if (!c) {
       // No identity claimed. If it overlapped entries that someone else took,
       // it is the smaller half of a split — recorded, but still a new theme.
-      const splitFrom = overlapped.find((id) => takenEntry.has(id))
+      // Attribute it to the entry it overlapped MOST, not the first in id order.
+      let splitFrom: string | undefined
+      let best = 0
+      for (const id of overlapped) {
+        if (!takenEntry.has(id)) continue
+        const j = jaccard(t.memberInsightIds, membersById.get(id) ?? [])
+        if (j > best) { best = j; splitFrom = id }
+      }
       return { key: t.key, themeId: null, kind: 'new' as MatchKind, score: 0, ...(splitFrom ? { splitFrom } : {}) }
     }
     const others = overlapped.filter((id) => id !== c.entryId)

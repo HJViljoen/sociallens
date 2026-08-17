@@ -20,7 +20,7 @@
 -- Old code ignores all of it.
 
 -- 1. The identity ------------------------------------------------------------
-create table public.theme_registry (
+create table if not exists public.theme_registry (
   id uuid default gen_random_uuid() primary key,
   client_id uuid not null references public.clients(id) on delete cascade,
   -- Entity bucket (client / competitor:<name> / industry-other). Matching never
@@ -50,7 +50,7 @@ create table public.theme_registry (
   constraint theme_registry_status_check check (status in ('active', 'dormant'))
 );
 
-create index theme_registry_client_bucket_idx
+create index if not exists theme_registry_client_bucket_idx
   on public.theme_registry using btree (client_id, bucket, status);
 
 comment on column public.theme_registry.member_insight_ids is
@@ -61,7 +61,7 @@ comment on column public.theme_registry.status is
   'active | dormant. Dormant = not observed for REGISTRY_DORMANT_RUNS consecutive themed runs; revives on the next match.';
 
 -- 2. The time series ---------------------------------------------------------
-create table public.theme_observations (
+create table if not exists public.theme_observations (
   id uuid default gen_random_uuid() primary key,
   theme_id uuid not null references public.theme_registry(id) on delete cascade,
   client_id uuid not null references public.clients(id) on delete cascade,
@@ -79,15 +79,20 @@ create table public.theme_observations (
   member_insight_ids uuid[] not null default '{}'::uuid[],
   match_kind text not null,
   match_score numeric(5,4),
+  -- Diagnostics (no genealogy UI in v1): entries this theme absorbed, and the
+  -- entry it split away from. parent_theme_id on the registry means "hierarchy
+  -- or operator merge"; these two say what the MATCHER saw in one run.
+  merged_from uuid[] not null default '{}'::uuid[],
+  split_from uuid,
   created_at timestamptz default now() not null,
   unique (theme_id, run_id),
   constraint theme_observations_match_kind_check
     check (match_kind in ('exact', 'strong', 'weak', 'new', 'revived'))
 );
 
-create index theme_observations_client_run_idx
+create index if not exists theme_observations_client_run_idx
   on public.theme_observations using btree (client_id, run_id);
-create index theme_observations_theme_idx
+create index if not exists theme_observations_theme_idx
   on public.theme_observations using btree (theme_id, created_at);
 
 comment on column public.theme_observations.match_kind is
@@ -111,12 +116,19 @@ comment on column public.themes.registry_id is
 
 -- 4. RLS — read-only for the tenant, writes are service-role (as themes) ------
 alter table public.theme_registry enable row level security;
+drop policy if exists "Users see their own theme_registry" on public.theme_registry;
 create policy "Users see their own theme_registry" on public.theme_registry
   for select using (client_id = get_my_client_id());
 
 alter table public.theme_observations enable row level security;
+drop policy if exists "Users see their own theme_observations" on public.theme_observations;
 create policy "Users see their own theme_observations" on public.theme_observations
   for select using (client_id = get_my_client_id());
+
+-- The dormancy read and the operator script both walk a client's observations
+-- newest-first.
+create index if not exists theme_observations_client_created_idx
+  on public.theme_observations using btree (client_id, created_at desc);
 
 -- No backfill by design: the registry seeds itself on the first run with
 -- THEME_REGISTRY=1 (every theme reads `new`, exactly like a tenant's first

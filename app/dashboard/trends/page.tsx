@@ -189,13 +189,19 @@ export default async function TrendsPage() {
   // so a label join drops most lines and invents new ones (2026-08-17).
   const runDate = new Map(summaries.map((s) => [s.run_id, s.run_date]))
   const earliestDate = dates[0]
-  const byLabel = new Map<string, { date: string; strength: number; evidence: number; category: string; bucket: string; label: string }[]>()
+  // Rows written before the registry existed carry no id, so bridge them onto
+  // the identity by label where the label is unchanged — otherwise the same
+  // theme would split into two disjoint series at the changeover and every line
+  // would end at the previous update.
+  const bridge = new Map<string, string>()
+  for (const t of themesRaw) if (t.registry_id) bridge.set(t.label, t.registry_id)
+  const byLabel = new Map<string, { date: string; strength: number; evidence: number; category: string; bucket: string; label: string; firstSeen: boolean }[]>()
   for (const t of themesRaw) {
     const d = runDate.get(t.run_id)
     if (!d) continue
-    const key = t.registry_id ?? `label:${t.label}`
+    const key = t.registry_id ?? bridge.get(t.label) ?? `label:${t.label}`
     const arr = byLabel.get(key) ?? []
-    arr.push({ date: d, strength: Number(t.strength_score ?? 0), evidence: Number(t.evidence_count ?? 0), category: t.category, bucket: t.bucket, label: t.label })
+    arr.push({ date: d, strength: Number(t.strength_score ?? 0), evidence: Number(t.evidence_count ?? 0), category: t.category, bucket: t.bucket, label: t.label, firstSeen: t.first_seen })
     byLabel.set(key, arr)
   }
 
@@ -207,7 +213,7 @@ export default async function TrendsPage() {
       const label = pts[pts.length - 1].label
       const strength = pts.map((p) => p.strength)
       const d = strength[strength.length - 1] - strength[0]
-      const emerged = pts[0].date > earliestDate
+      const emerged = pts[0].date > earliestDate && pts[0].firstSeen
       const movement: Trajectory['movement'] =
         emerged ? 'emerging' : d >= 1 ? 'gaining' : d <= -1 ? 'fading' : 'steady'
       return {

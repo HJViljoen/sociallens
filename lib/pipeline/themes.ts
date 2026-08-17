@@ -112,14 +112,32 @@ export async function persistThemes(
   const registryIds: (string | null)[] = themes.map(() => null)
   const registryKinds: MatchKind[] = themes.map(() => 'new')
   const registryScores: number[] = themes.map(() => 0)
+  const registryFirstSeen: boolean[] = themes.map(() => false)
   let registrySummary: PersistThemesResult['registry']
+  // Seeding = the client has no registry yet. Every theme is trivially "new",
+  // which is TRUE of the data and useless to a reader — so on the seed run the
+  // displayed/emailed "new" keeps its old meaning and the registry just fills
+  // up quietly. Without this, the first flag-on run would badge all ~537 Voice
+  // cards and email "122 new themes" on a week where nothing actually changed.
+  let seeding = false
 
   if (registryOn) {
-    const entries = await selectAll<RegistryEntry & { last_seen_run_id: string | null; observation_count: number | null }>(() =>
+    const entries = await selectAll<RegistryEntry & { last_seen_run_id: string | null; first_seen_run_id: string | null; observation_count: number | null }>(() =>
       admin.from('theme_registry')
-        .select('id, bucket, member_insight_ids, embedding, status, canonical_label, last_seen_run_id, observation_count')
+        .select('id, bucket, member_insight_ids, embedding, status, canonical_label, last_seen_run_id, first_seen_run_id, observation_count')
         .eq('client_id', clientId).order('id', { ascending: true }),
     )
+    seeding = entries.length === 0
+    // A retried step replays this whole block. Anything already written for THIS
+    // run must not be counted twice or re-interpreted: entries created by the
+    // first attempt now hold this run's membership, so they would match `exact`
+    // and silently turn "new" into "unchanged".
+    const priorObs = await selectAll<{ theme_id: string }>(() =>
+      admin.from('theme_observations').select('theme_id').eq('client_id', clientId).eq('run_id', runId)
+        .order('theme_id', { ascending: true }),
+    )
+    const alreadyObserved = new Set(priorObs.map((o) => o.theme_id))
+
     const results = matchThemes(
       themes.map((t, i) => ({
         key: String(i),
@@ -132,6 +150,7 @@ export async function persistThemes(
       { cosine },
     )
     const nowIso = new Date().toISOString()
+    const updates: Record<string, unknown>[] = []
     for (const r of results) {
       const i = Number(r.key)
       const t = themes[i]
@@ -140,8 +159,13 @@ export async function persistThemes(
         // Refresh the entry to this observation: the label is deliberately the
         // LATEST one (display stays fresh, the id carries continuity).
         const prior = entries.find((e) => e.id === r.themeId)
-        const { error } = await admin.from('theme_registry').update({
-          observation_count: (prior?.observation_count ?? 0) + 1,
+        updates.push({
+          id: r.themeId,
+          client_id: clientId,
+          bucket: t.bucket,
+          // observation_count only advances when this run has not already been
+          // counted for that entry — a replayed step is a no-op, not a +1.
+          observation_count: (prior?.observation_count ?? 0) + (alreadyObserved.has(r.themeId) ? 0 : 1),
           canonical_label: label,
           description: t.description ?? null,
           member_insight_ids: t.supportingInsightIds,
@@ -150,9 +174,11 @@ export async function persistThemes(
           status: 'active',
           last_seen_run_id: runId,
           last_seen_at: nowIso,
-        }).eq('id', r.themeId)
-        if (error) throw new Error(`update theme_registry: ${error.message}`)
+        })
         registryIds[i] = r.themeId
+        // "New" is derived from the entry's own first_seen_run_id, so a retry
+        // that re-matches an entry it created a moment ago still reads as new.
+        registryFirstSeen[i] = prior?.first_seen_run_id === runId
       } else {
         const { data, error } = await admin.from('theme_registry').insert({
           client_id: clientId,
@@ -171,9 +197,15 @@ export async function persistThemes(
         }).select('id').single()
         if (error || !data) throw new Error(`insert theme_registry: ${error?.message ?? 'no row'}`)
         registryIds[i] = data.id as string
+        registryFirstSeen[i] = true
       }
       registryKinds[i] = r.kind
       registryScores[i] = r.score
+    }
+    // One round trip per 200 matched entries instead of ~540 sequential updates.
+    for (let i = 0; i < updates.length; i += 200) {
+      const { error } = await admin.from('theme_registry').upsert(updates.slice(i, i + 200), { onConflict: 'id' })
+      if (error) throw new Error(`update theme_registry: ${error.message}`)
     }
 
     // One observation per (theme, run). Upsert so a step retry is idempotent.
@@ -192,18 +224,21 @@ export async function persistThemes(
         member_insight_ids: t.supportingInsightIds,
         match_kind: registryKinds[i],
         match_score: registryScores[i],
+        merged_from: results.find((r) => Number(r.key) === i)?.mergedFrom ?? [],
+        split_from: results.find((r) => Number(r.key) === i)?.splitFrom ?? null,
+        run_date: nowIso.slice(0, 10),
       }))
       const { error } = await admin.from('theme_observations').upsert(obs, { onConflict: 'theme_id,run_id' })
       if (error) throw new Error(`insert theme_observations: ${error.message}`)
     }
 
-    // Dormancy: unseen across the last REGISTRY_DORMANT_RUNS themed runs.
-    const recentRuns = await selectAll<{ run_id: string }>(() =>
-      admin.from('theme_observations').select('run_id').eq('client_id', clientId)
-        .order('created_at', { ascending: false }).limit(2000),
-    )
-    const ordered: string[] = []
-    for (const r of recentRuns) if (r.run_id && !ordered.includes(r.run_id)) ordered.push(r.run_id)
+    // Dormancy: unseen across the last REGISTRY_DORMANT_RUNS runs. The window
+    // comes from pipeline_runs (a bounded, tiny query) rather than paging the
+    // observations table, which grows ~540 rows per run forever.
+    const { data: recent } = await admin.from('pipeline_runs')
+      .select('id').eq('client_id', clientId).in('status', ['completed', 'partial'])
+      .order('started_at', { ascending: false }).limit(REGISTRY_DORMANT_RUNS)
+    const ordered = [runId, ...((recent ?? []) as { id: string }[]).map((r) => r.id).filter((id) => id !== runId)]
     const stale = dormantIds(
       entries.map((e) => ({ id: e.id, last_seen_run_id: registryIds.includes(e.id) ? runId : e.last_seen_run_id, status: e.status })),
       ordered,
@@ -239,7 +274,7 @@ export async function persistThemes(
       // With the registry on, "new" means a theme with no prior identity —
       // not "the labeller chose different words", which is what the
       // label-embedding rule actually measured (48 of 58 false positives).
-      first_seen: registryOn ? registryKinds[i] === 'new' : firstSeenFlags[i],
+      first_seen: registryOn && !seeding ? registryFirstSeen[i] : firstSeenFlags[i],
       embedding: embeddings[i].map(round6),
       ...(registryOn ? { registry_id: registryIds[i] } : {}),
     }))
@@ -249,7 +284,7 @@ export async function persistThemes(
 
   return {
     inserted: themes.length,
-    firstSeen: registryOn ? registryKinds.filter((k) => k === 'new').length : firstSeenFlags.filter(Boolean).length,
+    firstSeen: registryOn && !seeding ? registryFirstSeen.filter(Boolean).length : firstSeenFlags.filter(Boolean).length,
     hadPreviousRun: prevEmbeddings.length > 0,
     ...(registrySummary ? { registry: registrySummary } : {}),
   }

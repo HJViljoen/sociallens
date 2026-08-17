@@ -49,36 +49,62 @@ async function main() {
   }>(() =>
     admin.from('theme_registry')
       .select('id, bucket, canonical_label, status, observation_count, first_seen_at, last_seen_at, member_insight_ids, parent_theme_id')
-      .eq('client_id', args.clientId).order('observation_count', { ascending: false }),
+      .eq('client_id', args.clientId).order('observation_count', { ascending: false }).order('id', { ascending: true }),
   )
   const obs = await selectAll<{ theme_id: string; run_id: string | null; match_kind: string; label: string; evidence_count: number; created_at: string }>(() =>
     admin.from('theme_observations')
       .select('theme_id, run_id, match_kind, label, evidence_count, created_at')
-      .eq('client_id', args.clientId).order('created_at', { ascending: true }),
+      .eq('client_id', args.clientId).order('created_at', { ascending: true }).order('id', { ascending: true }),
   )
 
   // ---- mutations (each requires --apply) ----
+  // Every mutation is scoped to --client as well as the id: a mistyped uuid must
+  // not be able to touch another tenant's registry.
+  const owned = (id: string) => entries.some((e) => e.id === id)
+
   if (args.merge) {
     const [keep, retire] = args.merge
-    const moved = obs.filter((o) => o.theme_id === retire).length
-    console.log(`merge: ${moved} observation(s) ${retire} → ${keep}, then ${retire} → dormant, parent=${keep}`)
-    if (!args.apply) console.log('(dry run — pass --apply to write)')
-    else {
-      const { error: e1 } = await admin.from('theme_observations').update({ theme_id: keep }).eq('theme_id', retire)
-      if (e1) throw new Error(`repoint observations: ${e1.message}`)
-      const { error: e2 } = await admin.from('theme_registry').update({ status: 'dormant', parent_theme_id: keep }).eq('id', retire)
-      if (e2) throw new Error(`retire entry: ${e2.message}`)
-      const { error: e3 } = await admin.from('themes').update({ registry_id: keep }).eq('registry_id', retire)
-      if (e3) throw new Error(`repoint theme rows: ${e3.message}`)
-      console.log('applied.')
+    if (!owned(keep) || !owned(retire)) throw new Error(`both ids must belong to client ${args.clientId}`)
+    if (keep === retire) throw new Error('keep and retire are the same entry')
+    // The two entries were almost certainly observed in the SAME runs — that is
+    // usually why they are duplicates — and (theme_id, run_id) is unique, so a
+    // blind repoint hits a constraint violation. Drop the loser's colliding
+    // observations first; the winner's series is the one being kept.
+    const keepRuns = new Set(obs.filter((o) => o.theme_id === keep).map((o) => o.run_id))
+    const colliding = obs.filter((o) => o.theme_id === retire && keepRuns.has(o.run_id))
+    const moving = obs.filter((o) => o.theme_id === retire && !keepRuns.has(o.run_id))
+    console.log(`merge: ${moving.length} observation(s) move ${retire} → ${keep}, ${colliding.length} dropped as duplicates of ${keep}'s own runs; ${retire} → dormant, parent=${keep}`)
+    if (!args.apply) { console.log('(dry run — pass --apply to write)'); return }
+    if (colliding.length) {
+      const { error } = await admin.from('theme_observations').delete()
+        .eq('client_id', args.clientId).eq('theme_id', retire)
+        .in('run_id', colliding.map((o) => o.run_id).filter((r): r is string => !!r))
+      if (error) throw new Error(`drop colliding observations: ${error.message}`)
     }
+    const { error: e1 } = await admin.from('theme_observations').update({ theme_id: keep })
+      .eq('client_id', args.clientId).eq('theme_id', retire)
+    if (e1) throw new Error(`repoint observations: ${e1.message}`)
+    const { error: e2 } = await admin.from('theme_registry').update({ status: 'dormant', parent_theme_id: keep })
+      .eq('client_id', args.clientId).eq('id', retire)
+    if (e2) throw new Error(`retire entry: ${e2.message}`)
+    const { error: e3 } = await admin.from('themes').update({ registry_id: keep })
+      .eq('client_id', args.clientId).eq('registry_id', retire)
+    if (e3) throw new Error(`repoint theme rows: ${e3.message}`)
+    // The winner absorbed rows, so its bookkeeping is now stale.
+    const { error: e4 } = await admin.from('theme_registry')
+      .update({ observation_count: obs.filter((o) => o.theme_id === keep).length + moving.length })
+      .eq('client_id', args.clientId).eq('id', keep)
+    if (e4) throw new Error(`refresh observation_count: ${e4.message}`)
+    console.log('applied.')
     return
   }
   for (const [flag, id, status] of [['--dormant', args.dormant, 'dormant'], ['--revive', args.revive, 'active']] as const) {
     if (!id) continue
+    if (!owned(id)) throw new Error(`${id} does not belong to client ${args.clientId}`)
     console.log(`${flag}: ${id} → status=${status}`)
     if (!args.apply) { console.log('(dry run — pass --apply to write)'); return }
-    const { error } = await admin.from('theme_registry').update({ status }).eq('id', id)
+    const { error } = await admin.from('theme_registry').update({ status })
+      .eq('client_id', args.clientId).eq('id', id)
     if (error) throw new Error(`set status: ${error.message}`)
     console.log('applied.')
     return

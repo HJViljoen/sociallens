@@ -248,14 +248,17 @@ export default async function VoiceOfCustomerPage({
   // is no history and nothing renders.
   let detailHistory: number[] = []
   if (detailTheme) {
-    const histQ = supabase.from('themes')
-      .select('evidence_count, created_at')
-      .eq('client_id', clientId)
-    const { data: hist } = await (detailTheme.registry_id
-      ? histQ.eq('registry_id', detailTheme.registry_id)
-      : histQ.eq('label', detailTheme.label)
-    ).order('created_at', { ascending: true })
-    detailHistory = ((hist ?? []) as { evidence_count: number }[]).map((h) => h.evidence_count)
+    const histBy = (col: 'registry_id' | 'label', val: string) =>
+      supabase.from('themes').select('evidence_count, created_at')
+        .eq('client_id', clientId).eq(col, val)
+        .order('created_at', { ascending: true })
+    let hist = detailTheme.registry_id
+      ? ((await histBy('registry_id', detailTheme.registry_id)).data ?? [])
+      : []
+    // Pre-registry rows carry no id, so a theme whose identity is new this week
+    // still has label-keyed history worth drawing.
+    if (hist.length < 2) hist = (await histBy('label', detailTheme.label)).data ?? []
+    detailHistory = (hist as { evidence_count: number }[]).map((h) => h.evidence_count)
   }
 
   // Hrefs that preserve the active filters; detail=… opens a theme's overlay.
