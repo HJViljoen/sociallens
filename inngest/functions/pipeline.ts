@@ -181,6 +181,9 @@ export const runPipeline = inngest.createFunction(
         })
     }
 
+    // Operator abort switch — checked on every replay, before any paid work.
+    await assertRunActive(clientId)
+
     // 2. Plan the gather fan-out: one task per platform × keyword. An
     //    analysis-only resume skips gather — the corpus is already in the DB.
     const plan = options.skipGather
@@ -658,6 +661,23 @@ const THEMES_PARALLEL = 2
 // Eligible video ids (raw comment count >= 5, richest first), chunked into
 // batches. Comments are scanned once and joined in memory — same URL-overflow
 // avoidance as everywhere else.
+/** Operator abort switch (2026-08-17). Set `clients.is_active = false` and the
+ *  run dies at its next step boundary instead of spending another cent on
+ *  Apify/OpenAI. Deliberately NOT inside a step.run: Inngest replays the
+ *  function body on every step invocation, so an un-memoised check is re-read
+ *  each time and takes effect within seconds. The scheduler already refuses to
+ *  dispatch inactive tenants; this makes the same flag stop a run already in
+ *  flight — the lever the product lacked when a run had to be killed mid-gather
+ *  and neither the Inngest API (signing key is a sensitive env var) nor the
+ *  dashboard was reachable. */
+async function assertRunActive(clientId: string): Promise<void> {
+  const admin = createAdminClient()
+  const { data } = await admin.from('clients').select('is_active').eq('id', clientId).maybeSingle()
+  if (data && (data as { is_active: boolean | null }).is_active === false) {
+    throw new Error(`run aborted: client ${clientId} is inactive (operator abort switch)`)
+  }
+}
+
 export interface PassAPlan {
   batches: string[][]
   /** Videos that qualified for a lane (full / claims_only) before the change check. */
