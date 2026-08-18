@@ -471,9 +471,11 @@ export function captureRunFlags(): RunFlags {
 /** Master switch for the retention sweep. OFF unless set, so the cron deploys
  *  dormant and its first pass is something an operator watches rather than
  *  something that happens at 04:00. It is the only destructive job in the
- *  product: on the corpus as it stands the first sweep deletes 551 stale
- *  YouTube comments, pseudonymises 194, and strips 1,638 prompt bodies, across
- *  every tenant at once. Read at call-time (serverless). */
+ *  product. Since Tier 1.5 the YouTube branch REFRESHES rather than deletes
+ *  (see inngest/functions/retention.ts): on the corpus as it stands the first
+ *  sweep re-fetches ~589 stale YouTube comment ids and ~605 videos, strips
+ *  ~1,638 prompt bodies, and deletes only what YouTube itself no longer serves.
+ *  Preview with scripts/retention-dry.ts. Read at call-time (serverless). */
 export function retentionEnabled(): boolean {
   const v = process.env.RETENTION_ENABLED
   return v === '1' || v === 'true'
@@ -484,9 +486,16 @@ export const RAW_PAYLOAD_RETENTION_DAYS = 30
 /** Prompt/response bodies in the AI audit log. Metadata (cost, tokens, timing,
  *  validation status) is kept indefinitely; only the bodies are stripped. */
 export const AI_LOG_BODY_RETENTION_DAYS = 30
-/** YouTube-sourced comments. Matches RECHECK_WINDOW_DAYS: past it we neither
- *  refresh nor keep. */
+/** YouTube-sourced rows: the HARD limit (Developer Policy III.E.4.d). Rows are
+ *  refreshed on a rolling 25-day cadence (lib/retention/youtube-refresh.ts);
+ *  anything still unrefreshed at 30 days falls back to the delete path. */
 export const YOUTUBE_RETENTION_DAYS = 30
+/** Nightly ceilings for the refresh (comment ids / video ids per night). At
+ *  50 ids per quota unit these are ~100 + ~20 units a night against a 10,000
+ *  daily quota — guards, not budgets: a 30-day cadence at these caps supports
+ *  150k YouTube comments before the cap binds. */
+export const YOUTUBE_REFRESH_NIGHTLY_CAP = 5000
+export const YOUTUBE_VIDEO_REFRESH_NIGHTLY_CAP = 1000
 
 // --- Gather spend ceilings (Tier 0 T0-2, 2026-08-18) -------------------------
 // tracking_configs now carries CHECK ceilings on the individual knobs; these

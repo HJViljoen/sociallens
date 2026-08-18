@@ -5,22 +5,45 @@ import {
   RAW_PAYLOAD_RETENTION_DAYS,
   AI_LOG_BODY_RETENTION_DAYS,
   YOUTUBE_RETENTION_DAYS,
+  YOUTUBE_REFRESH_NIGHTLY_CAP,
+  YOUTUBE_VIDEO_REFRESH_NIGHTLY_CAP,
 } from '@/lib/config'
+import { refreshYoutubeComments, refreshYoutubeVideos } from '@/lib/retention/youtube-refresh-io'
 
-// Data retention (Tier 0 T0-9, 2026-08-18). Until now nothing in the product
-// ever deleted source data: `video_raw` held whole actor payloads (Instagram
-// owner names, tagged users with profile pictures, location names, TikTok POI
-// latitude/longitude) that only the transcribe step reads and nothing prunes;
-// `ai_call_log.request` held every prompt, comment text included, forever; and
-// YouTube rows older than 30 days were never refreshed or purged, which the
-// YouTube API Services Developer Policy (III.E.4.d) does not allow.
+// Data retention (Tier 0 T0-9, 2026-08-18; YouTube refresh Tier 1.5,
+// 2026-08-22). Until Tier 0 nothing in the product ever deleted source data:
+// `video_raw` held whole actor payloads (Instagram owner names, tagged users
+// with profile pictures, location names, TikTok POI latitude/longitude) that
+// only the transcribe step reads and nothing prunes; `ai_call_log.request` held
+// every prompt, comment text included, forever; and YouTube rows older than 30
+// days were never refreshed or purged, which the YouTube API Services Developer
+// Policy (III.E.4.d) does not allow.
 //
-// The privacy notice now states these windows, so this cron is what makes the
+// The privacy notice states these windows, so this cron is what makes the
 // statement true. Runs 04:00 SAST, before the owned-snapshot and pipeline crons.
 //
-// Deliberately conservative: it deletes raw payloads and prompt bodies, never
-// analysis. Comment text and insights live for the life of the workspace, which
-// is what the notice says.
+// Steps (ids are a stability contract — see AGENTS.md):
+//   1. purge-video-raw            — raw payloads past 30 days: deleted.
+//   2. strip-ai-call-bodies       — prompt/response bodies past 30 days: nulled.
+//   3. refresh-youtube-comments   — comments 25+ days since last read: re-fetched
+//                                   from the API (III.E.4.d "delete OR refresh").
+//                                   Deleted/hidden on YouTube → deleted here,
+//                                   evidence cascades, hero_quote copies nulled.
+//                                   Edited → updated, non-verifying quotes dropped.
+//   4. refresh-youtube-videos     — video statistics likewise; a video the API
+//                                   no longer returns is tombstoned (never
+//                                   deleted: videos(id) cascades into the whole
+//                                   analysis) and its comments deleted.
+//   5. purge-stale-youtube-comments — the BACKSTOP: anything still unrefreshed
+//                                   at 30 days (five failed nights) takes the
+//                                   Tier 0 path — uncited deleted, cited lose
+//                                   `author`. It should delete nothing on a
+//                                   healthy night; if it does, refresh is failing.
+//
+// Deliberately conservative: nothing analytical is deleted on any platform
+// except YouTube rows YouTube itself no longer serves. Comment text and
+// insights live for the life of the workspace, which is what the notice says.
+// Preview: `node --env-file=.env.local --import tsx scripts/retention-dry.ts`.
 export const retentionDaily = inngest.createFunction(
   {
     id: 'retention-daily',
@@ -30,7 +53,7 @@ export const retentionDaily = inngest.createFunction(
   async ({ step }) => {
     // Dormant until switched on. The privacy notice states these windows, so
     // this must be enabled deliberately and soon after deploy — not left off
-    // and forgotten. `npm run retention:dry` reports what a sweep would do.
+    // and forgotten. scripts/retention-dry.ts reports what a sweep would do.
     if (!retentionEnabled()) {
       console.log('[retention] RETENTION_ENABLED is not set; skipping sweep')
       return { skipped: 'disabled', rawDeleted: 0, bodiesStripped: 0, deleted: 0, pseudonymised: 0 }
@@ -67,33 +90,38 @@ export const retentionDaily = inngest.createFunction(
       return (data ?? []).length
     })
 
-    // 3. YouTube comments past the refresh window. YouTube comments come from
-    //    the official Data API (commentThreads.list), so the 30-day
-    //    refresh-or-remove rule genuinely applies to them, and we have no
-    //    refresh path for comment bodies.
-    //
-    //    But a cited comment CANNOT simply be deleted. insight_evidence and
-    //    language_samples both cascade from comments, and
-    //    insight_evidence_source_shape requires a 'comment' evidence row to
-    //    keep a non-null comment_id, so the row cannot even be orphaned. A
-    //    blind delete of the 745 rows currently past the window would have
-    //    taken 300 evidence rows across 152 insights and 118 language samples
-    //    with it, leaving insights standing with their quotes silently gone.
-    //    Measured against prod before writing this, not assumed.
-    //
-    //    So: uncited comments (551 of the 745) are deleted outright, and the
-    //    cited ones (194) lose the identifying field and keep the text that is
-    //    already quoted verbatim inside the evidence row. What we stop holding
-    //    is the person; what we keep is the sentence we cited.
+    // 3. YouTube comments: refresh, don't delete. Costs 1 quota unit per 50
+    //    ids (~115 units a month for the whole corpus as of 2026-08-18).
+    const ytComments = await step.run('refresh-youtube-comments', async () => {
+      const admin = createAdminClient()
+      return refreshYoutubeComments(admin, { cap: YOUTUBE_REFRESH_NIGHTLY_CAP })
+    })
+
+    // 4. YouTube video statistics: same rule (III.E.4.b/d), same cadence.
+    const ytVideos = await step.run('refresh-youtube-videos', async () => {
+      const admin = createAdminClient()
+      return refreshYoutubeVideos(admin, { cap: YOUTUBE_VIDEO_REFRESH_NIGHTLY_CAP })
+    })
+
+    // 5. Backstop — the Tier 0 path, now scoped to rows the refresh has failed
+    //    to reach for 30 days. A cited comment CANNOT simply be deleted:
+    //    insight_evidence and language_samples both cascade from comments, and
+    //    insight_evidence_source_shape requires a 'comment' evidence row to keep
+    //    a non-null comment_id, so the row cannot even be orphaned. Uncited
+    //    rows are deleted; cited ones lose the identifying field and keep the
+    //    text that is already quoted verbatim inside the evidence row.
     const ytPurged = await step.run('purge-stale-youtube-comments', async () => {
       const admin = createAdminClient()
       const before = cutoff(YOUTUBE_RETENTION_DAYS)
 
       const stale = await selectAll<{ id: string }>(() =>
         admin.from('comments').select('id')
-          .eq('platform', 'youtube').lt('created_at', before).order('id', { ascending: true }),
+          .eq('platform', 'youtube')
+          .or(`and(refreshed_at.is.null,created_at.lt.${before}),refreshed_at.lt.${before}`)
+          .order('id', { ascending: true }),
       )
       if (!stale.length) return { deleted: 0, pseudonymised: 0 }
+      console.warn(`[retention] BACKSTOP firing on ${stale.length} unrefreshed YouTube rows — the refresh step has not reached them in ${YOUTUBE_RETENTION_DAYS} days`)
 
       const staleIds = stale.map((c) => c.id)
       const cited = new Set<string>()
@@ -131,15 +159,14 @@ export const retentionDaily = inngest.createFunction(
       }
       return { deleted, pseudonymised }
     })
-    const ytComments = ytPurged.deleted + ytPurged.pseudonymised
 
-    const summary = { rawDeleted, bodiesStripped, ...ytPurged }
+    const summary = { rawDeleted, bodiesStripped, ytComments, ytVideos, ...ytPurged }
     console.log(`[retention] ${JSON.stringify(summary)}`)
 
-    // One line a day is noise; a day that deletes nothing at all after the
+    // One line a day is noise; a day that touches nothing at all after the
     // first sweep means the job has silently stopped working.
-    if (rawDeleted === 0 && bodiesStripped === 0 && ytComments === 0) {
-      console.log('[retention] nothing to delete today')
+    if (rawDeleted === 0 && bodiesStripped === 0 && ytComments.due === 0 && ytVideos.due === 0 && ytPurged.deleted + ytPurged.pseudonymised === 0) {
+      console.log('[retention] nothing due today')
     }
     return summary
   },
