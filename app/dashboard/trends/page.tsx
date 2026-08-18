@@ -224,6 +224,13 @@ export default async function TrendsPage() {
     byLabel.set(key, arr)
   }
 
+  // The series is strength_score, and the movement thresholds below (+/-1) are
+  // calibrated to its 0-10 scale. It should become rank_score, which is what
+  // salience now means everywhere else — but that is not a swap: rank is on a
+  // different scale entirely (evidence x share, ~0.02 to 27+ on real data), so
+  // it needs the thresholds recalibrated, and pre-2026-08-18 rows carry no rank
+  // at all. Plotting the two together would draw exactly the fabricated step
+  // change the audience/framing sentiment split had to be gated against.
   const trajectories: Trajectory[] = [...byLabel.entries()]
     .map(([, ptsRaw]) => {
       const pts = ptsRaw.sort((a, b) => a.date.localeCompare(b.date))
@@ -433,7 +440,7 @@ export default async function TrendsPage() {
             </CardContent>
           </Card>
           <p className="text-[11px] text-muted-foreground">
-            The line is how widely a theme was heard in each update, tracked across the updates it appeared in.
+            The line tracks how strongly a theme registered in each update, across the updates it appeared in.
           </p>
         </section>
       )}
