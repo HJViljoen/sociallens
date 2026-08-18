@@ -12,7 +12,7 @@ const CONTACT = 'heinrichjviljoen@gmail.com'  // A rights channel that does not 
 
 export default function PrivacyPage() {
   return (
-    <LegalPage title="Privacy" updated="18 August 2026">
+    <LegalPage title="Privacy" updated="23 August 2026">
       <p>
         Verbatim reads public conversation on social platforms so a brand can understand what its
         market is saying. This page says exactly what that means for the people whose comments we
@@ -23,7 +23,7 @@ export default function PrivacyPage() {
       <p>
         Verbatim is operated from the Western Cape, South Africa. For questions, corrections or
         removal requests, write to <a href={`mailto:${CONTACT}`}>{CONTACT}</a>. We answer within 30
-        days.
+        days, and we action removal requests within 7.
       </p>
 
       <h2>What we collect</h2>
@@ -82,7 +82,8 @@ export default function PrivacyPage() {
         Some categories we work in are health adjacent. Where a public comment reveals something
         about a person&rsquo;s health, we treat it as manifestly made public by that person, we use
         it only in aggregate, and we do not attach it to an identifiable individual in any surface
-        of the product.
+        of the product. Insights about who commenters are, their circumstances or location, are
+        reported as counts, never as quotes.
       </p>
 
       <h2>How long we keep it</h2>
@@ -92,8 +93,8 @@ export default function PrivacyPage() {
         <li>Prompt and response bodies in our AI audit log: 30 days, then stripped to metadata.</li>
         <li>Comment text and the analysis built from it: for as long as the customer&rsquo;s workspace is active, then deleted with the workspace.</li>
         <li>
-          YouTube comments: after 30 days we delete the ones we never cited, and for the ones we did
-          cite we delete the commenter&rsquo;s name and keep only the sentence itself.
+          YouTube comments and video statistics: re-checked against YouTube at least every 30 days.
+          Anything deleted or hidden on YouTube is deleted here too, together with any quote of it.
         </li>
       </ul>
 
@@ -109,8 +110,9 @@ export default function PrivacyPage() {
       <p>
         You can ask what we hold about you, ask us to correct or delete it, or object to our
         processing. Write to <a href={`mailto:${CONTACT}`}>{CONTACT}</a> with the handle and platform
-        and we will remove the comments tied to it. You can also complain to your data protection
-        authority, or in South Africa to the Information Regulator.
+        and we will remove the comments tied to it, and any quote of them, within 7 days, and make
+        sure they are not collected again. You can also complain to your data protection authority,
+        or in South Africa to the Information Regulator.
       </p>
 
       <h2>YouTube</h2>
