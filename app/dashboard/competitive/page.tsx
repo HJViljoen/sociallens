@@ -5,6 +5,7 @@ import { HowToRead } from '@/components/how-to-read'
 import type { GlossaryKey } from '@/lib/calibration'
 import { Quotes } from '@/components/quotes'
 import { rankByTheme, fetchQuotesByAudience, fetchInsightsByIds, createQuotePicker, bucketByAudienceId, scopeToCompetitor, type ThemeBucketRow } from '@/lib/quotes'
+import { COMPETITIVE_MIN_VIDEOS } from '@/lib/config'
 
 // Competitive Intelligence — renders Pass C's competitive_insights for the latest
 // run: qualitative cross-bucket intelligence drawn from competitors' customers'
@@ -131,6 +132,18 @@ export default async function CompetitiveIntelligencePage({
   // Any insights with an unrecognised category still get shown under "Other".
   const otherItems = insights.filter((c) => !CATEGORY_ORDER.includes(c.category as typeof CATEGORY_ORDER[number]))
 
+  // How much conversation a card's named competitor actually has. Pass C is now
+  // told not to rest a finding on a thin bucket (lib/pipeline/pass-c
+  // thinBuckets); this shows the reader the same number, so a comparison drawn
+  // from four videos reads as the hint it is.
+  const coverageFor = (ci: CompetitiveInsight): number | null => {
+    if (!ci.competitor_name) return null
+    const match = sov.competitors.find(
+      (c) => c.name.toLowerCase() === ci.competitor_name!.toLowerCase(),
+    )
+    return match?.count ?? 0
+  }
+
   return (
     <Shell showLegend={showLegend}>
       <ShareOfVoice sov={sov} brand={brand} />
@@ -145,13 +158,13 @@ export default async function CompetitiveIntelligencePage({
                 <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">{CATEGORY_META[cat].label}</h2>
                 <p className="text-xs text-muted-foreground">{CATEGORY_META[cat].blurb}</p>
               </div>
-              {items.map((ci) => <InsightCard key={ci.id} ci={ci} support={supportFor(ci)} quotes={quotesFor(ci)} />)}
+              {items.map((ci) => <InsightCard key={ci.id} ci={ci} support={supportFor(ci)} quotes={quotesFor(ci)} coverage={coverageFor(ci)} />)}
             </section>
           ))}
           {otherItems.length > 0 && (
             <section className="space-y-3">
               <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Other</h2>
-              {otherItems.map((ci) => <InsightCard key={ci.id} ci={ci} support={supportFor(ci)} quotes={quotesFor(ci)} />)}
+              {otherItems.map((ci) => <InsightCard key={ci.id} ci={ci} support={supportFor(ci)} quotes={quotesFor(ci)} coverage={coverageFor(ci)} />)}
             </section>
           )}
         </>
@@ -160,7 +173,15 @@ export default async function CompetitiveIntelligencePage({
   )
 }
 
-function InsightCard({ ci, support, quotes }: { ci: CompetitiveInsight; support: string[]; quotes: string[] }) {
+function InsightCard({ ci, support, quotes, coverage }: {
+  ci: CompetitiveInsight; support: string[]; quotes: string[]
+  /** Videos we analysed in the named competitor's bucket. A reader cannot judge
+   *  a comparison without knowing how much conversation it rests on, and a
+   *  thin bucket says so rather than reading as a finding about the brand
+   *  (Tier 1). Null when the card names no competitor. */
+  coverage: number | null
+}) {
+  const thin = coverage !== null && coverage < COMPETITIVE_MIN_VIDEOS
   return (
     <Card>
       <CardHeader className="pb-2">
@@ -168,6 +189,16 @@ function InsightCard({ ci, support, quotes }: { ci: CompetitiveInsight; support:
           <div className="flex flex-wrap items-center gap-2">
             {ci.competitor_name && <span className={`${chipBase} ${categoryTint(ci.competitor_name)}`}>vs {ci.competitor_name}</span>}
             <span className={`${chipBase} ${categoryTint(ci.category)}`}>{prettyType(ci.category)}</span>
+            {coverage !== null && (
+              <span
+                className={`${chipBase} ${thin ? 'bg-warning/15 text-warning-foreground' : 'bg-muted text-muted-foreground'}`}
+                title={thin
+                  ? `We analysed only ${coverage} video${coverage === 1 ? '' : 's'} about ${ci.competitor_name}. Treat this as a hint, not a finding.`
+                  : `Drawn from ${coverage} analysed videos about ${ci.competitor_name}.`}
+              >
+                {thin ? `thin: ${coverage} videos` : `${coverage} videos`}
+              </span>
+            )}
           </div>
           {ci.impact_level && (
             <span
