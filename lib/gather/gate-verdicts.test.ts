@@ -49,7 +49,7 @@ describe('buildGateVerdictRows (Tier 1)', () => {
   })
 
   it('tolerates a missing caption and a null run', () => {
-    const [row] = buildGateVerdictRows(CLIENT, null, 'reddit', [cand('v1', { caption: null })], new Map())
+    const [row] = buildGateVerdictRows(CLIENT, null, 'reddit', [cand('v1', { caption: undefined })], new Map())
     expect(row.caption_excerpt).toBeNull()
     expect(row.run_id).toBeNull()
   })

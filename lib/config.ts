@@ -397,6 +397,18 @@ export const PASS_B_PARALLEL = 3
 // (against YouTube API Services Developer Policy III.E.4.d).
 
 /**
+ * The eval contract's one hard floor today (Tier 1, 2026-08-18).
+ *
+ * Share of stored insight quotes that must still verify verbatim against the
+ * comment they cite. Pass A enforces this at write time, so the honest
+ * expectation is ~1.0 and anything below it means either drift (a comment was
+ * re-scraped and changed under a stored quote) or a hole in the check. Set at
+ * 0.98 rather than 1.0 to leave room for genuine re-scrape drift without
+ * hiding a systematic failure. Enforced only above 100 checkable rows.
+ */
+export const EVAL_GROUNDING_FLOOR = 0.98
+
+/**
  * Hard ceiling on MODEL spend within one pipeline run (Tier 1, 2026-08-18).
  *
  * A runaway run had no stop at all: the only lever was `clients.is_active`,

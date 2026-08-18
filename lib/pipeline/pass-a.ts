@@ -285,7 +285,12 @@ function buildUserPrompt(v: VideoRow, refs: CommentRef[], transcript: string | n
 
 // ---- validation ------------------------------------------------------------
 
-function normForMatch(s: string): string {
+/** The one definition of "this quote appears in that text". Exported so the
+ *  eval harness measures exactly what the pipeline enforces — a second copy
+ *  would drift, and this repo has already been burned by a diagnostic that
+ *  carried its own copy of production logic and produced confident, wrong
+ *  evidence (scripts/diagnose-owned, 2026-08-16). */
+export function normForMatch(s: string): string {
   return s
     .toLowerCase()
     .replace(/[‘’‚‛]/g, "'")
