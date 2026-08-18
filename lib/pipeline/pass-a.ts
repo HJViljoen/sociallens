@@ -418,6 +418,60 @@ const clampScore = (n: number) => Math.max(1, Math.min(10, Math.round(n)))
 
 // ---- main ------------------------------------------------------------------
 
+/** Video ids per `in.()` filter. Platform video ids are shorter than uuids, so
+ *  100 sits well inside the PostgREST URL cap that the whole-table fallback
+ *  exists to avoid. */
+const COMMENT_ID_FILTER_CHUNK = 100
+
+/** Above this many videos, one paginated table scan beats many id filters. The
+ *  pipeline always lands far below it (PASS_A_BATCH is 12); the CLI paths that
+ *  analyse a whole corpus land far above. */
+const COMMENT_ID_FILTER_MAX_VIDEOS = 300
+
+/**
+ * Comments for the videos being analysed (Tier 1, 2026-08-18).
+ *
+ * This used to be an unconditional scan of the tenant's ENTIRE comments table,
+ * filtered in memory, because a single `in.()` over a whole corpus blows the
+ * PostgREST URL cap ("fetch failed"). True for the corpus, false for a batch:
+ * the pipeline calls this with 12 video ids and then re-read all ~19k of
+ * Össur's comments to find their share, once per batch step — and since T0-1
+ * those steps genuinely run five-abreast.
+ *
+ * So: filter server-side in chunks when the set is small, keep the scan when it
+ * is not. Both paths return the same rows; the caller filters by
+ * platform::video_id either way, so a video id colliding across platforms is
+ * still handled.
+ */
+async function loadCommentsFor(
+  admin: ReturnType<typeof createAdminClient>,
+  clientId: string,
+  videoRows: VideoRow[],
+  platform?: string,
+): Promise<CommentRow[]> {
+  const COLS = 'id, client_id, run_id, platform, video_id, comment_id, author, text, likes'
+  if (videoRows.length > COMMENT_ID_FILTER_MAX_VIDEOS) {
+    return selectAll<CommentRow>(() => {
+      let q = admin.from('comments').select(COLS).eq('client_id', clientId).order('id', { ascending: true })
+      if (platform) q = q.eq('platform', platform)
+      return q
+    })
+  }
+  const ids = [...new Set(videoRows.map((v) => v.video_id))]
+  const out: CommentRow[] = []
+  for (let i = 0; i < ids.length; i += COMMENT_ID_FILTER_CHUNK) {
+    const chunk = ids.slice(i, i + COMMENT_ID_FILTER_CHUNK)
+    const rows = await selectAll<CommentRow>(() => {
+      let q = admin.from('comments').select(COLS)
+        .eq('client_id', clientId).in('video_id', chunk).order('id', { ascending: true })
+      if (platform) q = q.eq('platform', platform)
+      return q
+    })
+    out.push(...rows)
+  }
+  return out
+}
+
 export async function runPassA(opts: RunPassAOptions): Promise<RunPassASummary> {
   const {
     clientId,
@@ -474,15 +528,7 @@ export async function runPassA(opts: RunPassAOptions): Promise<RunPassASummary> 
   const wanted = new Set(videoRows.map((v) => `${v.platform}::${v.video_id}`))
   const commentsByVideo = new Map<string, CommentRow[]>()
   if (wanted.size) {
-    const comments = await selectAll<CommentRow>(() => {
-      let q = admin
-        .from('comments')
-        .select('id, client_id, run_id, platform, video_id, comment_id, author, text, likes')
-        .eq('client_id', clientId)
-        .order('id', { ascending: true })
-      if (platform) q = q.eq('platform', platform)
-      return q
-    })
+    const comments = await loadCommentsFor(admin, clientId, videoRows, platform)
     for (const c of comments) {
       const key = `${c.platform}::${c.video_id}`
       if (!wanted.has(key)) continue
