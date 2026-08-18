@@ -141,10 +141,51 @@ export async function generateWeeklyReport(opts: {
     }
   }
 
+  // Idempotency (T0-6). The send used to happen first, with a plain insert
+  // after it, inside a step that retries twice: a lost step response after a
+  // successful send delivered the client a second copy of the same update.
+  // Now the row is claimed FIRST (unique on client_id + run_id), so a retry
+  // finds it and stops. An already-sent report is never re-sent.
+  const existing = await admin
+    .from('weekly_reports')
+    .select('id, sent_at, subject, sent_to')
+    .eq('client_id', clientId).eq('run_id', runId)
+    .maybeSingle()
+  if (existing.data?.sent_at) {
+    return {
+      reportId: existing.data.id as string,
+      runId,
+      subject: (existing.data.subject as string) ?? '',
+      recipients: (existing.data.sent_to as string[]) ?? [],
+      sent: true,
+      reason: 'already sent for this run',
+    }
+  }
+
   const data = await buildReportData(admin, clientId, runId)
   const subject = reportSubject(data)
   const html = renderReportHtml(data, subject)
   const text = renderReportText(data, subject)
+
+  // Claim the row before sending. On a retry after a crash mid-send this row
+  // already exists with sent_at null, and the upsert refreshes its content
+  // rather than colliding.
+  const { data: claimed, error: claimErr } = await admin
+    .from('weekly_reports')
+    .upsert({
+      client_id: clientId,
+      run_id: runId,
+      subject,
+      html_content: html,
+      week_start: data.weekStart,
+      week_end: data.weekEnd,
+      sent_to: [],
+      sent_at: null,
+    }, { onConflict: 'client_id,run_id' })
+    .select('id')
+    .maybeSingle()
+  if (claimErr) throw new Error(`weekly_reports upsert: ${claimErr.message}`)
+  const reportId = (claimed?.id as string) ?? null
 
   let sent = false
   if (send) {
@@ -152,24 +193,18 @@ export async function generateWeeklyReport(opts: {
     sent = res.sent
   }
 
-  const { data: inserted, error } = await admin
-    .from('weekly_reports')
-    .insert({
-      client_id: clientId,
-      run_id: runId,
-      subject,
-      html_content: html,
-      week_start: data.weekStart,
-      week_end: data.weekEnd,
-      sent_to: sent ? data.recipients : [],
-      sent_at: sent ? new Date().toISOString() : null,
-    })
-    .select('id')
-    .maybeSingle()
-  if (error) throw new Error(`weekly_reports insert: ${error.message}`)
+  if (sent && reportId) {
+    const { error: markErr } = await admin
+      .from('weekly_reports')
+      .update({ sent_to: data.recipients, sent_at: new Date().toISOString() })
+      .eq('id', reportId)
+    // A failed stamp is not a failed send: say so rather than throwing, which
+    // would retry the step and send a second copy — the exact bug being fixed.
+    if (markErr) console.error(`[report] sent but not stamped (${reportId}): ${markErr.message}`)
+  }
 
   return {
-    reportId: (inserted?.id as string) ?? null,
+    reportId,
     runId,
     subject,
     recipients: data.recipients,
