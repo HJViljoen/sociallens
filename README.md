@@ -113,6 +113,15 @@ functions (defined in the baseline).
   run id to force a genuine re-read.
 - **Report preview/send**: `scripts/send-report.ts` (safe preview by default;
   `--commit` persists, `--no-send` skips email) or `POST /api/admin/send-report`.
+- **Retention** (`retention-daily`, 04:00 SAST, dormant until `RETENTION_ENABLED=1`):
+  raw payloads and prompt bodies past 30 days go; **YouTube rows are refreshed,
+  not deleted** — re-fetched from the API every ≤30 days (Developer Policy
+  III.E.4.d), rows YouTube no longer serves are deleted (evidence cascades,
+  hero-quote copies nulled), vanished videos are tombstoned; the Tier 0 delete
+  path stays as a 30-day backstop and logs loudly if it ever fires. Preview with
+  `scripts/retention-dry.ts`. Enable only after
+  `20260822110000_demographic_redact_backfill.sql` has been applied — it must
+  follow the code deploy, not precede it.
 - Run state lives in `pipeline_runs.status`
   (`running`/`completed`/`partial`/`failed`); a run failure also emails
   `ALERT_EMAIL` when configured.
@@ -138,4 +147,6 @@ All run as `node --env-file=.env.local --import tsx scripts/<name>.ts`.
 | `ab-pass-a.ts` | Pass A transcript A/B harness (runs with `trackAnalysis: false` — arms write rows under throwaway runs without moving the corpus pointer) |
 | `citation-floor.ts` | Citation-relevance floor calibrator (read-only). Aimed at an OLD run it now under-reports: that run's insights are pruned once a newer run supersedes them (incremental Pass A) |
 | `theme-registry.ts` | Theme-identity inspector + repair lever — entries, observations, label history, weak-band matches; `--merge` / `--dormant` / `--revive` need `--apply` |
+| `retention-dry.ts` | What tonight's retention sweep would do, read-only (`--refresh-sample N` also calls YouTube for N due comment ids and reports found/missing/edited — still read-only) |
+| `erase-commenter.ts` | Erase one commenter on request: `--platform <p> --handle <h>` finds their rows across every tenant + the demo clone, the evidence/language samples the delete cascades, hero-quote copies, and prompt bodies inside 30 days; dry-run by default, `--apply` deletes and records the handle in `suppressed_commenters` so a re-scrape never brings it back. Prints the reply template. 7-day SLA per the privacy notice |
 | `keyword-roi.ts` | Keyword ROI pruning table, worst first |
