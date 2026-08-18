@@ -25,7 +25,7 @@ import { writeRunSummary } from '@/lib/pipeline/run-summary'
 import { computeMetrics } from '@/lib/pipeline/metrics'
 import { sendAlertEmail } from '@/lib/email'
 import { billingAccess, type BillingClient } from '@/lib/billing'
-import { CLUSTER_SIMILARITY_THRESHOLD, EVIDENCE_FLOOR, PASS_A_ERROR_RATIO, TRANSCRIBE_PARALLEL, incrementalPassAEnabled, redditDiscoveryEnabled, transcriptsEnabled } from '@/lib/config'
+import { CLUSTER_SIMILARITY_THRESHOLD, EVIDENCE_FLOOR, PASS_A_ERROR_RATIO, TRANSCRIBE_PARALLEL, captureRunFlags, type RunFlags } from '@/lib/config'
 import type { Platform } from '@/lib/gather/types'
 import type { VideoRow, CommentRow } from '@/lib/pipeline/types'
 
@@ -68,10 +68,13 @@ export interface PipelineRunOptions {
   forcePassA?: boolean
 }
 
-/** open-run step result. `runId: null` = skipped by the single-flight guard. */
+/** open-run step result. `runId: null` = skipped by the single-flight guard.
+ *  `flags` is the run's frozen flag snapshot (absent on runs opened before
+ *  2026-08-18, which fall back to reading the environment). */
 interface OpenRunResult {
   runId: string | null
   skipped?: string
+  flags?: RunFlags
 }
 
 export const runPipeline = inngest.createFunction(
@@ -180,6 +183,9 @@ export const runPipeline = inngest.createFunction(
           .update({ status: 'failed', error_message: `abandoned: still 'running' after ${RUN_STALE_AFTER_HOURS}h when a new run opened`, completed_at: new Date().toISOString() })
           .in('id', decision.staleRunIds)
       }
+      // Frozen here, inside the memoised step: every later step replays this
+      // value instead of re-reading an environment that may have moved.
+      const flags = captureRunFlags()
       if (options.runId) {
         // started_at moves to NOW. It is set only at insert, and a resumed run
         // is by definition hours old, so leaving it would make every resumed
@@ -187,15 +193,15 @@ export const runPipeline = inngest.createFunction(
         // live run failed and open a second one alongside it.
         const { error } = await admin
           .from('pipeline_runs')
-          .update({ status: 'running', error_message: null, completed_at: null, started_at: new Date().toISOString() })
+          .update({ status: 'running', error_message: null, completed_at: null, started_at: new Date().toISOString(), flags, options })
           .eq('id', options.runId).eq('client_id', clientId)
         if (error?.code === PG_UNIQUE_VIOLATION) return { runId: null, skipped: 'another run opened first (unique index)' }
         if (error) throw new Error(`reopen run: ${error.message}`)
-        return { runId: options.runId }
+        return { runId: options.runId, flags }
       }
       const { error } = await admin
         .from('pipeline_runs')
-        .insert({ id: newRunId, client_id: clientId, status: 'running' })
+        .insert({ id: newRunId, client_id: clientId, status: 'running', flags, options })
       if (error?.code === PG_UNIQUE_VIOLATION) {
         // Either our own previous attempt's row (same id), or another run won
         // the race for this client (different id).
@@ -203,15 +209,18 @@ export const runPipeline = inngest.createFunction(
           .select('id').eq('id', newRunId).eq('client_id', clientId).maybeSingle()
         if (ours) {
           console.warn(`[open-run] reusing run ${newRunId} from a previous attempt of this step`)
-          return { runId: newRunId }
+          return { runId: newRunId, flags }
         }
         return { runId: null, skipped: 'another run opened first (unique index)' }
       }
       if (error) throw new Error(`open run: ${error.message}`)
-      return { runId: newRunId }
+      return { runId: newRunId, flags }
     })
     // Pre-2026-08-18 memoised shape: the step returned the run id itself.
     const runId: string | null = typeof opened === 'string' ? opened : opened.runId
+    // A run opened before this shipped has no snapshot; read the environment,
+    // which is exactly what it was doing anyway.
+    const flags: RunFlags = (typeof opened === 'string' ? undefined : opened.flags) ?? captureRunFlags()
     if (!runId) {
       const reason = typeof opened === 'string' ? '' : opened.skipped ?? ''
       // A skipped SCHEDULED run would otherwise cost the client their whole
@@ -275,7 +284,7 @@ export const runPipeline = inngest.createFunction(
     // failure is a timeout after several completed paid probes. A run that
     // quietly burned money and produced nothing is exactly what 'partial' is
     // for. Skipped entirely on an analysis-only resume.
-    if (!options.skipGather && redditDiscoveryEnabled()) {
+    if (!options.skipGather && flags.redditDiscovery) {
       await step
         .run('discover-subreddits', async () => {
           const config = await loadGatherConfig(clientId)
@@ -434,7 +443,7 @@ export const runPipeline = inngest.createFunction(
         // whole-platform step measured out at ~10s/video — 60 videos would
         // blow the 300s cap, and a real run has hundreds (readiness 2026-08-08).
         // Step retries are free: the in-batch status re-check skips done videos.
-        if (transcriptsEnabled()) {
+        if (flags.transcripts) {
           try {
             const txBatches = await step.run(`plan-transcribe:${platform}`, () =>
               planTranscribeBatches(clientId, runId, platform),
@@ -554,7 +563,7 @@ export const runPipeline = inngest.createFunction(
     //    (videos.analyzed_* bookkeeping, lib/pipeline/pass-a-plan.ts); off, it
     //    selects every eligible video exactly as before. The step result keeps
     //    the per-reason tally so a run log shows what drove the re-reads.
-    const passAPlan = await step.run('plan-pass-a', () => planPassABatches(clientId, runId, !!options.forcePassA))
+    const passAPlan = await step.run('plan-pass-a', () => planPassABatches(clientId, runId, !!options.forcePassA, flags))
     const batches = passAPlan.batches
     const passA = { analyzed: 0, claimsOnly: 0, skipped: 0, errored: 0, refused: 0, alreadyDone: 0, rateLimited: false, errors: [] as string[], batchesFailed: 0, insights: 0, languageSamples: 0, cost: 0, planned: passAPlan.selected, considered: passAPlan.considered, unchanged: passAPlan.reasons.unchanged, planReasons: passAPlan.reasons }
     // Batches dispatch in parallel waves — batches are disjoint video sets, so
@@ -575,7 +584,11 @@ export const runPipeline = inngest.createFunction(
         batches.slice(w, w + PASS_A_PARALLEL).map((videoIds, j) =>
           step
             .run(`pass-a:${w + j + 1}-of-${batches.length}`, async () => {
-              const s = await runPassA({ clientId, runId, videoIds, persist: true })
+              // transcripts comes from the run's snapshot, not the env: it
+              // decides passAPromptVersion, and a flip between the plan step
+              // and this one would stamp half the corpus with the other
+              // version and force a full re-read next run.
+              const s = await runPassA({ clientId, runId, videoIds, persist: true, transcripts: flags.transcripts })
               return { analyzed: s.videosAnalyzed, claimsOnly: s.videosClaimsOnly, skipped: s.videosSkipped, errored: s.videosErrored, refused: s.videosRefused, alreadyDone: s.videosAlreadyAnalyzed, rateLimited: s.rateLimited, errors: s.errors, insights: s.insightsKept, languageSamples: s.languageSamples, cost: s.costUsd, stepFailed: false }
             })
             .catch((e: unknown) => {
@@ -857,7 +870,7 @@ export interface PassAPlan {
   reasons: Record<SelectReason, number>
 }
 
-async function planPassABatches(clientId: string, runId: string, force: boolean): Promise<PassAPlan> {
+async function planPassABatches(clientId: string, runId: string, force: boolean, flags: RunFlags): Promise<PassAPlan> {
   const admin = createAdminClient()
   // Discovered corpus + the client's OWN posts. Owned posts never take the
   // full lane (their fans' comments would contaminate audience themes; Step 2c
@@ -894,8 +907,8 @@ async function planPassABatches(clientId: string, runId: string, force: boolean)
   // (only videos stamped with this run — otherwise every brand-side transcript
   // ever captured re-entered Pass A weekly, unbounded, +103 videos on
   // 2026-08-16 alone). With the flag ON, "changed" is that bound for both lanes.
-  const withTranscripts = transcriptsEnabled()
-  const incremental = incrementalPassAEnabled()
+  const withTranscripts = flags.transcripts
+  const incremental = flags.incrementalPassA
   const promptVersion = passAPromptVersion(withTranscripts)
   const reasons = emptyReasonTally()
   let considered = 0

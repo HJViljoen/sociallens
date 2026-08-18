@@ -396,6 +396,38 @@ export const PASS_B_PARALLEL = 3
 // with its comment text, and YouTube rows were never refreshed or purged
 // (against YouTube API Services Developer Policy III.E.4.d).
 
+/**
+ * The feature flags a run's behaviour depends on, captured once (Tier 1,
+ * 2026-08-18).
+ *
+ * Every flag is read from `process.env` at call time so it works in a
+ * serverless function. Inngest invokes each STEP as its own request, so an env
+ * change or a deploy part-way through a run means later steps see different
+ * values than earlier ones. The worst version is `transcripts`: it decides
+ * `passAPromptVersion`, which is the key incremental Pass A bookkeeps against,
+ * so a flip mid-run stamps half the corpus `pass_a_v4` and half `pass_a_v3`
+ * and the next run re-reads everything.
+ *
+ * Captured in the `open-run` step, which Inngest memoises — so the snapshot is
+ * frozen for the life of the run, replays included, and is persisted on the
+ * run row so a strange run can be explained after the fact.
+ */
+export interface RunFlags {
+  transcripts: boolean
+  incrementalPassA: boolean
+  themeRegistry: boolean
+  redditDiscovery: boolean
+}
+
+export function captureRunFlags(): RunFlags {
+  return {
+    transcripts: transcriptsEnabled(),
+    incrementalPassA: incrementalPassAEnabled(),
+    themeRegistry: themeRegistryEnabled(),
+    redditDiscovery: redditDiscoveryEnabled(),
+  }
+}
+
 /** Master switch for the retention sweep. OFF unless set, so the cron deploys
  *  dormant and its first pass is something an operator watches rather than
  *  something that happens at 04:00. It is the only destructive job in the

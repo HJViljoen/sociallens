@@ -351,6 +351,10 @@ export async function searchOne(opts: {
   for (const v of videos) v.source_keywords = [opts.keyword]
 
   let raws: Record<string, RawItem> | undefined
+  // Read live rather than from the run snapshot: this sits INSIDE one step, so
+  // a mid-run flip can skip a step's worth of raw capture but cannot split a
+  // step in half. The snapshot is threaded only where a flip would corrupt
+  // bookkeeping (Pass A's prompt version) — see lib/config RunFlags.
   if (transcriptsEnabled()) {
     raws = {}
     for (const p of paired) raws[p.video.video_id] = p.raw

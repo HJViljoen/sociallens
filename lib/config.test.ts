@@ -1,5 +1,5 @@
-import { describe, expect, it } from 'vitest'
-import { passAMinComments, PASS_A_MIN_COMMENTS_DEFAULT } from './config'
+import { describe, expect, it, afterEach } from 'vitest'
+import { passAMinComments, PASS_A_MIN_COMMENTS_DEFAULT, captureRunFlags, transcriptsEnabled } from './config'
 
 // Pass A's comment floor is per-platform (Wave 3). One global 5 was tuned for
 // TikTok/Instagram; Reddit threads run 3-8 comments but are far denser per
@@ -35,3 +35,33 @@ describe('reddit gather threshold vs Pass A floor', () => {
   })
 })
 
+
+describe('captureRunFlags — a run must not change flags underneath itself (Tier 1)', () => {
+  const saved = { ...process.env }
+  afterEach(() => {
+    process.env.TRANSCRIPTS_ENABLED = saved.TRANSCRIPTS_ENABLED
+    process.env.INCREMENTAL_PASS_A = saved.INCREMENTAL_PASS_A
+    process.env.THEME_REGISTRY = saved.THEME_REGISTRY
+    process.env.REDDIT_DISCOVERY_ENABLED = saved.REDDIT_DISCOVERY_ENABLED
+  })
+
+  it('reads every flag the run branches on', () => {
+    process.env.TRANSCRIPTS_ENABLED = '1'
+    process.env.INCREMENTAL_PASS_A = '1'
+    process.env.THEME_REGISTRY = '0'
+    process.env.REDDIT_DISCOVERY_ENABLED = '1'
+    expect(captureRunFlags()).toEqual({
+      transcripts: true, incrementalPassA: true, themeRegistry: false, redditDiscovery: true,
+    })
+  })
+
+  it('is a SNAPSHOT: flipping the environment afterwards cannot change it', () => {
+    process.env.TRANSCRIPTS_ENABLED = '1'
+    const captured = captureRunFlags()
+    process.env.TRANSCRIPTS_ENABLED = '0'
+    // The live reader moves; the captured snapshot does not. This is the whole
+    // point — a deploy or an env edit mid-run used to split a run in two.
+    expect(transcriptsEnabled()).toBe(false)
+    expect(captured.transcripts).toBe(true)
+  })
+})
