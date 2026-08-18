@@ -1,6 +1,7 @@
 import { inngest } from '@/inngest/client'
 import { createAdminClient, selectAll } from '@/lib/supabase-admin'
 import {
+  retentionEnabled,
   RAW_PAYLOAD_RETENTION_DAYS,
   AI_LOG_BODY_RETENTION_DAYS,
   YOUTUBE_RETENTION_DAYS,
@@ -27,6 +28,13 @@ export const retentionDaily = inngest.createFunction(
     triggers: [{ cron: 'TZ=Africa/Johannesburg 0 4 * * *' }],
   },
   async ({ step }) => {
+    // Dormant until switched on. The privacy notice states these windows, so
+    // this must be enabled deliberately and soon after deploy — not left off
+    // and forgotten. `npm run retention:dry` reports what a sweep would do.
+    if (!retentionEnabled()) {
+      console.log('[retention] RETENTION_ENABLED is not set; skipping sweep')
+      return { skipped: 'disabled', rawDeleted: 0, bodiesStripped: 0, deleted: 0, pseudonymised: 0 }
+    }
     const cutoff = (days: number) => new Date(Date.now() - days * 86_400_000).toISOString()
 
     // 1. Raw actor payloads. The durable artifact is videos.transcript; the

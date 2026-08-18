@@ -396,6 +396,17 @@ export const PASS_B_PARALLEL = 3
 // with its comment text, and YouTube rows were never refreshed or purged
 // (against YouTube API Services Developer Policy III.E.4.d).
 
+/** Master switch for the retention sweep. OFF unless set, so the cron deploys
+ *  dormant and its first pass is something an operator watches rather than
+ *  something that happens at 04:00. It is the only destructive job in the
+ *  product: on the corpus as it stands the first sweep deletes 551 stale
+ *  YouTube comments, pseudonymises 194, and strips 1,638 prompt bodies, across
+ *  every tenant at once. Read at call-time (serverless). */
+export function retentionEnabled(): boolean {
+  const v = process.env.RETENTION_ENABLED
+  return v === '1' || v === 'true'
+}
+
 /** Raw platform payloads. Only the transcribe step reads them, within the run. */
 export const RAW_PAYLOAD_RETENTION_DAYS = 30
 /** Prompt/response bodies in the AI audit log. Metadata (cost, tokens, timing,
