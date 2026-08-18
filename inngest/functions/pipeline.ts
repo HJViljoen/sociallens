@@ -80,12 +80,20 @@ export const runPipeline = inngest.createFunction(
     // Step-concurrency ceiling per client. NOT the single-flight mechanism:
     // Inngest's `concurrency` limits concurrent STEPS, and `limit: 1` (until
     // 2026-08-18) serialised every "parallel" wave in this function for its
-    // whole life — an ai_call_log sweep found zero overlapping calls in any
-    // run. The largest wave is PASS_A_PARALLEL (5) and the Inngest Hobby
-    // account caps at 5 concurrent steps, so 8 is headroom, not a target.
+    // whole life — an ai_call_log sweep found zero overlapping calls in any run.
+    //
+    // 5, because that is the Inngest Hobby plan's account-wide cap and Inngest
+    // REJECTS the whole app registration if a function asks for more: the first
+    // attempt at 8 came back {"modified":false, "...higher concurrency limits
+    // (8) than your plan limit of 5"}, which would have left the old limit:1
+    // config live and silently undone this entire change. It also happens to be
+    // exactly the largest wave (PASS_A_PARALLEL). The 5 is shared with the
+    // scheduler, report, owned-snapshot and retention functions, so raising the
+    // real ceiling means a paid plan or the container worker (Tier 5).
+    //
     // "One run per client at a time" lives in open-run (lib/pipeline/run-guard)
-    // plus the partial unique index pipeline_runs_one_running_per_client.
-    concurrency: { limit: 8, key: 'event.data.clientId' },
+    // plus the unique index pipeline_runs_one_running_per_client.
+    concurrency: { limit: 5, key: 'event.data.clientId' },
     retries: 2,
     // A function-level failure (a step out of retries) would otherwise strand
     // the run row at 'running' forever — pages and monitors need a terminal
