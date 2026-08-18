@@ -221,14 +221,22 @@ export default async function VoiceOfCustomerPage({
     ...confirmed.flatMap((t) => t.supporting_insight_ids.slice(0, QUOTE_IDS_PER_THEME)),
     ...(detailTheme?.supporting_insight_ids.slice(0, QUOTE_IDS_PER_THEME) ?? []),
   ])]
+  // Counts-not-quotes (2026-08-22): demographic_signal evidence cites but never
+  // quotes — its rows carry redacted = true and quote ''. They are counted here
+  // (so the card can say how many comments were withheld) and never rendered.
   const quoteByInsight = new Map<string, string[]>()
+  const withheldByInsight = new Map<string, number>()
   const CHUNK = 100
   for (let i = 0; i < quoteIds.length; i += CHUNK) {
     const { data } = await supabase
-      .from('insight_evidence').select('audience_insight_id, quote, relevance_rank')
+      .from('insight_evidence').select('audience_insight_id, quote, relevance_rank, redacted')
       .in('audience_insight_id', quoteIds.slice(i, i + CHUNK))
       .order('relevance_rank', { ascending: true })
-    for (const ev of (data ?? []) as { audience_insight_id: string; quote: string }[]) {
+    for (const ev of (data ?? []) as { audience_insight_id: string; quote: string; redacted: boolean | null }[]) {
+      if (ev.redacted || !ev.quote) {
+        withheldByInsight.set(ev.audience_insight_id, (withheldByInsight.get(ev.audience_insight_id) ?? 0) + 1)
+        continue
+      }
       const arr = quoteByInsight.get(ev.audience_insight_id)
       if (arr) arr.push(ev.quote)
       else quoteByInsight.set(ev.audience_insight_id, [ev.quote])
@@ -244,6 +252,9 @@ export default async function VoiceOfCustomerPage({
     }
     return out
   }
+  /** Comments cited for this theme whose words are withheld (audience-profile evidence). */
+  const withheldFor = (t: ThemeRow): number =>
+    t.supporting_insight_ids.slice(0, QUOTE_IDS_PER_THEME).reduce((n, id) => n + (withheldByInsight.get(id) ?? 0), 0)
 
   // Theme history for the overlay — the same THEME across earlier runs, keyed
   // on its registry id (stable identity); falls back to the label for rows
@@ -378,6 +389,7 @@ export default async function VoiceOfCustomerPage({
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {featured.map((t) => {
               const quotes = quotesFor(t)
+              const withheld = withheldFor(t)
               const denom = groupSize(t.bucket)
               // Calibrated prevalence: word by rule, count next to it (never the model's wording).
               const prevalence = prevalenceTier(t.evidence_count, denom)
@@ -426,6 +438,11 @@ export default async function VoiceOfCustomerPage({
                           ))}
                         </div>
                       </details>
+                    )}
+                    {withheld > 0 && (
+                      <p className="text-[11px] text-muted-foreground">
+                        {withheld} {withheld === 1 ? 'comment describes' : 'comments describe'} who these commenters are. Counted, not quoted.
+                      </p>
                     )}
                   </CardContent>
                 </Card>
@@ -553,6 +570,7 @@ export default async function VoiceOfCustomerPage({
             const denom = groupSize(detailTheme.bucket)
             const prevalence = prevalenceTier(detailTheme.evidence_count, denom)
             const quotes = quotesFor(detailTheme)
+            const withheld = withheldFor(detailTheme)
             return (
               <div className="space-y-3 pr-6">
                 <ThemeChips t={detailTheme} tier={tier} prevalence={prevalence} showNew={showNew} bucketLabel={bucketChip(detailTheme.bucket)} />
@@ -580,6 +598,11 @@ export default async function VoiceOfCustomerPage({
                     ))}
                     <p className="text-[10px] text-muted-foreground">a sample of the conversations behind this theme</p>
                   </div>
+                )}
+                {withheld > 0 && (
+                  <p className="text-[11px] text-muted-foreground">
+                    {withheld} {withheld === 1 ? 'comment describes' : 'comments describe'} who these commenters are. Counted, not quoted.
+                  </p>
                 )}
               </div>
             )

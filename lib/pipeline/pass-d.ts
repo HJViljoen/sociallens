@@ -351,6 +351,11 @@ async function retrieveQuotes(
       .from('insight_evidence')
       .select('quote, audience_insight_id')
       .in('audience_insight_id', insightIds.slice(i, i + CHUNK))
+      // Counts-not-quotes (2026-08-22): demographic_signal evidence cites but
+      // never quotes. Filtered here, not just by the empty-string check below,
+      // so redacted rows cannot eat the cap — and so a person's account of
+      // their own body can never become a hero quote.
+      .eq('redacted', false)
       .order('relevance_rank', { ascending: true })
       .limit(cap - quotes.length)
     if (error) throw new Error(`retrieve evidence: ${error.message}`)

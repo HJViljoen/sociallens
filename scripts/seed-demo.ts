@@ -453,7 +453,7 @@ async function cloneW6(): Promise<{ maps: CloneMaps; actual: W6Actual }> {
     if (e.source === 'video') {
       const vid = maps.video.get(e.source_video_id as string)
       if (!vid) continue
-      evidenceRows.push({ id: randomUUID(), audience_insight_id: ai, comment_id: null, source: 'video', source_video_id: vid, quote: e.quote, relevance_rank: e.relevance_rank, created_at: stamp })
+      evidenceRows.push({ id: randomUUID(), audience_insight_id: ai, comment_id: null, source: 'video', source_video_id: vid, quote: e.quote, redacted: e.redacted ?? false, relevance_rank: e.relevance_rank, created_at: stamp })
       continue
     }
     const cm = maps.comment.get(e.comment_id as string)
@@ -461,7 +461,9 @@ async function cloneW6(): Promise<{ maps: CloneMaps; actual: W6Actual }> {
     // Uniform keys with the video branch: bulk inserts use the UNION of keys
     // across rows and default missing keys to NULL — which would violate the
     // source NOT NULL constraint on any chunk mixing both shapes.
-    evidenceRows.push({ id: randomUUID(), audience_insight_id: ai, comment_id: cm, source: 'comment', source_video_id: null, quote: e.quote, relevance_rank: e.relevance_rank, created_at: stamp })
+    // redacted rides along (counts-not-quotes, 2026-08-22): a demographic_signal
+    // citation stays a citation in the demo too, with quote ''.
+    evidenceRows.push({ id: randomUUID(), audience_insight_id: ai, comment_id: cm, source: 'comment', source_video_id: null, quote: e.quote, redacted: e.redacted ?? false, relevance_rank: e.relevance_rank, created_at: stamp })
   }
   maps.evidenceInserted = await insertRows('insight_evidence', evidenceRows)
 

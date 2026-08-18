@@ -87,9 +87,12 @@ async function main() {
 
   for (const client of clients) {
     // ---- 1. Grounding over the stored corpus --------------------------------
+    // redacted = false: demographic_signal evidence cites but never quotes
+    // (counts-not-quotes, 2026-08-22) — quote is '' by design, not a grounding
+    // failure.
     const evidence = await selectAll<{ id: string; quote: string; comment_id: string | null }>(() =>
       admin.from('insight_evidence').select('id, quote, comment_id, audience_insights!inner(client_id)')
-        .eq('audience_insights.client_id', client.id).eq('source', 'comment').order('id'),
+        .eq('audience_insights.client_id', client.id).eq('source', 'comment').eq('redacted', false).order('id'),
     )
     const commentIds = [...new Set(evidence.map((e) => e.comment_id).filter((x): x is string => Boolean(x)))]
     const textById = new Map<string, string>()

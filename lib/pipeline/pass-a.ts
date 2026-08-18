@@ -23,8 +23,12 @@ import { normForMatch } from './quote-match'
 // Budget note: $2.40 OpenAI ceiling — iterate with `dryRun` (free) and small
 // `limit`/`videoIds` samples; only run the full corpus once the prompt is dialed.
 
-const PROMPT_VERSION = 'pass_a_v3'
-const PROMPT_VERSION_V4 = 'pass_a_v4'
+// v3.1 / v4.1 (2026-08-22): demographic_signal is counted, not quoted — the
+// category definition drops "age" and a rule keeps identity disclosures out of
+// every other quote. A version bump re-reads the corpus on the next run when
+// INCREMENTAL_PASS_A is on; that is the cost of a prompt change (AGENTS.md).
+const PROMPT_VERSION = 'pass_a_v3.1'
+const PROMPT_VERSION_V4 = 'pass_a_v4.1'
 const MAX_CLAIMS_PER_VIDEO = 3
 
 /** The Pass A prompt version a run writes — v4 with transcripts, v3 without.
@@ -205,7 +209,7 @@ export function buildSystemPrompt(tc: TrackingConfig, withTranscripts = false): 
     '- praise: positive feedback about a product, brand, or result. NOT generic "so beautiful / inspiring" on human-interest content.',
     '- objection: a concern, criticism, or reason not to buy.',
     '- misinformation: a false or misleading claim worth flagging.',
-    '- demographic_signal: who the audience is — age, condition, use-case, or location revealed in the comments.',
+    '- demographic_signal: who the audience is — condition, use-case, or location revealed in the comments (never age). Evidence in this category is verified and then COUNTED, never displayed: quote the shortest fragment that verifies the signal, and put a comment whose point is the writer\'s own diagnosis or disability status here rather than quoting it under another category.',
     '- switching_signal: someone weighing, comparing, or moving between brands/providers — "I switched from X", "is Y better than Z", dissatisfaction paired with an alternative.',
     '- buying_trigger: the concrete event or circumstance that pushes someone toward a purchase — something broke, a life change, a recommendation, insurance approval. The WHY-NOW, distinct from purchase_intent (the wanting itself).',
     '',
@@ -229,6 +233,7 @@ export function buildSystemPrompt(tc: TrackingConfig, withTranscripts = false): 
     '- theme is a short snake_case slug, 2-4 words (e.g. stairs_difficulty). Reuse the same slug for the same underlying idea.',
     '- Do not invent counts or percentages.',
     '- Insights must come from the comments, not the metadata.',
+    '- Quotes in every other category, and every language_sample, must not reproduce a sentence whose point is the writer\'s own diagnosis, disability status, or that they are under 18 (e.g. "I\'m a BK amputee since 2019", "I\'m 14"). The product experience they describe can still be quoted; the identity statement belongs under demographic_signal.',
   ]
   if (!withTranscripts) return base.join('\n')
   // v4: the comments-only framing must yield where the transcript is evidence —
@@ -858,6 +863,11 @@ async function persistVideo(admin: ReturnType<typeof createAdminClient>, args: P
     // legacy error behavior exactly (flag-off path byte-identical); the v4
     // shape throws on failure — a swallowed error here would persist insights
     // with zero evidence against a mis-migrated DB (review finding).
+    // Counts, not quotes (2026-08-22): demographic_signal evidence keeps its
+    // citation — the FK is what the evidence floor counts and the quote WAS
+    // verified against the comment in validateInsights — but not the words.
+    // Every reader filters redacted = false.
+    const redact = insight.category === 'demographic_signal'
     const { error: evErr } = await admin.from('insight_evidence').insert(
       evidence.map((e, i) =>
         claims !== null
@@ -866,13 +876,15 @@ async function persistVideo(admin: ReturnType<typeof createAdminClient>, args: P
               comment_id: e.source === 'video' ? null : e.realId,
               source: e.source,
               source_video_id: e.source === 'video' ? video.id : null,
-              quote: e.quote,
+              quote: redact ? '' : e.quote,
+              redacted: redact,
               relevance_rank: i + 1,
             }
           : {
               audience_insight_id: insightId,
               comment_id: e.realId,
-              quote: e.quote,
+              quote: redact ? '' : e.quote,
+              redacted: redact,
               relevance_rank: i + 1,
             },
       ),

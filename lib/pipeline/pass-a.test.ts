@@ -131,6 +131,21 @@ describe('buildSystemPrompt v4 line rewrites', () => {
   })
 })
 
+describe('buildSystemPrompt — demographic_signal is counted, not quoted (2026-08-22)', () => {
+  const tc = { brand_keywords: ['ossur'], competitor_names: [], industry_keywords: [] }
+  for (const withTranscripts of [false, true]) {
+    it(`v${withTranscripts ? 4 : 3}: no "age" in the category, identity-disclosure rule present`, () => {
+      const p = buildSystemPrompt(tc, withTranscripts)
+      const catLine = p.split('\n').find((l) => l.startsWith('- demographic_signal:'))
+      expect(catLine).toBeDefined()
+      expect(catLine).not.toContain('— age,') // age is no longer an attribute the model extracts
+      expect(catLine).toContain('(never age)')
+      expect(catLine).toContain('COUNTED, never displayed')
+      expect(p).toContain('must not reproduce a sentence whose point is the writer\'s own diagnosis, disability status, or that they are under 18')
+    })
+  }
+})
+
 describe('usableTranscript', () => {
   it('returns text only for status ok', () => {
     expect(usableTranscript({ transcript: 'real speech here', transcript_status: 'ok' })).toBe('real speech here')

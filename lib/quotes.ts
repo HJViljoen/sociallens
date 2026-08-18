@@ -121,10 +121,11 @@ export function scopeToCompetitor(ids: string[], bucketById: Map<string, string>
  *  local cast target so callers can pass their fully-typed client without TS
  *  trying to reconcile Postgrest's deeply-recursive builder type ("excessively
  *  deep") against this structural interface. */
+type Rows = PromiseLike<{ data: unknown[] | null; error: unknown }>
 interface EvidenceClient {
   from(table: string): {
     select(cols: string): {
-      in(col: string, vals: string[]): PromiseLike<{ data: unknown[] | null; error: unknown }>
+      in(col: string, vals: string[]): Rows & { eq(col: string, val: boolean): Rows }
     }
   }
 }
@@ -138,10 +139,14 @@ export async function fetchQuotesByAudience(
   const c = client as EvidenceClient
   const byAudience = new Map<string, QuoteRow[]>()
   for (let i = 0; i < audienceIds.length; i += 120) {
+    // redacted = false: demographic_signal evidence cites but never quotes
+    // (counts-not-quotes, 2026-08-22); its rows carry quote '' and must never
+    // reach a picker.
     const { data } = await c
       .from('insight_evidence')
       .select('audience_insight_id, quote, relevance_rank')
       .in('audience_insight_id', audienceIds.slice(i, i + 120))
+      .eq('redacted', false)
     for (const r of (data ?? []) as { audience_insight_id: string; quote: string | null; relevance_rank: number | null }[]) {
       if (!r.quote) continue
       const arr = byAudience.get(r.audience_insight_id) ?? []
