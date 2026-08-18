@@ -1,4 +1,4 @@
-import { PRIVACY_URL, TERMS_URL } from '@/lib/site'
+import { PRIVACY_URL, TERMS_URL } from '@/lib/legal'
 
 /**
  * Consent line on the two account-creation surfaces (T0-9, 2026-08-18).

@@ -11,3 +11,7 @@
 create unique index if not exists weekly_reports_client_run_unique
   on public.weekly_reports (client_id, run_id)
   where run_id is not null;
+
+-- NOTE (same day): this index was created partial and that was WRONG for the
+-- upsert that uses it — see 20260820160000_weekly_reports_unique_arbiter_fix.sql,
+-- which replaces it with a plain unique index. Kept as applied, not rewritten.
