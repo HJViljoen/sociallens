@@ -1,4 +1,4 @@
-import type { PlatformAdapter, GatherConfig, VideoRef, RawItem, FetchedTranscript } from '../types'
+import type { PlatformAdapter, GatherConfig, VideoRef, RawItem, FetchedTranscript, RefreshedComment, RefreshedVideoStats } from '../types'
 import { num, str, first, getPath, toDateOnly, engagementRate } from '../util'
 import { tagVideo } from '../tagging'
 import { runActor } from '../apify'
@@ -208,6 +208,74 @@ export const youtube: PlatformAdapter = {
       }
     }
     return out
+  },
+
+  // Retention refresh (Tier 1.5, 2026-08-22). commentThreads.list accepts a
+  // comma-separated `id` filter at 1 quota unit per call (maxResults is ignored
+  // with `id`; no documented cap on ids — 50 mirrors videos.list, and a 400
+  // halves the batch). Threads the API no longer returns (deleted, held, or on
+  // a video gone private) are simply absent from `items` — that absence is the
+  // signal the retention job acts on. Field paths match normaliseComment so a
+  // refreshed row is exactly what a fresh scrape would have written.
+  async refreshComments(commentIds: string[]): Promise<{ found: RefreshedComment[]; missing: string[] }> {
+    const key = apiKey()
+    const found: RefreshedComment[] = []
+    const seen = new Set<string>()
+    const fetchBatch = async (ids: string[]): Promise<void> => {
+      const params = new URLSearchParams({ part: 'snippet', id: ids.join(','), textFormat: 'plainText', key })
+      let data: Record<string, unknown>
+      try {
+        data = await ytGet('commentThreads', params)
+      } catch (e) {
+        // A 400 on a multi-id batch is almost always "too many ids" — halve
+        // and retry down to one, so one bad id costs one call, not the batch.
+        if (ids.length > 1 && /\b400\b/.test((e as Error).message)) {
+          const mid = Math.ceil(ids.length / 2)
+          await fetchBatch(ids.slice(0, mid))
+          await fetchBatch(ids.slice(mid))
+          return
+        }
+        // A single id that 400s/404s is a thread the API will not serve → missing.
+        if (ids.length === 1 && /\b40[04]\b/.test((e as Error).message)) return
+        throw e
+      }
+      for (const raw of itemsOf(data)) {
+        const top = getPath(raw, ['snippet', 'topLevelComment', 'snippet'])
+        const comment_id = str(first(getPath(raw, ['snippet', 'topLevelComment', 'id']), getPath(raw, ['id'])))
+        const text = str(first(getPath(top, ['textOriginal']), getPath(top, ['textDisplay'])))
+        if (!comment_id || !text || seen.has(comment_id)) continue
+        seen.add(comment_id)
+        found.push({
+          comment_id,
+          author: str(getPath(top, ['authorDisplayName'])),
+          text,
+          likes: num(getPath(top, ['likeCount'])),
+          reply_count: num(getPath(raw, ['snippet', 'totalReplyCount'])),
+        })
+      }
+    }
+    for (let i = 0; i < commentIds.length; i += 50) await fetchBatch(commentIds.slice(i, i + 50))
+    return { found, missing: commentIds.filter((id) => !seen.has(id)) }
+  },
+
+  /** videos.list?part=statistics — 1 unit per 50 ids (the fetchCommentCounts
+   *  pattern). A video absent from `items` is deleted/private/taken down. */
+  async refreshVideoStats(videoIds: string[]): Promise<{ found: Map<string, RefreshedVideoStats>; missing: string[] }> {
+    const key = apiKey()
+    const found = new Map<string, RefreshedVideoStats>()
+    for (let i = 0; i < videoIds.length; i += 50) {
+      const params = new URLSearchParams({ part: 'statistics', id: videoIds.slice(i, i + 50).join(','), key })
+      for (const v of itemsOf(await ytGet('videos', params))) {
+        const id = str(getPath(v, ['id']))
+        if (!id) continue
+        found.set(id, {
+          views: num(getPath(v, ['statistics', 'viewCount'])),
+          likes: num(getPath(v, ['statistics', 'likeCount'])),
+          comments_count: num(getPath(v, ['statistics', 'commentCount'])),
+        })
+      }
+    }
+    return { found, missing: videoIds.filter((id) => !found.has(id)) }
   },
 
   async fetchComments(video: VideoRef, config: GatherConfig): Promise<RawItem[]> {

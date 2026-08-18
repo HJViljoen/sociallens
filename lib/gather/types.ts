@@ -67,6 +67,8 @@ export interface VideoInsert {
   /** Keyword(s) whose search surfaced this video. Set by the gather orchestrator
    *  (unioned across a run's per-keyword searches), not by the normalisers. */
   source_keywords?: string[]
+  /** Stamped at ingest: API-sourced fields were just read from the source. */
+  refreshed_at?: string
 }
 
 /** A row ready to upsert into `comments`. `video_id` is the platform id (text),
@@ -83,11 +85,16 @@ export interface CommentInsert {
   reply_count: number
   is_reply: boolean
   comment_date: string | null
+  /** Stamped at ingest: this row was just read from its source (a re-scrape IS a refresh). */
+  refreshed_at?: string
 }
 
 /** Raw Apify dataset item. Actor output is loosely and inconsistently shaped, so
  *  it's an unknown record and the adapters extract defensively. */
 export type RawItem = Record<string, unknown>
+
+import type { RefreshedComment, RefreshedVideoStats } from '../retention/youtube-refresh'
+export type { RefreshedComment, RefreshedVideoStats }
 
 // ---- Transcripts (Step 1 — capture only) ------------------------------------
 
@@ -193,6 +200,16 @@ export interface PlatformAdapter {
    * on Apify platforms a count check costs as much as the scrape it would save.
    */
   fetchCommentCounts?(videoIds: string[]): Promise<Map<string, number>>
+  /**
+   * Retention refresh (Tier 1.5): re-fetch specific stored comments by platform
+   * id so the copy stays consistent with the source and rows the source no
+   * longer serves can be removed (YouTube Developer Policy III.E.4.d/e). Returns
+   * what was found plus the ids that were not. Only the official-API platform
+   * has this; scraped platforms have no by-id read.
+   */
+  refreshComments?(commentIds: string[]): Promise<{ found: RefreshedComment[]; missing: string[] }>
+  /** Same for a video's public statistics (views/likes/comment count). */
+  refreshVideoStats?(videoIds: string[]): Promise<{ found: Map<string, RefreshedVideoStats>; missing: string[] }>
   /**
    * Apify actor slug + input to re-fetch SPECIFIC videos by URL rather than by
    * search. Media and caption URLs are signed and expiring, so a video stored by
