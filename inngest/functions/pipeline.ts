@@ -17,6 +17,7 @@ import { discoverSubreddits } from '@/lib/gather/subreddit-discovery'
 import { activeSubreddits } from '@/lib/gather/subreddits'
 import { runStep2c } from '@/lib/pipeline/owned-events'
 import { summariseRunErrors, partialRunAlert, RUN_ERROR_CAP } from '@/lib/pipeline/run-errors'
+import { decideOpenRun, RUN_STALE_AFTER_HOURS, PG_UNIQUE_VIOLATION, type RunningRow } from '@/lib/pipeline/run-guard'
 import { persistRunNews } from '@/lib/news/persist'
 import { persistThemes, loadThemes } from '@/lib/pipeline/themes'
 import { writeRunSummary } from '@/lib/pipeline/run-summary'
@@ -65,13 +66,25 @@ export interface PipelineRunOptions {
   forcePassA?: boolean
 }
 
+/** open-run step result. `runId: null` = skipped by the single-flight guard. */
+interface OpenRunResult {
+  runId: string | null
+  skipped?: string
+}
+
 export const runPipeline = inngest.createFunction(
   {
     id: 'run-pipeline',
     triggers: [{ event: 'pipeline/run.requested' }],
-    // One run at a time per client — a new request waits rather than racing an
-    // in-flight run on the same corpus.
-    concurrency: { limit: 1, key: 'event.data.clientId' },
+    // Step-concurrency ceiling per client. NOT the single-flight mechanism:
+    // Inngest's `concurrency` limits concurrent STEPS, and `limit: 1` (until
+    // 2026-08-18) serialised every "parallel" wave in this function for its
+    // whole life — an ai_call_log sweep found zero overlapping calls in any
+    // run. The largest wave is PASS_A_PARALLEL (5) and the Inngest Hobby
+    // account caps at 5 concurrent steps, so 8 is headroom, not a target.
+    // "One run per client at a time" lives in open-run (lib/pipeline/run-guard)
+    // plus the partial unique index pipeline_runs_one_running_per_client.
+    concurrency: { limit: 8, key: 'event.data.clientId' },
     retries: 2,
     // A function-level failure (a step out of retries) would otherwise strand
     // the run row at 'running' forever — pages and monitors need a terminal
@@ -102,23 +115,55 @@ export const runPipeline = inngest.createFunction(
 
     // 1. Open the run row (the orchestrator owns the lifecycle the CLI used to).
     //    An analysis-only resume reuses the existing row instead.
-    const runId = await step.run('open-run', async () => {
+    //    Single-flight guard (2026-08-18): a second event for a client whose
+    //    run is still in flight is SKIPPED here — returned, not thrown, so
+    //    onFailure never fires and never marks the live run failed. Abandoned
+    //    'running' rows past RUN_STALE_AFTER_HOURS are closed as failed on the
+    //    way through instead of blocking the client forever. The step keeps its
+    //    id and tolerates the pre-2026-08-18 memoised shape (a bare run id
+    //    string) so a run in flight across the deploy replays cleanly.
+    const opened = await step.run('open-run', async (): Promise<OpenRunResult> => {
       const admin = createAdminClient()
+      let running = await admin
+        .from('pipeline_runs')
+        .select('id, started_at')
+        .eq('client_id', clientId)
+        .eq('status', 'running')
+      if (running.error) throw new Error(`open run (guard): ${running.error.message}`)
+      const rows = ((running.data ?? []) as RunningRow[]).filter((r) => r.id !== options.runId)
+      const decision = decideOpenRun(rows)
+      if (decision.action === 'skip') {
+        console.warn(`[open-run] skipped: client ${clientId} already has run ${decision.blockingRunId} in flight`)
+        return { runId: null, skipped: `run ${decision.blockingRunId} already in flight` }
+      }
+      if (decision.staleRunIds.length) {
+        console.warn(`[open-run] closing ${decision.staleRunIds.length} abandoned running row(s): ${decision.staleRunIds.join(', ')}`)
+        await admin.from('pipeline_runs')
+          .update({ status: 'failed', error_message: `abandoned: still 'running' after ${RUN_STALE_AFTER_HOURS}h when a new run opened`, completed_at: new Date().toISOString() })
+          .in('id', decision.staleRunIds)
+      }
       if (options.runId) {
         const { error } = await admin
           .from('pipeline_runs')
           .update({ status: 'running', error_message: null, completed_at: null })
           .eq('id', options.runId).eq('client_id', clientId)
+        if (error?.code === PG_UNIQUE_VIOLATION) return { runId: null, skipped: 'another run opened first (unique index)' }
         if (error) throw new Error(`reopen run: ${error.message}`)
-        return options.runId
+        return { runId: options.runId }
       }
       const id = randomUUID()
       const { error } = await admin
         .from('pipeline_runs')
         .insert({ id, client_id: clientId, status: 'running' })
+      if (error?.code === PG_UNIQUE_VIOLATION) return { runId: null, skipped: 'another run opened first (unique index)' }
       if (error) throw new Error(`open run: ${error.message}`)
-      return id
+      return { runId: id }
     })
+    // Pre-2026-08-18 memoised shape: the step returned the run id itself.
+    const runId: string | null = typeof opened === 'string' ? opened : opened.runId
+    if (!runId) {
+      return { runId: null, status: 'skipped', reason: typeof opened === 'string' ? '' : opened.skipped ?? '' }
+    }
 
     // News context layer (Wave 2): free RSS fetch + ring-assign + store for
     // the Trends panel. Zero corpus dependency, so it runs right after
