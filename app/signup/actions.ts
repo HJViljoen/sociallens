@@ -4,6 +4,7 @@ import { z } from 'zod'
 import { redirect } from 'next/navigation'
 import { createAdminClient } from '@/lib/supabase-admin'
 import { createServerSupabaseClient } from '@/lib/supabase-server'
+import { checkSignupCode } from '@/lib/signup-gate'
 
 // State shape (a type) — idle value lives in the client page; a 'use server'
 // module may only export async functions.
@@ -17,6 +18,7 @@ const schema = z.object({
   full_name: z.string().trim().min(1),
   email: z.email(),
   password: z.string().min(8),
+  invite_code: z.string(),
 })
 
 const isEmailTaken = (e: { code?: string; message?: string } | null) =>
@@ -30,12 +32,21 @@ const isEmailTaken = (e: { code?: string; message?: string } | null) =>
 // verify-email flow, not the provider). A new account only ever gets its own
 // fresh, empty workspace via onboarding — it can't touch any existing tenant —
 // so the blast radius is "junk workspaces", not a data leak.
-// Harden before public launch: require verification.
+//
+// Gated behind SIGNUP_INVITE_CODE since 2026-08-18 (T0-3) while the motion is
+// sales-led: the lead form on the marketing site is the front door, this is the
+// door people are handed a key to. The workspace it creates is inactive until an
+// operator approves it (T0-2), so an unlocked door would no longer buy runs
+// either. Replace with verified email + Turnstile before any self-serve motion.
 export async function signUp(_prev: SignupState, formData: FormData): Promise<SignupState> {
+  const gate = checkSignupCode(String(formData.get('invite_code') ?? ''))
+  if (!gate.ok) return { ok: false, message: gate.message }
+
   const parsed = schema.safeParse({
     full_name: formData.get('full_name'),
     email: String(formData.get('email') ?? '').trim().toLowerCase(),
     password: formData.get('password'),
+    invite_code: String(formData.get('invite_code') ?? ''),
   })
   if (!parsed.success) {
     return { ok: false, message: 'Enter your name, a valid email, and a password of at least 8 characters.' }

@@ -30,6 +30,14 @@ export default function SignupPage() {
             <label className="mb-1 block text-sm font-medium">Password</label>
             <Input name="password" type="password" required minLength={8} placeholder="At least 8 characters" disabled={pending} />
           </div>
+          <div>
+            <label className="mb-1 block text-sm font-medium">Invite code</label>
+            <Input name="invite_code" required placeholder="From your invitation" disabled={pending} />
+            <p className="mt-1 text-xs text-muted-foreground">
+              Verbatim is invite-only while we work with our first partners.{' '}
+              <a href="https://verbatimintel.com" className="cursor-pointer text-primary underline">Request access</a>.
+            </p>
+          </div>
 
           {state.message && (
             <p className="text-sm text-destructive">

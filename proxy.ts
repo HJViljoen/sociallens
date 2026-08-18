@@ -70,13 +70,16 @@ export async function proxy(request: NextRequest) {
 
   const { data: { user } } = await supabase.auth.getUser()
 
-  // Pages reachable without a session: sign in, self-serve sign up, and invite
-  // acceptance (the invitee usually has no account yet).
+  // Pages reachable without a session: sign in, sign up, password reset, and
+  // invite acceptance (the invitee usually has no account yet).
   const { pathname } = request.nextUrl
   const isPublic =
     pathname.startsWith('/login') ||
     pathname.startsWith('/signup') ||
     pathname.startsWith('/invite') ||
+    // Password reset: the request page has no session by definition, and the
+    // confirm page is reached from the emailed recovery link (T0-3).
+    pathname.startsWith('/reset') ||
     // Marketing pages need no session — reachable directly in local dev, where
     // the host isn't the apex and the rewrite above doesn't apply.
     pathname.startsWith('/site')
