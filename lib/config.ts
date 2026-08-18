@@ -374,6 +374,21 @@ export function incrementalPassAEnabled(): boolean {
 export const PASS_A_RECHECK_MIN = 3
 export const PASS_A_RECHECK_SHARE = 0.2
 
+// --- Pass B chunking (Tier 0 T0-5, 2026-08-18) -------------------------------
+// One gpt-5.4 call labelled every theme in the run. Measured durations against
+// the route's 300s cap: 237.6s (518 themes), 212s (550), 189s (537), 167s
+// (373), 165s (334). The input is the client's whole current theme set, which
+// grows with every gather, so this was ~60s from timing out and re-spending
+// ~$0.35 or failing the run. Chunks are cut inside entity buckets first, so
+// themes competing to be distinguished from each other stay in one call.
+
+/** Themes per labelling call. 120 keeps the worst measured run (550 themes)
+ *  under ~60s per call. */
+export const PASS_B_CHUNK = 120
+/** Labelling calls in flight at once. Sequential chunks would not fix the
+ *  wall clock; 3 keeps the step well inside the cap with OpenAI headroom. */
+export const PASS_B_PARALLEL = 3
+
 // --- Data retention (Tier 0 T0-9, 2026-08-18) --------------------------------
 // The windows the privacy notice states. Nothing in the product deleted source
 // data before this: video_raw held whole actor payloads (IG owner names, tagged
