@@ -29,6 +29,7 @@
  */
 import { createAdminClient, selectAll } from '../lib/supabase-admin'
 import { reportGrounding, type EvidenceRow } from '../lib/eval/grounding'
+import { cadenceReliability, formatCadence } from '../lib/pipeline/cadence'
 import { EVAL_GROUNDING_FLOOR } from '../lib/config'
 
 interface Args { clientId?: string; floor: number; json: boolean }
@@ -129,6 +130,22 @@ async function main() {
       return acc
     }, {})
 
+    // ---- 3b. Did the weekly update actually arrive? -------------------------
+    const [runRows, reportRows] = await Promise.all([
+      selectAll<{ id: string; status: string; options: { sendReport?: boolean } | null; completed_at: string | null }>(() =>
+        admin.from('pipeline_runs').select('id, status, options, completed_at')
+          .eq('client_id', client.id).order('id', { ascending: true }),
+      ),
+      selectAll<{ run_id: string | null; sent_at: string | null }>(() =>
+        admin.from('weekly_reports').select('run_id, sent_at')
+          .eq('client_id', client.id).order('id', { ascending: true }),
+      ),
+    ])
+    const cadence = cadenceReliability(
+      runRows.map((r) => ({ id: r.id, status: r.status, options: r.options, completedAt: r.completed_at })),
+      reportRows.map((r) => ({ runId: r.run_id, sentAt: r.sent_at })),
+    )
+
     // ---- 4. Gate verdicts ---------------------------------------------------
     const verdicts = await optional<{ kept: boolean; source: string }>(() =>
       selectAll<{ kept: boolean; source: string }>(() =>
@@ -145,7 +162,7 @@ async function main() {
           failedOpen: verdicts.filter((v) => v.source === 'default').length,
         }
 
-    results[client.id] = { client: client.company_name, grounding, validation, stability, gate }
+    results[client.id] = { client: client.company_name, grounding, validation, stability, gate, cadence }
 
     if (!args.json) {
       console.log(`\n=== ${client.company_name} ===`)
@@ -157,6 +174,7 @@ async function main() {
       }
       console.log(`pass A calls ${Object.entries(validation).map(([k, v]) => `${k}=${v}`).join(' · ') || '(none)'}`)
       console.log(`theme match  ${Object.entries(stability).map(([k, v]) => `${k}=${v}`).join(' · ') || (obs === null ? '(table not migrated here)' : '(registry has not seeded yet)')}`)
+      console.log(`cadence      ${formatCadence(client.company_name, cadence).replace(`${client.company_name}: `, '')}`)
       console.log(`gate         ${!gate.migrated ? '(table not migrated here)' : gate.judged ? `${gate.kept} kept / ${gate.dropped} dropped · ${gate.failedOpen} failed open` : '(no gather since verdict recording shipped)'}`)
     }
 

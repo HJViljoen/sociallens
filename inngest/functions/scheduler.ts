@@ -1,6 +1,8 @@
 import { inngest } from '@/inngest/client'
 import { createAdminClient } from '@/lib/supabase-admin'
 import { billingAccess, type BillingClient } from '@/lib/billing'
+import { cadenceReliability } from '@/lib/pipeline/cadence'
+import { sendAlertEmail } from '@/lib/email'
 
 // Daily cron that decides which clients are due a run today and dispatches one
 // `pipeline/run.requested` event each (runPipeline handles a single client).
@@ -58,6 +60,54 @@ export const scheduledPipelineDispatcher = inngest.createFunction(
       }
       return due
     })
+
+    // Cadence check (Tier 2). The product is sold as a weekly update and
+    // nothing measured whether the update arrived: on the live corpus Össur had
+    // 10 reportable runs and 2 emailed reports. A run that finishes and emails
+    // nobody is indistinguishable, in every dashboard and every log, from one
+    // that delivers — so this runs each morning, before today's dispatch, and
+    // names yesterday's silent misses.
+    //
+    // Only runs dispatched WITH sendReport are counted: Sealand is the internal
+    // iteration tenant and the demo is seeded, and both finish runs and email
+    // nobody entirely on purpose. An alert that cannot tell those from a real
+    // miss is an alert nobody reads.
+    await step
+      .run('check-cadence', async () => {
+        const admin = createAdminClient()
+        const since = new Date(Date.now() - 36 * 3600_000).toISOString()
+        const [{ data: runs }, { data: reports }] = await Promise.all([
+          admin.from('pipeline_runs')
+            .select('id, client_id, status, options, completed_at')
+            .gte('completed_at', since),
+          admin.from('weekly_reports').select('run_id, sent_at').gte('sent_at', since),
+        ])
+        const stats = cadenceReliability(
+          ((runs ?? []) as { id: string; status: string; options: { sendReport?: boolean } | null; completed_at: string | null }[])
+            .map((r) => ({ id: r.id, status: r.status, options: r.options, completedAt: r.completed_at })),
+          ((reports ?? []) as { run_id: string | null; sent_at: string | null }[])
+            .map((r) => ({ runId: r.run_id, sentAt: r.sent_at })),
+        )
+        if (!stats.missed) return { missed: 0 }
+        const byClient = new Map(
+          ((runs ?? []) as { id: string; client_id: string }[]).map((r) => [r.id, r.client_id]),
+        )
+        const names = await admin.from('clients').select('id, company_name')
+          .in('id', [...new Set(stats.missedRunIds.map((id) => byClient.get(id)).filter(Boolean) as string[])])
+        const nameById = new Map(((names.data ?? []) as { id: string; company_name: string }[]).map((c) => [c.id, c.company_name]))
+        const lines = stats.missedRunIds.map((id) => `  ${nameById.get(byClient.get(id) ?? '') ?? '?'} — run ${id}`)
+        await sendAlertEmail(
+          `Verbatim: ${stats.missed} scheduled update${stats.missed === 1 ? '' : 's'} did not reach anyone`,
+          `A run finished and no report was emailed. The client's week produced nothing they can see.\n\n${lines.join('\n')}\n\n` +
+          `Delivered on schedule: ${stats.delivered}/${stats.owed}.\n` +
+          `Re-send: POST /api/admin/send-report {"clientId":"...","runId":"..."}`,
+        )
+        return { missed: stats.missed }
+      })
+      .catch((e) => {
+        console.error(`[scheduler] cadence check failed: ${e instanceof Error ? e.message : String(e)}`)
+        return { missed: 0 }
+      })
 
     if (dueClientIds.length > 0) {
       await step.sendEvent(
