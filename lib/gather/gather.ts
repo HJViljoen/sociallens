@@ -262,17 +262,49 @@ export async function planGatherSearches(clientId: string, platforms?: Platform[
       }
     }
   }
-  // Run-level ceiling (T0-2). Each task is a paid actor run, and nothing
-  // bounded their number: keywords x platforms with no cap on either. The
-  // truncation is loud — a silently shortened plan reads as a quiet week.
-  if (tasks.length > GATHER_MAX_SEARCHES_PER_RUN) {
-    console.warn(
-      `[plan-gather] ${tasks.length} searches planned, capping at ${GATHER_MAX_SEARCHES_PER_RUN}. ` +
-      `Dropped: ${tasks.slice(GATHER_MAX_SEARCHES_PER_RUN).map((t) => `${t.platform}:${t.keyword}`).join(', ')}`,
-    )
-    return tasks.slice(0, GATHER_MAX_SEARCHES_PER_RUN)
+  return capSearchPlan(tasks)
+}
+
+/**
+ * Run-level ceiling on paid searches (T0-2). Each task is an Apify actor run,
+ * and nothing bounded their number: keywords x platforms, with no cap on
+ * either.
+ *
+ * The cap is applied PER PLATFORM, not as a flat slice of the list. Tasks come
+ * out of the planner grouped by platform, so slicing the tail would drop the
+ * last platform entirely and silently — a tenant would lose all of Reddit and
+ * read it as a quiet week. Within a platform the planner already orders brand,
+ * then competitors, then category, so trimming a platform's tail drops the
+ * least valuable searches first.
+ */
+export function capSearchPlan(
+  tasks: SearchTask[],
+  cap: number = GATHER_MAX_SEARCHES_PER_RUN,
+): SearchTask[] {
+  if (tasks.length <= cap) return tasks
+
+  const platforms = [...new Set(tasks.map((t) => t.platform))]
+  const budget = Math.max(1, Math.floor(cap / platforms.length))
+  const kept: SearchTask[] = []
+  const dropped: SearchTask[] = []
+  for (const platform of platforms) {
+    const mine = tasks.filter((t) => t.platform === platform)
+    kept.push(...mine.slice(0, budget))
+    dropped.push(...mine.slice(budget))
   }
-  return tasks
+  // Spend any remainder (integer division, or a platform under budget) on the
+  // searches that were about to be dropped, in planner order.
+  for (const t of dropped) {
+    if (kept.length >= cap) break
+    kept.push(t)
+  }
+  const finalDropped = dropped.filter((t) => !kept.includes(t))
+  // Loud: a silently shortened plan reads as a quiet week.
+  console.warn(
+    `[plan-gather] ${tasks.length} searches planned, capping at ${cap}. ` +
+    `Dropped ${finalDropped.length}: ${finalDropped.map((t) => `${t.platform}:${t.keyword}`).join(', ')}`,
+  )
+  return kept
 }
 
 /** Run ONE keyword search on one platform: Apify actor → normalise → tag with
