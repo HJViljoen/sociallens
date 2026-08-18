@@ -7,6 +7,7 @@ import { logAiCall } from '../pipeline/ai-log'
 import { resolveTranscript, gateTranscript, normaliseLang } from './transcript'
 import { dedupeBy, round2 } from './util'
 import { classifyRelevance, type RelevanceMethod } from './relevance'
+import { buildGateVerdictRows, recordGateVerdicts } from './gate-verdicts'
 import { attributeVideos, type AttributionMethod } from './attribution'
 import { splitDelta, pickRechecks, scrapeBaseline, type KnownVideoState, type RecheckCandidate } from './delta'
 import type {
@@ -488,6 +489,24 @@ export async function gatePlatform(opts: {
       .filter((v) => verdicts.get(v.video_id)?.relevant === false)
       .map((v) => `    - ${v.account_name}: ${verdicts.get(v.video_id)?.reason}`)
     console.log(`[${adapter.platform}] relevance gate (${method}) dropped ${dropped}/${videos.length}:\n${reasons.join('\n')}`)
+  }
+
+  // Keep the record of what we threw away (Tier 1). Dropped videos are filtered
+  // out below and never reach `videos`, so without this the 38-61% of a gather
+  // that dies here leaves nothing behind but a console line. Non-fatal: losing
+  // the record must never lose the gather.
+  if (!opts.dryRun) {
+    try {
+      const firstKeyword = (id: string) =>
+        videos.find((v) => v.video_id === id)?.source_keywords?.[0] ?? null
+      const written = await recordGateVerdicts(
+        admin,
+        buildGateVerdictRows(opts.clientId, opts.runId ?? null, adapter.platform, videos, verdicts, firstKeyword),
+      )
+      console.log(`[${adapter.platform}] recorded ${written} gate verdicts (${kept.length} kept, ${dropped} dropped)`)
+    } catch (e) {
+      console.warn(`[${adapter.platform}] gate verdict recording failed: ${e instanceof Error ? e.message : String(e)}`)
+    }
   }
   for (const v of kept) for (const kw of v.source_keywords ?? []) { const s = stats.get(kw); if (s) s.survived++ }
 
