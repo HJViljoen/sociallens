@@ -117,7 +117,12 @@ export async function persistThemes(
   // identical supporting_insight_ids set, while its label churns ~88% of the
   // time. Off → registryIds stays empty and first_seen keeps the old
   // label-embedding meaning, byte for byte.
-  const registryOn = themeRegistryEnabled()
+  // The run's frozen snapshot when the pipeline supplies one. persist-themes is
+  // a DIFFERENT step from open-run, so reading the env here is exactly the split
+  // the snapshot exists to prevent, and it would make pipeline_runs.flags a
+  // false record of what the run actually did. Scripts pass nothing and keep
+  // the live read.
+  const registryOn = opts?.themeRegistry ?? themeRegistryEnabled()
   const registryIds: (string | null)[] = themes.map(() => null)
   const registryKinds: MatchKind[] = themes.map(() => 'new')
   const registryScores: number[] = themes.map(() => 0)
