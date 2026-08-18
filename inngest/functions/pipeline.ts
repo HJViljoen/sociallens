@@ -10,6 +10,7 @@ import { runPassC } from '@/lib/pipeline/pass-c'
 import { runPassD } from '@/lib/pipeline/pass-d'
 import { runCrossReference } from '@/lib/pipeline/cross-reference'
 import { loadBrandClaims, shapeBrandVoice } from '@/lib/pipeline/claims'
+import { compareThemes } from '@/lib/pipeline/step-a2'
 import { attributeRunKeywords } from '@/lib/pipeline/keyword-attribution'
 import { planClassifyMetaBatches, runClassifyMetaBatch } from '@/lib/pipeline/classify-meta'
 import { ingestOwnedPosts, supportsOwnedProfile } from '@/lib/gather/owned'
@@ -658,7 +659,9 @@ export const runPipeline = inngest.createFunction(
       const { data: client } = await admin.from('clients')
         .select('company_name').eq('id', clientId).maybeSingle()
       const allThemes = bucketResults.flatMap((r) => r.themes)
-      allThemes.sort((a, b) => b.strengthScore - a.strengthScore)
+      // Rank, not strongest-member (Tier 1). This sort survives into
+      // persist-themes and is the order Pass C/D-a read the theme index in.
+      allThemes.sort(compareThemes)
       console.log(`[themes] ${allThemes.length} themes from ${bucketResults.length} buckets, step payload ${JSON.stringify(allThemes).length} bytes`)
       const b = await runPassB({ clientId, runId, themes: allThemes, brandName: client?.company_name ?? undefined, persist: true })
       const mergeCostUsd = bucketResults.reduce((s, r) => s + r.mergeCostUsd, 0)

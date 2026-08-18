@@ -12,6 +12,8 @@ const theme = (over: Partial<AggregatedTheme> = {}): AggregatedTheme => ({
   theme: 'lifetime_warranty',
   memberThemes: [],
   supportingVideoIds: ['v1'],
+  meanStrength: 7,
+  rankScore: 1,
   supportingInsightIds: ['i1'],
   evidenceCount: 3,
   strengthScore: 7,

@@ -110,7 +110,18 @@ export interface AggregatedTheme {
   supportingVideoIds: string[]
   supportingInsightIds: string[]
   evidenceCount: number
+  /** Strongest single member insight. Says how sharp the best evidence is, and
+   *  NOTHING about how widely the theme was heard — so it must never be the
+   *  ordering key (Tier 1, 2026-08-18). Kept for display and tie-breaks. */
   strengthScore: number
+  /** Mean member strength. The honest "how strong is this theme" number. */
+  meanStrength: number
+  /** Ordering key: evidence x share of its entity bucket. This order is the
+   *  ONLY salience cue Pass C and Pass D-a ever receive — they read one line
+   *  per theme, so whatever sorts first is what the model treats as the
+   *  market's loudest signal. Ranking by strongest-member put a 3-video theme
+   *  above a 47-video one. */
+  rankScore: number
   dominantEmotion: string
   dominantSentimentImpact: string
   singleSource: boolean

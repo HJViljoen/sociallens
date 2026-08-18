@@ -192,6 +192,9 @@ export async function computeRunDelta(
       .eq('run_id', current.run_id)
       .eq('first_seen', true)
       .eq('single_source', false)
+      // Widest-heard first, so the two labels named in the email are the two
+      // that most people actually raised (Tier 1).
+      .order('rank_score', { ascending: false, nullsFirst: false })
       .order('strength_score', { ascending: false })
     const rows = (fresh ?? []) as { label: string }[]
     newThemes = { count: rows.length, labels: rows.slice(0, 2).map((r) => r.label) }

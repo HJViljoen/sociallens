@@ -274,7 +274,8 @@ async function buildReportData(
     admin.from('themes')
       .select('label, description, evidence_count, first_seen, member_themes')
       .eq('client_id', clientId).eq('run_id', runId).eq('single_source', false)
-      .order('strength_score', { ascending: false })
+      // The three themes the client reads: widest-heard first (Tier 1).
+      .order('rank_score', { ascending: false, nullsFirst: false })
       .order('evidence_count', { ascending: false })
       .limit(3),
     admin.from('competitive_insights')

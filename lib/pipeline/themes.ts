@@ -33,13 +33,19 @@ export async function loadThemes(clientId: string, runId: string): Promise<Aggre
     label: string; description: string | null; bucket: string; category: string
     member_themes: string[]; supporting_insight_ids: string[]; supporting_video_ids: string[]
     evidence_count: number; strength_score: number | null
+    rank_score: number | null; mean_strength: number | null
     dominant_emotion: string | null; dominant_sentiment_impact: string | null; single_source: boolean
   }>(() =>
     admin
       .from('themes')
-      .select('label, description, bucket, category, member_themes, supporting_insight_ids, supporting_video_ids, evidence_count, strength_score, dominant_emotion, dominant_sentiment_impact, single_source')
+      .select('label, description, bucket, category, member_themes, supporting_insight_ids, supporting_video_ids, evidence_count, strength_score, rank_score, mean_strength, dominant_emotion, dominant_sentiment_impact, single_source')
       .eq('client_id', clientId).eq('run_id', runId)
-      .order('strength_score', { ascending: false }).order('id', { ascending: true }),
+      // Most salient first: this order IS Pass C/D's only cue to what matters.
+      // nullsFirst false keeps pre-2026-08-18 rows (no rank) at the back rather
+      // than at the front.
+      .order('rank_score', { ascending: false, nullsFirst: false })
+      .order('strength_score', { ascending: false })
+      .order('id', { ascending: true }),
   )
   return rows.map((r) => ({
     bucket: r.bucket,
@@ -50,6 +56,8 @@ export async function loadThemes(clientId: string, runId: string): Promise<Aggre
     supportingInsightIds: r.supporting_insight_ids,
     evidenceCount: r.evidence_count,
     strengthScore: r.strength_score ?? 0,
+    meanStrength: r.mean_strength ?? r.strength_score ?? 0,
+    rankScore: r.rank_score ?? 0,
     dominantEmotion: r.dominant_emotion ?? 'neutral',
     dominantSentimentImpact: r.dominant_sentiment_impact ?? 'neutral',
     singleSource: r.single_source,
@@ -217,6 +225,8 @@ export async function persistThemes(
         run_id: runId,
         evidence_count: t.evidenceCount,
         strength_score: t.strengthScore,
+      rank_score: t.rankScore,
+      mean_strength: t.meanStrength,
         dominant_emotion: t.dominantEmotion,
         dominant_sentiment_impact: t.dominantSentimentImpact,
         single_source: t.singleSource,
@@ -281,6 +291,8 @@ export async function persistThemes(
       supporting_video_ids: t.supportingVideoIds,
       evidence_count: t.evidenceCount,
       strength_score: t.strengthScore,
+      rank_score: t.rankScore,
+      mean_strength: t.meanStrength,
       dominant_emotion: t.dominantEmotion,
       dominant_sentiment_impact: t.dominantSentimentImpact,
       single_source: t.singleSource,

@@ -359,6 +359,8 @@ export async function runStep2c(args: {
     admin.from('themes')
       .select('label, bucket, category, evidence_count, strength_score, dominant_emotion')
       .eq('client_id', clientId).eq('run_id', runId)
+      // Top 30 by salience feed the event explainer (Tier 1).
+      .order('rank_score', { ascending: false, nullsFirst: false })
       .order('strength_score', { ascending: false }),
   ])
   const themes = ((themeRows ?? []) as ThemeLite[]).slice(0, 30)

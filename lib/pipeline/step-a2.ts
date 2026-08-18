@@ -78,6 +78,34 @@ function mode(values: string[]): string {
   return best
 }
 
+/**
+ * Theme rank: evidence weighted by how much of its own entity bucket it spans
+ * (Tier 1, 2026-08-18).
+ *
+ * Both halves are needed. Raw evidence alone lets a big bucket drown a small
+ * one (industry-other has hundreds of videos, a competitor bucket has ten), and
+ * share alone lets a 2-of-3-video competitor theme outrank a 104-video category
+ * theme. evidence x share keeps volume primary and normalises across buckets.
+ *
+ * What it replaces: the strongest single member insight's score, which is
+ * blind to how many people said it.
+ */
+export function themeRank(evidenceCount: number, bucketVideoCount: number): number {
+  if (evidenceCount <= 0) return 0
+  if (bucketVideoCount <= 0) return evidenceCount
+  const share = Math.min(1, evidenceCount / bucketVideoCount)
+  return Math.round(evidenceCount * share * 1000) / 1000
+}
+
+/** Order themes by salience: rank, then mean strength, then a stable name. */
+export function compareThemes(a: AggregatedTheme, b: AggregatedTheme): number {
+  return (
+    b.rankScore - a.rankScore ||
+    b.meanStrength - a.meanStrength ||
+    a.theme.localeCompare(b.theme)
+  )
+}
+
 function aggregate(cluster: InsightRow[], bucket: string): AggregatedTheme {
   // Working slug = highest-strength member's; the client-facing label comes
   // from Pass B. Category = mode of the members' (bucket-level clustering can
@@ -94,6 +122,9 @@ function aggregate(cluster: InsightRow[], bucket: string): AggregatedTheme {
     supportingInsightIds: cluster.map((i) => i.id),
     evidenceCount: supportingVideoIds.length,
     strengthScore: canonical.strength_score,
+    meanStrength: Math.round((cluster.reduce((sum, i) => sum + i.strength_score, 0) / cluster.length) * 100) / 100,
+    // Filled in by processGroup, which knows the bucket's video denominator.
+    rankScore: 0,
     dominantEmotion: mode(cluster.map((i) => i.emotion)),
     dominantSentimentImpact: mode(cluster.map((i) => i.sentiment_impact)),
     singleSource: false,
@@ -226,9 +257,15 @@ async function processGroup(
     mergeCostUsd += m.costUsd
     for (const a of m.applied) mergesApplied.push({ bucket: grp.bucket, ...a })
   }
+  // The bucket's own denominator: distinct videos with an insight in THIS
+  // bucket, not the run's corpus-wide count (which the mega-cluster tripwire
+  // uses). Share of bucket is what makes a competitor theme comparable to a
+  // category one.
+  const bucketVideoCount = new Set(grp.insights.map((i) => i.source_video_id)).size
   const themes: AggregatedTheme[] = []
   for (const cluster of clusters) {
     const theme = aggregate(cluster, grp.bucket)
+    theme.rankScore = themeRank(theme.evidenceCount, bucketVideoCount)
     // Grab-bag tripwire: no genuine single consumer concern spans this share
     // of the corpus. A hit means the clustering is chaining again (the
     // 119-video run-1 blob) — investigate, don't ship quietly.
@@ -269,8 +306,8 @@ export async function runStepA2(opts: RunStepA2Options): Promise<StepA2Result> {
     mergeCostUsd += r.mergeCostUsd
   }
 
-  // Only floor-passing themes feed Pass C/D. Sort by strength desc.
-  all.sort((a, b) => b.strengthScore - a.strengthScore)
+  // Only floor-passing themes feed Pass C/D, most salient first.
+  all.sort(compareThemes)
   const themes = all.filter((t) => !t.singleSource)
   const earlySignals = all.filter((t) => t.singleSource)
 

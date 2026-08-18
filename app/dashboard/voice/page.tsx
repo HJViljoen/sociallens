@@ -104,9 +104,12 @@ export default async function VoiceOfCustomerPage({
 
   const [themesRes, earlierRes, samplesRes, clientRes] = await Promise.all([
     supabase.from('themes')
-      .select('id, registry_id, bucket, category, label, description, member_themes, supporting_insight_ids, supporting_video_ids, evidence_count, strength_score, dominant_emotion, dominant_sentiment_impact, single_source, first_seen')
+      .select('id, registry_id, bucket, category, label, description, member_themes, supporting_insight_ids, supporting_video_ids, evidence_count, strength_score, rank_score, dominant_emotion, dominant_sentiment_impact, single_source, first_seen')
       .eq('client_id', clientId).eq('run_id', runId)
-      .order('strength_score', { ascending: false }).order('evidence_count', { ascending: false }),
+      // Widest-heard first (Tier 1): strength_score is the strongest single
+      // insight and says nothing about how many people raised the theme.
+      .order('rank_score', { ascending: false, nullsFirst: false })
+      .order('evidence_count', { ascending: false }),
     supabase.from('themes').select('id')
       .eq('client_id', clientId).neq('run_id', runId).limit(1),
     supabase.from('language_samples_current')
