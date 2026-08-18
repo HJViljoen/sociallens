@@ -67,6 +67,10 @@ export interface RunPassAOptions {
   /** Read transcripts (Pass A v4). Defaults to TRANSCRIPTS_ENABLED — explicit
    *  override exists for the A/B measurement harness. */
   transcripts?: boolean
+  /** Inspection hook: called with each video's VALIDATED output (what would be
+   *  persisted), whether or not `persist` is on. For harnesses and prompt
+   *  spot-checks; never used by the pipeline. */
+  onVideoResult?: (result: { videoId: string; insights: ValidatedInsight[]; samples: { realId: string; phrase: string }[] }) => void
 }
 
 export interface PerVideoResult {
@@ -304,7 +308,7 @@ export interface ValidatedEvidence {
   source: 'comment' | 'video'
 }
 
-interface ValidatedInsight {
+export interface ValidatedInsight {
   insight: PassAInsight
   evidence: ValidatedEvidence[]
 }
@@ -744,6 +748,7 @@ export async function runPassA(opts: RunPassAOptions): Promise<RunPassASummary> 
     }
     summary.videosAnalyzed++
     if (claimsOnly) summary.videosClaimsOnly++
+    opts.onVideoResult?.({ videoId: v.id, insights: validation.kept, samples: validation.samples })
 
     if (persist) {
       await persistVideo(admin, {
