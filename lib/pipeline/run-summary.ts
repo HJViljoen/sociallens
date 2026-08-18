@@ -34,19 +34,37 @@ export interface WriteRunSummaryArgs {
 
 const round1 = (n: number) => Math.round(n * 10) / 10
 
-/** Pass-A video-sentiment distribution. 'mixed' counts toward the denominator
+/** One sentiment family's distribution. 'mixed' counts toward the denominator
  *  but gets no share — the three shares deliberately don't sum to 100. */
-function sentimentShares(videos: VideoRow[]) {
+export interface SentimentFamily {
+  positive: number | null
+  neutral: number | null
+  negative: number | null
+  judged: number
+  counts: { positive: number; neutral: number; negative: number; mixed: number }
+}
+
+/**
+ * Video-sentiment distribution for ONE family (T0-8, 2026-08-18): 'audience'
+ * = Pass A full-lane videos (how commenters received the video), 'framing' =
+ * classify-meta (the video's own caption/transcript). The two are different
+ * measurements and are never summed — before this split the headline number
+ * was ~59% framing on Össur and a pass reorder read as a 6-point shift.
+ * Videos with a sentiment but no provenance (pre-backfill rows) fall to
+ * framing, the conservative bucket.
+ */
+export function sentimentFamily(videos: VideoRow[], family: 'audience' | 'framing'): SentimentFamily {
   const counts = { positive: 0, neutral: 0, negative: 0, mixed: 0 }
   let judged = 0
   for (const v of videos) {
-    if (v.sentiment && v.sentiment in counts) {
-      counts[v.sentiment as keyof typeof counts]++
-      judged++
-    }
+    if (!v.sentiment || !(v.sentiment in counts)) continue
+    const source = v.sentiment_source === 'audience' ? 'audience' : 'framing'
+    if (source !== family) continue
+    counts[v.sentiment as keyof typeof counts]++
+    judged++
   }
   const share = (n: number) => (judged > 0 ? round1((n / judged) * 100) : null)
-  return { counts, judged, share }
+  return { positive: share(counts.positive), neutral: share(counts.neutral), negative: share(counts.negative), judged, counts }
 }
 
 export async function writeRunSummary(args: WriteRunSummaryArgs): Promise<void> {
@@ -54,10 +72,13 @@ export async function writeRunSummary(args: WriteRunSummaryArgs): Promise<void> 
   const admin = createAdminClient()
 
   // Corpus (all-time) distribution — the market-map state; raw counts live in
-  // sentiment_drivers for the honest breakdown.
-  const { counts, judged, share } = sentimentShares(videos)
+  // sentiment_drivers for the honest breakdown. AUDIENCE family only for the
+  // legacy headline columns; framing rides alongside, labelled.
+  const audience = sentimentFamily(videos, 'audience')
+  const framing = sentimentFamily(videos, 'framing')
   // Period distribution — this run's videos only.
-  const p = periodVideos ? sentimentShares(periodVideos) : null
+  const p = periodVideos ? sentimentFamily(periodVideos, 'audience') : null
+  const pf = periodVideos ? sentimentFamily(periodVideos, 'framing') : null
 
   const { error: delErr } = await admin.from('run_summary').delete().eq('client_id', clientId).eq('run_id', runId)
   if (delErr) throw new Error(`clear run_summary: ${delErr.message}`)
@@ -76,20 +97,24 @@ export async function writeRunSummary(args: WriteRunSummaryArgs): Promise<void> 
     top_video_platform: metrics.top_video_platform,
     share_of_voice: metrics.share_of_voice,
     platforms_summary: metrics.platforms_summary,
-    overall_sentiment_positive: share(counts.positive),
-    overall_sentiment_neutral: share(counts.neutral),
-    overall_sentiment_negative: share(counts.negative),
-    sentiment_drivers: { video_sentiment_counts: counts, videos_judged: judged },
+    overall_sentiment_positive: audience.positive,
+    overall_sentiment_neutral: audience.neutral,
+    overall_sentiment_negative: audience.negative,
+    sentiment_drivers: { video_sentiment_counts: audience.counts, videos_judged: audience.judged },
+    audience_sentiment: audience,
+    framing_sentiment: framing,
     period_videos: periodMetrics?.total_videos ?? null,
     period_comments: periodMetrics?.total_comments ?? null,
     period_client_videos: periodMetrics?.client_videos ?? null,
     period_competitor_videos: periodMetrics?.competitor_videos ?? null,
     period_avg_engagement_rate: periodMetrics?.avg_engagement_rate ?? null,
     period_share_of_voice: periodMetrics?.share_of_voice ?? null,
-    period_sentiment_positive: p ? p.share(p.counts.positive) : null,
-    period_sentiment_neutral: p ? p.share(p.counts.neutral) : null,
-    period_sentiment_negative: p ? p.share(p.counts.negative) : null,
+    period_sentiment_positive: p ? p.positive : null,
+    period_sentiment_neutral: p ? p.neutral : null,
+    period_sentiment_negative: p ? p.negative : null,
     period_sentiment_drivers: p ? { video_sentiment_counts: p.counts, videos_judged: p.judged } : null,
+    period_audience_sentiment: p,
+    period_framing_sentiment: pf,
     consumer_intelligence_summary: ciSummary,
     executive_brief: executiveBrief ?? null,
     say_vs_hear: sayVsHear ?? null,

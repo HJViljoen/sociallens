@@ -24,8 +24,13 @@ export interface VideoRow {
   account_followers: number | null
   /** 'YYYY-MM-DD' post date; null when the platform gave nothing parseable. */
   upload_date: string | null
-  /** Pass A's comment-derived video sentiment; null until analysed. */
+  /** Video sentiment; null until analysed. Two writers, two meanings — see
+   *  sentiment_source. */
   sentiment: string | null
+  /** 'audience' = Pass A full lane (how commenters received the video) ·
+   *  'framing' = classify-meta (the video's own caption/transcript framing).
+   *  run_summary keeps the families apart (T0-8, 2026-08-18). */
+  sentiment_source?: 'audience' | 'framing' | string | null
   /** 'discovered' (keyword search) or 'owned' (the client's own accounts).
    *  The SoV guard keeps owned rows out of discovered-corpus metrics. */
   source?: string | null

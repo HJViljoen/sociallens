@@ -7,7 +7,8 @@ import { HowToRead } from '@/components/how-to-read'
 import { DetailOverlay } from '@/components/detail-overlay'
 import { Quotes } from '@/components/quotes'
 import { StatBand, type StatTile } from '@/components/stat-band'
-import { DeltaBadge } from '@/components/delta-badge'
+import { DeltaBadge, MovementBadge } from '@/components/delta-badge'
+import { proportionDelta, SENTIMENT_BAND, SHARE_BAND } from '@/lib/report-bands'
 import { ProportionBar, BarLegend, type Segment } from '@/components/proportion-bar'
 import { FindingTile } from '@/components/finding-tile'
 import { InsightNarrative, type Verdict } from '@/components/insight-narrative'
@@ -47,6 +48,10 @@ interface RunSummaryRow {
   period_comments: number | null
   share_of_voice: Record<string, SovEntry> | null
   sentiment_drivers: { video_sentiment_counts?: Record<string, number>; videos_judged?: number } | null
+  /** Audience sentiment only — Pass A's comment-derived read, never
+   *  classify-meta's caption framing (T0-8). Null on rows written before
+   *  2026-08-18, whose sentiment_drivers blended the two. */
+  audience_sentiment: { positive: number | null; judged: number; counts?: Record<string, number> } | null
   executive_brief?: ExecutiveBrief | null
 }
 
@@ -165,12 +170,12 @@ export default async function DashboardPage({
   if (notRunning) themedQ = themedQ.not('run_id', 'in', notRunning)
   const [summaryRes, prevSummaryRes, aiRes, recRes, latestThemedRes, miRes, eventsRes] = await Promise.all([
     supabase.from('run_summary')
-      .select('total_videos, total_comments, period_videos, period_comments, share_of_voice, sentiment_drivers, executive_brief')
+      .select('total_videos, total_comments, period_videos, period_comments, share_of_voice, sentiment_drivers, audience_sentiment, executive_brief')
       .eq('client_id', clientId).eq('run_id', runId).maybeSingle(),
     // The update before this one — every "since last update" delta self-gates
     // on this row existing, so first runs simply show no comparison.
     supabase.from('run_summary')
-      .select('run_id, total_videos, total_comments, period_videos, period_comments, share_of_voice, sentiment_drivers')
+      .select('run_id, total_videos, total_comments, period_videos, period_comments, share_of_voice, sentiment_drivers, audience_sentiment')
       .eq('client_id', clientId).neq('run_id', runId)
       .order('run_date', { ascending: false }).limit(1).maybeSingle(),
     // Current insights of the corpus (audience_insights_current — the rows each
@@ -229,8 +234,13 @@ export default async function DashboardPage({
     nextUpdate,
   ].filter(Boolean) as string[]
 
-  // ---- Where you stand: sentiment split · share of conversation · mood ----
-  const vsCounts = summary?.sentiment_drivers?.video_sentiment_counts ?? {}
+  // ---- Where you stand: sentiment split · share of tracked videos · mood ----
+  // sentiment_drivers has held the AUDIENCE family alone since 2026-08-18
+  // (T0-8); audience_sentiment is the explicit copy of the same numbers and is
+  // what the delta below insists on, since rows written before that date
+  // blended in classify-meta's caption framing and are not comparable.
+  const vsCounts =
+    summary?.audience_sentiment?.counts ?? summary?.sentiment_drivers?.video_sentiment_counts ?? {}
   const sentimentCounts = {
     positive: Number(vsCounts.positive ?? 0),
     neutral: Number(vsCounts.neutral ?? 0),
@@ -238,7 +248,7 @@ export default async function DashboardPage({
     negative: Number(vsCounts.negative ?? 0),
   }
   const analysedCount =
-    Number(summary?.sentiment_drivers?.videos_judged ?? 0) ||
+    Number(summary?.audience_sentiment?.judged ?? summary?.sentiment_drivers?.videos_judged ?? 0) ||
     sentimentCounts.positive + sentimentCounts.neutral + sentimentCounts.mixed + sentimentCounts.negative
   const pctOf = (n: number, total: number) => (total > 0 ? Math.round((n / total) * 100) : 0)
   const positiveShare = analysedCount > 0 ? pctOf(sentimentCounts.positive, analysedCount) : null
@@ -281,16 +291,36 @@ export default async function DashboardPage({
   // ---- "Since last update" deltas + competitor reference point ----
   // Numbers rule: counted, denominated, comparable. The comparator is a real
   // reference (top competitor now; the previous update once one exists).
-  const prevVs = prevSummary?.sentiment_drivers?.video_sentiment_counts ?? {}
-  const prevJudged =
-    Number(prevSummary?.sentiment_drivers?.videos_judged ?? 0) ||
-    Number(prevVs.positive ?? 0) + Number(prevVs.neutral ?? 0) + Number(prevVs.mixed ?? 0) + Number(prevVs.negative ?? 0)
-  const prevPositiveShare = prevSummary && prevJudged > 0 ? pctOf(Number(prevVs.positive ?? 0), prevJudged) : null
+  // Sentiment's previous side comes from audience_sentiment alone (below) —
+  // recomputing it from the previous row's sentiment_drivers would silently
+  // compare against a blended pre-2026-08-18 number.
   const prevClientShare = prevSummary?.share_of_voice?.client
     ? Math.round(Number(prevSummary.share_of_voice.client.pct_videos))
     : null
-  const sentimentDelta = positiveShare != null && prevPositiveShare != null ? positiveShare - prevPositiveShare : null
-  const shareDelta = clientShare != null && prevClientShare != null ? clientShare - prevClientShare : null
+  // Proportion movement is band-gated (T0-8): an arrow means the shift cleared
+  // 2xSE on denominators of at least 100 per side. Both sides must carry the
+  // audience family — a pre-split row is a different measurement.
+  const nowAudience = summary?.audience_sentiment ?? null
+  const prevAudience = prevSummary?.audience_sentiment ?? null
+  const sentimentVerdict =
+    nowAudience?.positive != null && prevAudience?.positive != null
+      ? proportionDelta(
+          { nowPct: nowAudience.positive, nowN: nowAudience.judged, prevPct: prevAudience.positive, prevN: prevAudience.judged },
+          SENTIMENT_BAND,
+        )
+      : null
+  const trackedNow = Object.values(sov).reduce((t, e) => t + Number(e?.videos ?? 0), 0)
+  const trackedPrev = Object.values(prevSummary?.share_of_voice ?? {}).reduce((t, e) => t + Number(e?.videos ?? 0), 0)
+  const shareVerdict =
+    clientShare != null && prevClientShare != null
+      ? proportionDelta(
+          {
+            nowPct: clientShare, nowN: trackedNow, nowK: Number(clientEntry?.videos ?? 0),
+            prevPct: prevClientShare, prevN: trackedPrev, prevK: Number(prevSummary?.share_of_voice?.client?.videos ?? 0),
+          },
+          SHARE_BAND,
+        )
+      : null
   const topCompetitor = competitorSegs[0] ?? null
 
   const emotionCounts = new Map<string, number>()
@@ -449,7 +479,10 @@ export default async function DashboardPage({
         }
       : null,
     analysedCount > 0
-      ? { n: analysedCount, label: 'conversations rated for sentiment', delta: prevJudged > 0 ? analysedCount - prevJudged : null }
+      ? {
+          n: analysedCount, label: 'videos rated on how their audience reacted',
+          delta: prevAudience?.judged ? analysedCount - prevAudience.judged : null,
+        }
       : null,
     themeTotal > 0 ? { n: themeTotal, label: 'themes heard across the conversation', delta: null } : null,
     themeMultiSource > 0 ? { n: themeMultiSource, label: 'confirmed by more than one conversation', delta: null } : null,
@@ -531,7 +564,7 @@ export default async function DashboardPage({
           <CardContent className="space-y-3">
             <div className="flex items-baseline gap-2">
               <div className="text-3xl font-bold text-positive">{positiveShare != null ? `${positiveShare}%` : '—'}</div>
-              <DeltaBadge delta={sentimentDelta} unit="pts" />
+              <MovementBadge verdict={sentimentVerdict} unit="pts" />
             </div>
             {sentTier && (
               <div>
@@ -542,14 +575,14 @@ export default async function DashboardPage({
             )}
             {sentimentSegments.length > 0 ? (
               <>
-                <ProportionBar segments={sentimentSegments} of="conversations" />
+                <ProportionBar segments={sentimentSegments} of="videos" />
                 <BarLegend segments={sentimentSegments} />
               </>
             ) : (
               <p className="text-xs text-muted-foreground">lands with the next update</p>
             )}
             {positiveShare != null && (
-              <p className="text-xs text-muted-foreground">positive across {analysedCount} rated conversations</p>
+              <p className="text-xs text-muted-foreground">positive across {analysedCount} videos rated on how their audience reacted</p>
             )}
           </CardContent>
         </Card>
@@ -558,23 +591,25 @@ export default async function DashboardPage({
           <CardHeader className="pb-2">
             <CardTitle className="flex items-start gap-2 text-sm font-medium text-muted-foreground">
               <span className="mt-1.5 size-2 shrink-0 rounded-full bg-clay" aria-hidden />
-              Share of tracked conversation
+              Share of tracked videos
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-3">
             <div className="flex items-baseline gap-2">
               <div className="text-3xl font-bold">{clientShare != null ? `${clientShare}%` : '—'}</div>
-              <DeltaBadge delta={shareDelta} unit="pts" />
+              <MovementBadge verdict={shareVerdict} unit="pts" />
             </div>
             {shareSegments.length > 0 ? (
               <>
-                <ProportionBar segments={shareSegments} of="conversations" />
+                <ProportionBar segments={shareSegments} of="videos" />
                 <BarLegend segments={shareSegments} />
               </>
             ) : (
               <p className="text-xs text-muted-foreground">no competitors tracked yet</p>
             )}
-            {clientShare != null && <p className="text-xs text-muted-foreground">of the conversation you track is about {brand}</p>}
+            {clientShare != null && (
+              <p className="text-xs text-muted-foreground">of the {trackedNow.toLocaleString('en-US')} videos you track are about {brand}</p>
+            )}
             {clientShare != null && topCompetitor && (
               <p className="text-xs text-muted-foreground">
                 {clientShare >= topCompetitor.pct

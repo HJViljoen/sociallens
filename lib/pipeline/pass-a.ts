@@ -784,7 +784,7 @@ async function persistVideo(admin: ReturnType<typeof createAdminClient>, args: P
       // Claims lane: LEAVE the column alone rather than null it — classify-meta
       // owns framing sentiment for below-floor videos (it can't revisit once
       // classified_type is set) and run_summary's shares read this column.
-      ...(claimsOnly ? {} : { sentiment: c.sentiment }),
+      ...(claimsOnly ? {} : { sentiment: c.sentiment, sentiment_source: 'audience' }),
       comment_quality_score: qualityScore,
     })
     .eq('id', video.id)

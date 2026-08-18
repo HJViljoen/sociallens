@@ -205,7 +205,11 @@ export async function runClassifyMetaBatch(
         hook_style: item.hook_style,
         hook_text: item.hook_text,
         topics: item.topics.length ? item.topics : null,
+        // Framing sentiment (caption + transcript, no comments). Provenance is
+        // stamped so run_summary never blends it with Pass A's audience read
+        // (T0-8): the two families are different measurements.
         sentiment: item.sentiment,
+        sentiment_source: item.sentiment == null ? null : 'framing',
       })
       .eq('id', id)
       .is('classified_type', null)

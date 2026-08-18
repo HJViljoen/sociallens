@@ -15,6 +15,7 @@ import {
   type RunSummaryRow,
   type ShareSide,
 } from './report-delta'
+import type { DeltaVerdict } from './report-bands'
 
 // Weekly (or monthly) consumer-intelligence report (Redesign Spec §7).
 //
@@ -326,21 +327,27 @@ async function buildReportData(
   }
 }
 
+/**
+ * Subject line. Names movement ONLY when it cleared the band (T0-8): the old
+ * rule fired on any shift >= 0.5 pts, and the sent "sentiment up 6.2pts"
+ * compared 129 judged videos against 414 (z ~ 1.7). "New themes" appears only
+ * once the theme registry can tell a new theme from a relabel.
+ */
 function reportSubject(d: ReportData): string {
   const cadence = d.period === 'monthly' ? 'monthly' : 'weekly'
-  if (!d.delta) return `${d.companyName} — your consumer intelligence baseline`
+  if (!d.delta) return `${d.companyName}: your consumer intelligence baseline`
   const bits: string[] = []
   if (d.delta.newThemes && d.delta.newThemes.count > 0) {
     const n = d.delta.newThemes.count
     bits.push(`${n} new theme${n === 1 ? '' : 's'}`)
   }
-  if (d.delta.sentiment && Math.abs(d.delta.sentiment.change) >= 0.5) {
-    const s = d.delta.sentiment.change
+  if (d.delta.sentiment && d.delta.sentiment.verdict.state === 'moved') {
+    const s = d.delta.sentiment.verdict.change
     bits.push(`sentiment ${s > 0 ? 'up' : 'down'} ${Math.abs(s)}pts`)
   }
   return bits.length
-    ? `${d.companyName} — what changed: ${bits.join(', ')}`
-    : `${d.companyName} — your ${cadence} update`
+    ? `${d.companyName}: what changed. ${bits.join(', ')}`
+    : `${d.companyName}: your ${cadence} update`
 }
 
 // ---------- rendering ----------
@@ -361,14 +368,23 @@ function escapeHtml(s: string): string {
     .replace(/"/g, '&quot;')
 }
 
-function changeChip(delta: number, unit: string): string {
-  if (Math.abs(delta) < 0.05) {
-    return `<span style="display:inline-block;background:#ECE7DA;color:${MUTED};font-size:11px;font-weight:600;padding:2px 8px;border-radius:10px;white-space:nowrap">no change</span>`
-  }
-  const up = delta > 0
+/** Neutral chip: a state, not a movement. */
+function stateChip(text: string): string {
+  return `<span style="display:inline-block;background:#ECE7DA;color:${MUTED};font-size:11px;font-weight:600;padding:2px 8px;border-radius:10px;white-space:nowrap">${escapeHtml(text)}</span>`
+}
+
+/**
+ * Movement chip driven by the verdict, never by the raw difference (T0-8).
+ * An arrow now means "this cleared a 2xSE band on denominators big enough to
+ * carry it"; anything else says so in words.
+ */
+function changeChip(verdict: DeltaVerdict, unit: string): string {
+  if (verdict.state === 'too_little_data') return stateChip('too little data')
+  if (verdict.state === 'no_clear_change') return stateChip('no clear change')
+  const up = verdict.change > 0
   const color = up ? UP : DOWN
   const bg = up ? '#E1E8DA' : '#F2DFD8'
-  return `<span style="display:inline-block;background:${bg};color:${color};font-size:11px;font-weight:700;padding:2px 8px;border-radius:10px;white-space:nowrap">${up ? '▲' : '▼'} ${Math.abs(delta)}${unit}</span>`
+  return `<span style="display:inline-block;background:${bg};color:${color};font-size:11px;font-weight:700;padding:2px 8px;border-radius:10px;white-space:nowrap">${up ? '▲' : '▼'} ${Math.abs(verdict.change)}${unit}</span>`
 }
 
 interface Row {
@@ -412,21 +428,20 @@ function leadRows(d: ReportData): { title: string; rows: Row[] } {
     if (sentiment) {
       rows.push({
         label: 'Sentiment',
-        text: `<strong>${sentiment.now}%</strong> of the conversations we track in your market read positive`,
-        chip: changeChip(sentiment.change, 'pts'),
+        text: `<strong>${sentiment.now}%</strong> of the ${fmtNum(sentiment.nowJudged)} videos we rated on audience reaction read positive`,
+        chip: changeChip(sentiment.verdict, 'pts'),
         href: `${d.appUrl}/dashboard`,
         linkText: 'See where you stand',
       })
     }
     if (share) {
       const comp = share.now.competitor
-      const clientChange = Math.round((share.now.client - share.prev.client) * 10) / 10
       rows.push({
-        label: 'Share of tracked conversation',
+        label: 'Share of tracked videos',
         text: comp
-          ? `You <strong>${share.now.client}%</strong> · ${escapeHtml(comp.name)} <strong>${comp.pct}%</strong>`
-          : `You hold <strong>${share.now.client}%</strong> of the tracked conversation`,
-        chip: changeChip(clientChange, 'pts'),
+          ? `You <strong>${share.now.client}%</strong> · ${escapeHtml(comp.name)} <strong>${comp.pct}%</strong> of ${fmtNum(share.now.totalVideos)} videos we track`
+          : `You hold <strong>${share.now.client}%</strong> of the ${fmtNum(share.now.totalVideos)} videos we track`,
+        chip: changeChip(share.verdict, 'pts'),
         href: `${d.appUrl}/dashboard/competitive`,
         linkText: 'See the competitive picture',
       })
@@ -444,24 +459,25 @@ function leadRows(d: ReportData): { title: string; rows: Row[] } {
       })
     }
     if (conversations) {
-      const pct = conversations.prev > 0
-        ? Math.round(((conversations.now - conversations.prev) / conversations.prev) * 100)
-        : null
+      // A count, not a proportion: no band applies, so it carries no arrow.
+      // "comments" is the calibrated word for comment rows (lib/calibration
+      // GLOSSARY); "conversations" means a video and the comments under it.
       rows.push({
         label: 'Coverage',
-        text: `<strong>${fmtNum(conversations.now)}</strong> conversations analysed this update`,
-        chip: pct != null ? changeChip(pct, '%') : undefined,
+        text: `<strong>${fmtNum(conversations.now)}</strong> comments read this update, up from ${fmtNum(conversations.prev)}`,
       })
     }
     return { title: 'What changed since your last update', rows }
   }
 
-  // First report — a baseline, framed as state.
-  const sent = d.summary?.overall_sentiment_positive != null ? Number(d.summary.overall_sentiment_positive) : null
-  if (sent != null) {
+  // First report — a baseline, framed as state. Sentiment comes from the
+  // audience family only (T0-8): overall_sentiment_* on rows written before
+  // 2026-08-18 blended in classify-meta's framing read.
+  const audience = d.summary?.audience_sentiment ?? null
+  if (audience?.positive != null && audience.judged > 0) {
     rows.push({
       label: 'Sentiment',
-      text: `<strong>${sent}%</strong> of the conversations we track in your market read positive`,
+      text: `<strong>${audience.positive}%</strong> of the ${fmtNum(audience.judged)} videos we rated on audience reaction read positive`,
       href: `${d.appUrl}/dashboard`,
       linkText: 'See where you stand',
     })
@@ -469,10 +485,10 @@ function leadRows(d: ReportData): { title: string; rows: Row[] } {
   if (d.share) {
     const comp = d.share.competitor
     rows.push({
-      label: 'Share of tracked conversation',
+      label: 'Share of tracked videos',
       text: comp
-        ? `You <strong>${d.share.client}%</strong> · ${escapeHtml(comp.name)} <strong>${comp.pct}%</strong>`
-        : `You hold <strong>${d.share.client}%</strong> of the tracked conversation`,
+        ? `You <strong>${d.share.client}%</strong> · ${escapeHtml(comp.name)} <strong>${comp.pct}%</strong> of ${fmtNum(d.share.totalVideos)} videos we track`
+        : `You hold <strong>${d.share.client}%</strong> of the ${fmtNum(d.share.totalVideos)} videos we track`,
       href: `${d.appUrl}/dashboard/competitive`,
       linkText: 'See the competitive picture',
     })
@@ -480,7 +496,7 @@ function leadRows(d: ReportData): { title: string; rows: Row[] } {
   if (d.summary?.total_comments != null) {
     rows.push({
       label: 'Coverage',
-      text: `<strong>${fmtNum(Number(d.summary.total_comments))}</strong> conversations analysed across your market`,
+      text: `<strong>${fmtNum(Number(d.summary.total_comments))}</strong> comments read across your market`,
     })
   }
   return { title: 'Where you stand', rows }
