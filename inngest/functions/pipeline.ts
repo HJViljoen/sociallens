@@ -1,3 +1,4 @@
+import { randomUUID } from 'crypto'
 import { inngest } from '@/inngest/client'
 import { createAdminClient, selectAll } from '@/lib/supabase-admin'
 import { planGatherSearches, searchOne, gatePlatform, scrapeCommentsBatch, transcribeBatch, planTranscribeBatches, resolveGatherWindow, inWindow, loadGatherConfig, type SearchResult } from '@/lib/gather/gather'
@@ -125,7 +126,14 @@ export const runPipeline = inngest.createFunction(
     // Derived from the event, not random: a retry of this step must recognise
     // the row its own previous attempt inserted, or it reads its own side
     // effect as "someone else is running" and skips the run for good.
-    const newRunId = runIdForEvent((event as { id?: string }).id ?? `${clientId}:${JSON.stringify(options)}`)
+    //
+    // No event id (should not happen; every sent event carries one) falls back
+    // to a random id — i.e. the pre-2026-08-18 behaviour, losing only retry
+    // idempotency. Deriving one from clientId+options instead would be far
+    // worse: two scheduled runs carry identical options, so they would collide
+    // on the primary key and the second would reopen the first's run row.
+    const eventId = (event as { id?: string }).id
+    const newRunId = eventId ? runIdForEvent(eventId) : randomUUID()
 
     const opened = await step.run('open-run', async (): Promise<OpenRunResult> => {
       const admin = createAdminClient()
