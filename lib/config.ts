@@ -397,6 +397,19 @@ export const PASS_B_PARALLEL = 3
 // (against YouTube API Services Developer Policy III.E.4.d).
 
 /**
+ * Hard ceiling on MODEL spend within one pipeline run (Tier 1, 2026-08-18).
+ *
+ * A runaway run had no stop at all: the only lever was `clients.is_active`,
+ * flipped by hand, and it was written under pressure the day a run had to be
+ * killed and there was nothing to kill it with. Real runs cost $2.18-$2.70, so
+ * $15 is roughly six times the worst observed run: high enough that no honest
+ * run meets it, low enough that a loop cannot drain the account overnight.
+ * Checked at every step boundary against ai_call_log, alongside the abort
+ * switch, so it costs no extra round trip.
+ */
+export const RUN_MODEL_BUDGET_USD = Number(process.env.RUN_MODEL_BUDGET_USD ?? 15)
+
+/**
  * Minimum analysed videos in an entity's bucket before the product will draw a
  * comparison involving it (Tier 1, 2026-08-18).
  *

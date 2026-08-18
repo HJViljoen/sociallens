@@ -18,6 +18,7 @@ import { discoverSubreddits } from '@/lib/gather/subreddit-discovery'
 import { activeSubreddits } from '@/lib/gather/subreddits'
 import { runStep2c } from '@/lib/pipeline/owned-events'
 import { summariseRunErrors, partialRunAlert, passADegradation, RUN_ERROR_CAP } from '@/lib/pipeline/run-errors'
+import { writeRunCosts, runSpendSoFar } from '@/lib/pipeline/run-costs'
 import { decideOpenRun, runIdForEvent, RUN_STALE_AFTER_HOURS, PG_UNIQUE_VIOLATION, type RunningRow } from '@/lib/pipeline/run-guard'
 import { persistRunNews } from '@/lib/news/persist'
 import { persistThemes, loadThemes } from '@/lib/pipeline/themes'
@@ -25,7 +26,7 @@ import { writeRunSummary } from '@/lib/pipeline/run-summary'
 import { computeMetrics } from '@/lib/pipeline/metrics'
 import { sendAlertEmail } from '@/lib/email'
 import { billingAccess, type BillingClient } from '@/lib/billing'
-import { CLUSTER_SIMILARITY_THRESHOLD, EVIDENCE_FLOOR, PASS_A_ERROR_RATIO, TRANSCRIBE_PARALLEL, captureRunFlags, type RunFlags } from '@/lib/config'
+import { CLUSTER_SIMILARITY_THRESHOLD, EVIDENCE_FLOOR, PASS_A_ERROR_RATIO, RUN_MODEL_BUDGET_USD, TRANSCRIBE_PARALLEL, captureRunFlags, type RunFlags } from '@/lib/config'
 import type { Platform } from '@/lib/gather/types'
 import type { VideoRow, CommentRow } from '@/lib/pipeline/types'
 
@@ -304,8 +305,11 @@ export const runPipeline = inngest.createFunction(
         })
     }
 
-    // Operator abort switch — checked on every replay, before any paid work.
+    // Operator abort switch + spend stop — checked on every replay, before any
+    // paid work. The function body re-executes at each step boundary, so these
+    // are re-read within seconds of a flip rather than once per run.
     await assertRunActive(clientId)
+    await assertWithinBudget(runId)
 
     // 2. Plan the gather fan-out: one task per platform × keyword. An
     //    analysis-only resume skips gather — the corpus is already in the DB.
@@ -736,6 +740,19 @@ export const runPipeline = inngest.createFunction(
       }).eq('id', runId)
     })
 
+    // 7a. Cost ledger. After close-run so the run's own status write is never
+    //     at risk from bookkeeping, and non-fatal for the same reason: what a
+    //     run cost must never change whether it succeeded.
+    const costs = await step
+      .run('write-run-costs', () => writeRunCosts(clientId, runId))
+      .catch((e) => {
+        console.error(`[run-costs] out of retries: ${e instanceof Error ? e.message : String(e)}`)
+        return null
+      })
+    if (costs) {
+      console.log(`[run-costs] openai $${costs.openaiUsd} · transcribe $${costs.transcribeUsd} · apify ${costs.apifyUsd === null ? 'unavailable' : `$${costs.apifyUsd} (${costs.apifyAttribution})`}`)
+    }
+
     // 7b. Prune stale analysis rows (incremental Pass A, 2026-08-17): insight
     //    and language-sample rows no video's analyzed_run_id names any more —
     //    superseded by this run's re-reads, or left by older runs. AFTER
@@ -859,6 +876,21 @@ async function assertRunActive(clientId: string): Promise<void> {
   const access = billingAccess(client)
   if (!access.hasAccess) {
     throw new Error(`run aborted: client ${clientId} has no access (${access.reason})`)
+  }
+}
+
+/** Hard spend stop (Tier 1). The abort switch needed a human to notice; this
+ *  stops a run that is burning money on its own. Checked at the same step
+ *  boundary as the abort switch, so it is one extra cheap query on a path that
+ *  already makes one. Throwing here lands in onFailure, which marks the run
+ *  failed and emails — the loud outcome a runaway deserves. */
+async function assertWithinBudget(runId: string): Promise<void> {
+  const spent = await runSpendSoFar(runId)
+  if (spent > RUN_MODEL_BUDGET_USD) {
+    throw new Error(
+      `run aborted: model spend $${spent.toFixed(2)} exceeded the $${RUN_MODEL_BUDGET_USD} per-run budget ` +
+      `(raise RUN_MODEL_BUDGET_USD if this run is legitimately larger)`,
+    )
   }
 }
 
