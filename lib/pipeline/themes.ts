@@ -78,6 +78,7 @@ export async function persistThemes(
   clientId: string,
   runId: string,
   themes: AggregatedTheme[],
+  opts?: { themeRegistry?: boolean },
 ): Promise<PersistThemesResult> {
   const admin = createAdminClient()
 

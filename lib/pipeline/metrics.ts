@@ -64,7 +64,13 @@ const round = (n: number, dp: number) => {
  * Pure: no DB access. The orchestrator persists comment_quality_scores onto
  * videos and holds the rest in memory for Pass A / Step 2b.
  */
-export function computeMetrics(videos: VideoRow[], comments: CommentRow[]): Step2aMetrics {
+export function computeMetrics(
+  videos: VideoRow[],
+  comments: CommentRow[],
+  /** Video ids that produced at least one current insight. Lets share_of_voice
+   *  carry what a finding can rest on, not just what we scraped (Tier 1). */
+  analysedVideoIds?: Set<string>,
+): Step2aMetrics {
   // Index comments by (platform, video_id).
   const commentsByVideo = new Map<string, CommentRow[]>()
   for (const c of comments) {
@@ -107,12 +113,13 @@ export function computeMetrics(videos: VideoRow[], comments: CommentRow[]): Step
   }
 
   // Share of voice by entity bucket.
-  const sovRaw: Record<string, { videos: number; views: number }> = {}
+  const sovRaw: Record<string, { videos: number; views: number; analysed: number }> = {}
   for (const v of videos) {
     const e = entityOf(v)
-    if (!sovRaw[e]) sovRaw[e] = { videos: 0, views: 0 }
+    if (!sovRaw[e]) sovRaw[e] = { videos: 0, views: 0, analysed: 0 }
     sovRaw[e].videos += 1
     sovRaw[e].views += Number(v.views) || 0
+    if (analysedVideoIds?.has(v.id)) sovRaw[e].analysed += 1
   }
   const share_of_voice: Record<string, SovEntry> = {}
   for (const [e, agg] of Object.entries(sovRaw)) {
@@ -120,6 +127,7 @@ export function computeMetrics(videos: VideoRow[], comments: CommentRow[]): Step
       videos: agg.videos,
       views: agg.views,
       pct_videos: total_videos > 0 ? round((agg.videos / total_videos) * 100, 1) : 0,
+      ...(analysedVideoIds ? { analysed_videos: agg.analysed } : {}),
     }
   }
 

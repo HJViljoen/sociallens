@@ -1,3 +1,4 @@
+import { selectAll } from '@/lib/supabase-admin'
 import Link from 'next/link'
 import { getSessionContext } from '@/lib/auth'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -80,6 +81,7 @@ interface ThemeRow {
   member_themes: string[]
   evidence_count: number
   strength_score: number | null
+  rank_score?: number | null
   first_seen: boolean
 }
 
@@ -181,9 +183,14 @@ export default async function DashboardPage({
     // Current insights of the corpus (audience_insights_current — the rows each
     // video's analyzed_run_id names), not "rows stamped with this run": Pass A
     // is incremental since 2026-08-17, so a run only rewrites changed videos.
-    supabase.from('audience_insights_current')
-      .select('id, category, theme, description, strength_score, emotion')
-      .eq('client_id', clientId),
+    // selectAll: Össur has 1,351 current insights and Sealand 1,110, both past
+    // the 1000-row cap — and T1-11 now PRINTS this set's size to the client, so
+    // a bare select would render "share of 1,000 feelings" forever.
+    selectAll<AudienceInsight>(() =>
+      supabase.from('audience_insights_current')
+        .select('id, category, theme, description, strength_score, emotion')
+        .eq('client_id', clientId).order('id', { ascending: true }),
+    ),
     supabase.from('recommendations')
       .select('id, type, title, reasoning, priority, based_on, hero_quote')
       .eq('client_id', clientId).eq('run_id', runId),
@@ -196,12 +203,17 @@ export default async function DashboardPage({
       .order('severity', { ascending: false }),
   ])
 
-  const audienceInsights = (aiRes.data ?? []) as AudienceInsight[]
+  const audienceInsights = aiRes
   // The denominator behind "heard in N conversations": every video we track.
   const summary = (summaryRes.data ?? null) as RunSummaryRow | null
   const prevSummary = (prevSummaryRes.data ?? null) as RunSummaryRow | null
   const commentCount = Number(summary?.total_comments ?? 0)
-  const trackedConversations = Number(summary?.total_videos ?? 0)
+  // Videos that produced an insight — the only pool a theme's evidence_count
+  // can be drawn from. total_videos is everything gathered (Sealand 1,734 vs
+  // ~351 analysed), so using it understated a theme's reach ~5x.
+  const analysedConversations = Object.values(
+    (summary?.share_of_voice ?? {}) as Record<string, { videos?: number; analysed_videos?: number }>,
+  ).reduce((t, e) => t + Number(e?.analysed_videos ?? 0), 0)
 
   // Previous-update counts for the themes/recommendations tiles — anchored on
   // the same "last update" (prevSummary's run) as every other delta. A zero
@@ -346,7 +358,7 @@ export default async function DashboardPage({
   if (themedRunId) {
     const [{ data: themeRows }, { data: earlier }] = await Promise.all([
       supabase.from('themes')
-        .select('label, description, category, member_themes, evidence_count, strength_score, first_seen')
+        .select('label, description, category, member_themes, evidence_count, strength_score, rank_score, first_seen')
         .eq('client_id', clientId).eq('run_id', themedRunId),
       supabase.from('themes').select('id')
         .eq('client_id', clientId).neq('run_id', themedRunId).limit(1),
@@ -355,7 +367,12 @@ export default async function DashboardPage({
     themeTotal = (themeRows ?? []).length
     themeMultiSource = ((themeRows ?? []) as ThemeRow[]).filter((t) => t.evidence_count >= 2).length
     topThemes = ((themeRows ?? []) as ThemeRow[])
-      .sort((a, b) => b.evidence_count * (b.strength_score ?? 0) - a.evidence_count * (a.strength_score ?? 0))
+      // Same key as everywhere else (Tier 1). This was the last surface still
+      // ranking its own way, so the dashboard and the weekly email could name
+      // different "top themes" from the same run.
+      .sort((a, b) =>
+        (b.rank_score ?? b.evidence_count * (b.strength_score ?? 0)) -
+        (a.rank_score ?? a.evidence_count * (a.strength_score ?? 0)))
       .slice(0, 3)
       .map((t) => ({
         label: t.label,
@@ -364,7 +381,7 @@ export default async function DashboardPage({
         memberThemes: t.member_themes,
         // N of M, not a bare N: "heard in 3 conversations" reads the same
         // whether it is 3 of 4 or 3 of 400 (Tier 1).
-        evidenceLabel: `in ${evidenceOf(t.evidence_count, trackedConversations)}`,
+        evidenceLabel: `in ${evidenceOf(t.evidence_count, analysedConversations)}`,
         conversations: t.evidence_count,
         isNew: showNew && t.first_seen,
       }))
@@ -654,7 +671,8 @@ export default async function DashboardPage({
             )}
             {topEmotions.length > 0 && (
               <p className="text-xs text-muted-foreground">
-                share of {emotionTotal.toLocaleString('en-US')} feelings mentioned across everything we have read
+                the three most common feelings, of {emotionTotal.toLocaleString('en-US')} mentioned across everything we have read.
+                Bars are relative to the most common one.
               </p>
             )}
           </CardContent>

@@ -3,6 +3,7 @@ import { EVIDENCE_FLOOR, CLUSTER_SIMILARITY_THRESHOLD, MEGA_CLUSTER_MIN, MEGA_CL
 import { clusterInsights, type ClusterMethod } from './cluster'
 import { mergeClusterLabels } from './theme-merge'
 import type { InsightRow, AggregatedTheme } from './types'
+import { COMPETITIVE_MIN_VIDEOS } from '../config'
 
 // Step A2 — theme aggregation (Architecture/Analysis-Passes §Step A2). No new
 // GPT call (one cheap embeddings call inside the clustering seam). Buckets Pass A
@@ -79,31 +80,46 @@ function mode(values: string[]): string {
 }
 
 /**
- * Theme rank: evidence weighted by how much of its own entity bucket it spans
+ * Theme rank: evidence, modified by how much of its own entity bucket it spans
  * (Tier 1, 2026-08-18).
  *
- * Both halves are needed. Raw evidence alone lets a big bucket drown a small
- * one (industry-other has hundreds of videos, a competitor bucket has ten), and
- * share alone lets a 2-of-3-video competitor theme outrank a 104-video category
- * theme. evidence x share keeps volume primary and normalises across buckets.
+ * `evidence x sqrt(share)`, not `evidence x share`. The plain product is
+ * evidence squared over bucket size, which is not "volume primary" at all — it
+ * re-creates the exact inversion this replaced, just with a different small
+ * number on top. Measured against a live Sealand run: an 11-video Cotopaxi
+ * theme (bucket of 13) scored 9.31 and outranked a 47-video industry theme
+ * (bucket of 299) at 7.39, and a 3-video Topo theme outranked industry themes
+ * of 10, 11, 12 and 15 videos. That is the same shape as the defect the change
+ * was written to fix.
+ *
+ * The square root keeps share as a modifier rather than a second volume term:
+ * the same cases become industry 18.63 over Cotopaxi 10.12, and industry 3.36
+ * over Topo 1.84, while a 6-of-10 competitor theme (4.65) still ranks above a
+ * 6-of-400 category theme (0.73). Both properties hold at once.
  *
  * What it replaces: the strongest single member insight's score, which is
  * blind to how many people said it.
  */
 export function themeRank(evidenceCount: number, bucketVideoCount: number): number {
   if (evidenceCount <= 0) return 0
-  if (bucketVideoCount <= 0) return evidenceCount
-  const share = Math.min(1, evidenceCount / bucketVideoCount)
-  return Math.round(evidenceCount * share * 1000) / 1000
+  // The denominator is floored at COMPETITIVE_MIN_VIDEOS. A bucket thinner than
+  // that is one we have already declared too thin to draw a comparison from
+  // (lib/pipeline/pass-c thinBuckets), so it must not also earn a share bonus
+  // as though it were a whole bucket: without this, 3 of 8 edges 10 of 299.
+  // Tying the two constants together keeps one definition of "not enough
+  // conversation" instead of two that disagree.
+  const share = Math.min(1, evidenceCount / Math.max(bucketVideoCount, COMPETITIVE_MIN_VIDEOS))
+  return Math.round(evidenceCount * Math.sqrt(share) * 1000) / 1000
 }
 
 /** Order themes by salience: rank, then mean strength, then a stable name. */
 export function compareThemes(a: AggregatedTheme, b: AggregatedTheme): number {
-  return (
-    b.rankScore - a.rankScore ||
-    b.meanStrength - a.meanStrength ||
-    a.theme.localeCompare(b.theme)
-  )
+  // Coalesced: a run whose themes:{bucket} steps memoised the pre-Tier-1 shape
+  // replays into pass-b with rankScore undefined, and `undefined - undefined`
+  // is NaN — falsy — which would silently drop the sort through to alphabetical.
+  const rank = (t: AggregatedTheme) => t.rankScore ?? t.strengthScore ?? 0
+  const mean = (t: AggregatedTheme) => t.meanStrength ?? t.strengthScore ?? 0
+  return rank(b) - rank(a) || mean(b) - mean(a) || a.theme.localeCompare(b.theme)
 }
 
 function aggregate(cluster: InsightRow[], bucket: string): AggregatedTheme {

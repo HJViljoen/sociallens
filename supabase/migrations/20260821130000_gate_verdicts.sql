@@ -36,6 +36,14 @@ create table if not exists public.gate_verdicts (
   constraint gate_verdicts_source_check check (source in ('heuristic', 'gpt', 'default'))
 );
 
+-- One verdict per candidate per run. The gate write sits inside the
+-- gate:{platform} step, ahead of a GPT attribution call and two upserts that
+-- can each fail and replay the whole step body (function retries: 2). Without
+-- this, a retry re-inserts all ~460 rows and the survival rates the table
+-- exists to measure come out wrong.
+create unique index if not exists gate_verdicts_unique
+  on public.gate_verdicts (client_id, run_id, platform, video_id);
+
 create index if not exists gate_verdicts_run_idx on public.gate_verdicts (client_id, run_id, kept);
 create index if not exists gate_verdicts_keyword_idx on public.gate_verdicts (client_id, keyword, kept);
 

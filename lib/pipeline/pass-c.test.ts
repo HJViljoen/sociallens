@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { buildSystemPrompt, buildUserPrompt, indexThemes, thinBuckets } from './pass-c'
+import { buildSystemPrompt, buildUserPrompt, indexThemes, thinBuckets, bucketCoverage } from './pass-c'
 import type { AggregatedTheme } from './types'
 
 // Pins for the v5 claims block: present exactly when competitor claims exist,
@@ -67,11 +67,28 @@ describe('thinBuckets + the coverage floor (Tier 1)', () => {
 
   it('marks the thin bucket in the prompt and rules it out', () => {
     const prompt = buildUserPrompt([], sov)
-    expect(prompt).toContain('competitor:Freitag: 4 videos (0.9% of corpus)  [TOO THIN TO COMPARE]')
+    expect(prompt).toContain('competitor:Freitag: 4 videos gathered, 4 analysed (0.9% of corpus)  [TOO THIN TO COMPARE]')
     expect(prompt).toContain('THIN BUCKETS')
     expect(prompt).toContain('is not evidence about that entity')
     // A bucket that clears the floor carries no warning.
-    expect(prompt).toContain('competitor:Ottobock: 75 videos (16% of corpus)\n')
+    expect(prompt).toContain('competitor:Ottobock: 75 videos gathered, 75 analysed (16% of corpus)\n')
+  })
+
+  it('judges thinness on videos we READ, not videos we gathered', () => {
+    // The live shape this fixes: Sealand's Freitag bucket is 22 gathered but
+    // only 2 produced an insight. Judging on 22 left the floor inert for every
+    // real tenant while handing the model a bucket of 2 with no warning.
+    const gatheredLooksFine = {
+      'competitor:Freitag': { videos: 22, views: 0, pct_videos: 1.3, analysed_videos: 2 },
+      'industry-other': { videos: 1462, views: 0, pct_videos: 84.3, analysed_videos: 299 },
+    }
+    expect(thinBuckets(gatheredLooksFine)).toEqual(['competitor:Freitag'])
+    expect(bucketCoverage(gatheredLooksFine['competitor:Freitag'])).toBe(2)
+  })
+
+  it('falls back to the gathered count on rows written before analysed_videos', () => {
+    expect(bucketCoverage({ videos: 40, views: 0, pct_videos: 10 })).toBe(40)
+    expect(bucketCoverage(undefined)).toBe(0)
   })
 
   it('gives the model evidence and share, never the strongest-member score', () => {

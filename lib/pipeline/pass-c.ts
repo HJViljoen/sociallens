@@ -122,13 +122,21 @@ export function buildSystemPrompt(tc: TrackingConfig | undefined, brandName?: st
  * than leaving the model to discover their thinness from a video count it has
  * no instruction about.
  */
+/** Videos in a bucket a finding can rest on: the ones that produced an insight,
+ *  falling back to the gathered count only on rows written before
+ *  analysed_videos existed. */
+export function bucketCoverage(entry: SovEntry | undefined): number {
+  if (!entry) return 0
+  return Number(entry.analysed_videos ?? entry.videos ?? 0)
+}
+
 export function thinBuckets(
   sov: Record<string, SovEntry> | undefined,
   floor: number = COMPETITIVE_MIN_VIDEOS,
 ): string[] {
   if (!sov) return []
   return Object.entries(sov)
-    .filter(([, e]) => Number(e?.videos ?? 0) < floor)
+    .filter(([, e]) => bucketCoverage(e) < floor)
     .map(([bucket]) => bucket)
     .sort()
 }
@@ -145,7 +153,7 @@ export function buildUserPrompt(
     lines.push('SHARE OF VOICE (by bucket):')
     for (const [bucket, e] of Object.entries(sov)) {
       const mark = thin.includes(bucket) ? '  [TOO THIN TO COMPARE]' : ''
-      lines.push(`- ${bucket}: ${e.videos} videos (${e.pct_videos}% of corpus)${mark}`)
+      lines.push(`- ${bucket}: ${e.videos} videos gathered, ${bucketCoverage(e)} analysed (${e.pct_videos}% of corpus)${mark}`)
     }
     lines.push('')
   }
@@ -169,7 +177,9 @@ export function buildUserPrompt(
     // Evidence and share, not `strength`: that was the strongest SINGLE member
     // insight and said nothing about how widely a theme was heard, while being
     // the only salience number the model saw (Tier 1).
-    const bucketVideos = Number(sov?.[theme.bucket]?.videos ?? 0)
+    // The same denominator the rank used, so the prompt's share and the order
+    // it arrives in cannot disagree (they read 12% vs 85% for one live theme).
+    const bucketVideos = bucketCoverage(sov?.[theme.bucket])
     const share = bucketVideos > 0 ? ` (${Math.round((theme.evidenceCount / bucketVideos) * 100)}% of its bucket)` : ''
     lines.push(
       `[${label}] bucket=${theme.bucket} category=${theme.category} "${theme.label ?? theme.theme}" ` +

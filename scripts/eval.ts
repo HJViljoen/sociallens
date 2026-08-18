@@ -41,7 +41,9 @@ async function optional<T>(fn: () => Promise<T[]>): Promise<T[] | null> {
     return await fn()
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e)
-    if (/Could not find the table|does not exist|schema cache/i.test(msg)) return null
+    // Table-level only: a missing COLUMN on an existing table is a real bug
+    // and must not be reported as "not migrated here".
+    if (/Could not find the table|relation .* does not exist/i.test(msg)) return null
     throw e
   }
 }
@@ -50,7 +52,13 @@ function parseArgs(argv: string[]): Args {
   const a: Args = { floor: EVAL_GROUNDING_FLOOR, json: false }
   for (let i = 0; i < argv.length; i++) {
     if (argv[i] === '--client') a.clientId = argv[++i]
-    else if (argv[i] === '--floor') a.floor = Number(argv[++i])
+    else if (argv[i] === '--floor') {
+      // NaN would make `rate < floor` always false and silently disable the
+      // only floor this harness has.
+      const v = Number(argv[++i])
+      if (!Number.isFinite(v) || v < 0 || v > 1) throw new Error(`--floor must be between 0 and 1`)
+      a.floor = v
+    }
     else if (argv[i] === '--json') a.json = true
     else throw new Error(`unknown flag: ${argv[i]}`)
   }
@@ -62,10 +70,16 @@ async function main() {
   const admin = createAdminClient()
 
   const clients = await selectAll<{ id: string; company_name: string }>(() => {
-    let q = admin.from('clients').select('id, company_name').order('company_name')
+    // Ordered by id: selectAll pages by range, so a non-unique sort key can
+    // repeat or skip rows across pages.
+    let q = admin.from('clients').select('id, company_name').order('id', { ascending: true })
     if (args.clientId) q = q.eq('id', args.clientId)
     return q
   })
+  if (!clients.length) {
+    console.error(args.clientId ? `No client matches ${args.clientId}.` : 'No clients found.')
+    process.exit(1)
+  }
 
   const results: Record<string, unknown> = {}
   let failed = false
@@ -131,7 +145,7 @@ async function main() {
           failedOpen: verdicts.filter((v) => v.source === 'default').length,
         }
 
-    results[client.company_name] = { grounding, validation, stability, gate }
+    results[client.id] = { client: client.company_name, grounding, validation, stability, gate }
 
     if (!args.json) {
       console.log(`\n=== ${client.company_name} ===`)

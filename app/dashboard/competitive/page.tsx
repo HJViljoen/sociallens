@@ -35,7 +35,7 @@ interface AudienceInsight { id: string; category: string; theme: string; descrip
 /** The share fields of run_summary — the page's only number source. */
 interface SummaryShareRow {
   total_videos: number | null
-  share_of_voice: Record<string, { videos: number; pct_videos: number }> | null
+  share_of_voice: Record<string, { videos: number; pct_videos: number; analysed_videos?: number }> | null
 }
 
 // Category presentation. Order = the lead-with-strength reading order.
@@ -141,7 +141,12 @@ export default async function CompetitiveIntelligencePage({
     const match = sov.competitors.find(
       (c) => c.name.toLowerCase() === ci.competitor_name!.toLowerCase(),
     )
-    return match?.count ?? 0
+    // NULL, not 0, when the name does not match a tracked bucket.
+    // competitive_insights.competitor_name is unvalidated model prose, so
+    // "Ottobock GmbH" against a bucket called "Ottobock" would otherwise
+    // render "thin: 0 videos · We analysed only 0 videos about Ottobock",
+    // which is worse than saying nothing.
+    return match ? match.count : null
   }
 
   return (
@@ -193,8 +198,8 @@ function InsightCard({ ci, support, quotes, coverage }: {
               <span
                 className={`${chipBase} ${thin ? 'bg-warning/15 text-warning-foreground' : 'bg-muted text-muted-foreground'}`}
                 title={thin
-                  ? `We analysed only ${coverage} video${coverage === 1 ? '' : 's'} about ${ci.competitor_name}. Treat this as a hint, not a finding.`
-                  : `Drawn from ${coverage} analysed videos about ${ci.competitor_name}.`}
+                  ? `Only ${coverage} video${coverage === 1 ? '' : 's'} about ${ci.competitor_name} produced anything we could read. Treat this as a hint, not a finding.`
+                  : `Drawn from ${coverage} videos about ${ci.competitor_name} that produced readable signal.`}
               >
                 {thin ? `thin: ${coverage} videos` : `${coverage} videos`}
               </span>
@@ -245,7 +250,9 @@ function shareFromSummary(summary: SummaryShareRow | null): Share {
   const industry = sov['industry-other']?.videos ?? 0
   const competitors = Object.entries(sov)
     .filter(([key]) => key.startsWith('competitor:'))
-    .map(([key, e]) => ({ name: key.slice('competitor:'.length), count: e.videos }))
+    // count = videos that produced an insight, which is what a card's claim
+    // rests on. The gathered count overstated coverage 8-11x on live data.
+    .map(([key, e]) => ({ name: key.slice('competitor:'.length), count: e.analysed_videos ?? e.videos }))
     .sort((a, b) => b.count - a.count)
   return {
     total: Number(summary?.total_videos ?? 0),

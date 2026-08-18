@@ -27,13 +27,32 @@ describe('themeRank — evidence x share of bucket (Tier 1)', () => {
     expect(themeRank(104, 400)).toBeGreaterThan(themeRank(3, 3))
   })
 
+  it('does not re-create the inversion it replaced (measured on a live run)', () => {
+    // evidence x share (i.e. e^2/B) put an 11-video competitor theme in a
+    // 13-video bucket ABOVE a 47-video industry theme in a 299-video bucket.
+    expect(themeRank(47, 299)).toBeGreaterThan(themeRank(11, 13))
+    expect(themeRank(19, 299)).toBeGreaterThan(themeRank(4, 13))
+    // A 3-video theme in an 8-video bucket outranked industry themes of 10-15.
+    for (const e of [10, 11, 12, 15]) {
+      expect(themeRank(e, 299)).toBeGreaterThan(themeRank(3, 8))
+    }
+  })
+
   it('a theme spanning its whole bucket scores its evidence count', () => {
     expect(themeRank(12, 12)).toBe(12)
   })
 
-  it('is not tripped up by a share above 1 or a zero denominator', () => {
-    expect(themeRank(5, 2)).toBe(5)
-    expect(themeRank(5, 0)).toBe(5)
+  it('a bucket below the comparison floor earns no share bonus', () => {
+    // 8 videos is under COMPETITIVE_MIN_VIDEOS, so the denominator floors at 10
+    // rather than letting 3-of-8 read as 37% of a bucket.
+    expect(themeRank(3, 8)).toBeLessThan(themeRank(3, 3) + 0.0001)
+    expect(themeRank(3, 8)).toBe(themeRank(3, 10))
+  })
+
+  it('degenerate inputs do not produce NaN or Infinity', () => {
+    // evidence can never exceed its own bucket in practice; guard anyway.
+    expect(Number.isFinite(themeRank(5, 2))).toBe(true)
+    expect(Number.isFinite(themeRank(5, 0))).toBe(true)
     expect(themeRank(0, 100)).toBe(0)
   })
 })

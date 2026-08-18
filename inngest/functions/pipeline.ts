@@ -309,7 +309,7 @@ export const runPipeline = inngest.createFunction(
     // paid work. The function body re-executes at each step boundary, so these
     // are re-read within seconds of a flip rather than once per run.
     await assertRunActive(clientId)
-    await assertWithinBudget(runId)
+    await assertWithinBudget(clientId, runId)
 
     // 2. Plan the gather fan-out: one task per platform × keyword. An
     //    analysis-only resume skips gather — the corpus is already in the DB.
@@ -696,7 +696,7 @@ export const runPipeline = inngest.createFunction(
     // Persist with first_seen from mini theme-matching — the themes table is
     // the boundary the synthesis step reads back across.
     const persisted = await step.run('persist-themes', () =>
-      persistThemes(clientId, runId, themed.allThemes),
+      persistThemes(clientId, runId, themed.allThemes, { themeRegistry: flags.themeRegistry }),
     )
     const themedSummary = {
       ...themed.summary,
@@ -884,8 +884,8 @@ async function assertRunActive(clientId: string): Promise<void> {
  *  boundary as the abort switch, so it is one extra cheap query on a path that
  *  already makes one. Throwing here lands in onFailure, which marks the run
  *  failed and emails — the loud outcome a runaway deserves. */
-async function assertWithinBudget(runId: string): Promise<void> {
-  const spent = await runSpendSoFar(runId)
+async function assertWithinBudget(clientId: string, runId: string): Promise<void> {
+  const spent = await runSpendSoFar(clientId, runId)
   if (spent > RUN_MODEL_BUDGET_USD) {
     throw new Error(
       `run aborted: model spend $${spent.toFixed(2)} exceeded the $${RUN_MODEL_BUDGET_USD} per-run budget ` +
@@ -1017,7 +1017,19 @@ async function runSynthesisHalf(clientId: string, runId: string) {
       .order('id', { ascending: true }),
   )
   const comments = allComments.filter((c) => wantedVideos.has(`${c.platform}::${c.video_id}`))
-  const metrics = computeMetrics(videos, comments)
+
+  // Which videos actually produced an insight. Share of voice then carries what
+  // a finding can REST on, not only what we scraped: on a live Sealand run
+  // Freitag was 22 gathered / 2 analysed, so a coverage claim built on the
+  // gathered count overstated by 11x and a floor set against it never fired.
+  const analysedRows = await selectAll<{ source_video_id: string | null }>(() =>
+    admin.from('audience_insights_current').select('source_video_id')
+      .eq('client_id', clientId).order('id', { ascending: true }),
+  )
+  const analysedVideoIds = new Set(
+    analysedRows.map((r) => r.source_video_id).filter((id): id is string => Boolean(id)),
+  )
+  const metrics = computeMetrics(videos, comments, analysedVideoIds)
 
   const { data: tc } = await admin.from('tracking_configs')
     .select('brand_keywords, competitor_names, industry_keywords, report_period')
@@ -1034,7 +1046,7 @@ async function runSynthesisHalf(clientId: string, runId: string) {
   const window = await resolveGatherWindow(clientId, runId, tc?.report_period ?? 'weekly')
   const periodVideos = videos.filter((v) => v.run_id === runId && inWindow(v.upload_date, window.since))
   const periodComments = comments.filter((c) => c.run_id === runId && inWindow(c.comment_date, window.since))
-  const periodMetrics = computeMetrics(periodVideos, periodComments)
+  const periodMetrics = computeMetrics(periodVideos, periodComments, analysedVideoIds)
   const { data: client } = await admin.from('clients')
     .select('company_name').eq('id', clientId).maybeSingle()
   const brandName = client?.company_name ?? undefined

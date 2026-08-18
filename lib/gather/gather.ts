@@ -497,11 +497,12 @@ export async function gatePlatform(opts: {
   // the record must never lose the gather.
   if (!opts.dryRun) {
     try {
-      const firstKeyword = (id: string) =>
-        videos.find((v) => v.video_id === id)?.source_keywords?.[0] ?? null
+      // The candidate already carries its keywords; a find() over the same
+      // array would be O(n^2) across ~460 candidates.
+      const keywordById = new Map(videos.map((v) => [v.video_id, v.source_keywords?.[0] ?? null]))
       const written = await recordGateVerdicts(
         admin,
-        buildGateVerdictRows(opts.clientId, opts.runId ?? null, adapter.platform, videos, verdicts, firstKeyword),
+        buildGateVerdictRows(opts.clientId, opts.runId ?? null, adapter.platform, videos, verdicts, (id) => keywordById.get(id) ?? null),
       )
       console.log(`[${adapter.platform}] recorded ${written} gate verdicts (${kept.length} kept, ${dropped} dropped)`)
     } catch (e) {

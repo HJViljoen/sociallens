@@ -69,7 +69,12 @@ export async function recordGateVerdicts(admin: Admin, rows: GateVerdictRow[]): 
   if (!rows.length) return 0
   let written = 0
   for (let i = 0; i < rows.length; i += 200) {
-    const { error } = await admin.from('gate_verdicts').insert(rows.slice(i, i + 200))
+    // Upsert, not insert: this runs inside a step that can replay (the
+    // attribution call and two upserts after it can each fail), and a
+    // re-insert would double every survival rate the table exists to measure.
+    const { error } = await admin
+      .from('gate_verdicts')
+      .upsert(rows.slice(i, i + 200), { onConflict: 'client_id,run_id,platform,video_id' })
     if (error) throw new Error(`record gate verdicts: ${error.message}`)
     written += Math.min(200, rows.length - i)
   }

@@ -65,9 +65,17 @@ export interface CommentRow {
 
 /** One bucket of the share-of-voice breakdown. */
 export interface SovEntry {
+  /** Videos GATHERED in this bucket. */
   videos: number
   views: number
   pct_videos: number
+  /** Videos in this bucket that actually produced an insight — what a finding
+   *  about the entity can rest on (Tier 1, 2026-08-18). Far smaller than
+   *  `videos`: on a live Sealand run, Freitag was 22 gathered / 2 analysed and
+   *  Topo Designs 64 / 8, so a coverage claim built on `videos` overstated by
+   *  8-11x and a floor set against it never fired. Absent on rows written
+   *  before this shipped. */
+  analysed_videos?: number
 }
 
 /** Per-platform sub-metrics. `avg_engagement_rate` is null for view-less
