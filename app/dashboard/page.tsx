@@ -2,7 +2,7 @@ import Link from 'next/link'
 import { getSessionContext } from '@/lib/auth'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { SENTIMENT_TIER_BADGE } from '@/lib/ui-colors'
-import { sentimentTier, SENTIMENT_TIER_LABEL, SENTIMENT_TIER_RULE, type GlossaryKey } from '@/lib/calibration'
+import { sentimentTier, evidenceOf, SENTIMENT_TIER_LABEL, SENTIMENT_TIER_RULE, type GlossaryKey } from '@/lib/calibration'
 import { HowToRead } from '@/components/how-to-read'
 import { DetailOverlay } from '@/components/detail-overlay'
 import { Quotes } from '@/components/quotes'
@@ -197,9 +197,11 @@ export default async function DashboardPage({
   ])
 
   const audienceInsights = (aiRes.data ?? []) as AudienceInsight[]
+  // The denominator behind "heard in N conversations": every video we track.
   const summary = (summaryRes.data ?? null) as RunSummaryRow | null
   const prevSummary = (prevSummaryRes.data ?? null) as RunSummaryRow | null
   const commentCount = Number(summary?.total_comments ?? 0)
+  const trackedConversations = Number(summary?.total_videos ?? 0)
 
   // Previous-update counts for the themes/recommendations tiles — anchored on
   // the same "last update" (prevSummary's run) as every other delta. A zero
@@ -328,6 +330,8 @@ export default async function DashboardPage({
     if (i.emotion) emotionCounts.set(i.emotion, (emotionCounts.get(i.emotion) ?? 0) + 1)
   }
   const topEmotions = [...emotionCounts.entries()].sort((a, b) => b[1] - a[1]).slice(0, 3)
+  // Every feeling counted, so a top-3 bar can say what it is 3 of.
+  const emotionTotal = [...emotionCounts.values()].reduce((a, b) => a + b, 0)
   const maxEmotion = topEmotions[0]?.[1] ?? 0
 
   // ---- What your market is talking about: top 3 themes ----
@@ -358,7 +362,9 @@ export default async function DashboardPage({
         description: t.description ?? '',
         category: t.category,
         memberThemes: t.member_themes,
-        evidenceLabel: `in ${t.evidence_count} conversation${t.evidence_count === 1 ? '' : 's'}`,
+        // N of M, not a bare N: "heard in 3 conversations" reads the same
+        // whether it is 3 of 4 or 3 of 400 (Tier 1).
+        evidenceLabel: `in ${evidenceOf(t.evidence_count, trackedConversations)}`,
         conversations: t.evidence_count,
         isNew: showNew && t.first_seen,
       }))
@@ -632,7 +638,7 @@ export default async function DashboardPage({
             {topEmotions.length > 0 ? (
               <div className="space-y-1.5">
                 {topEmotions.map(([emotion, n]) => (
-                  <div key={emotion} className="flex items-center gap-2" title={`${cap(emotion)} · ${n} mention${n === 1 ? '' : 's'} across everything we have read`}>
+                  <div key={emotion} className="flex items-center gap-2" title={`${cap(emotion)} · ${evidenceOf(n, emotionTotal, 'mentions')} across everything we have read`}>
                     <span className="w-20 shrink-0 text-xs capitalize text-muted-foreground">{emotion}</span>
                     {/* bar needs its own track: a % width on the row itself gets flex-shrunk
                         to the same leftover space for every row on narrow screens */}
@@ -647,7 +653,9 @@ export default async function DashboardPage({
               <p className="text-xs text-muted-foreground">lands with the next update</p>
             )}
             {topEmotions.length > 0 && (
-              <p className="text-xs text-muted-foreground">how often each feeling comes up across everything we have read</p>
+              <p className="text-xs text-muted-foreground">
+                share of {emotionTotal.toLocaleString('en-US')} feelings mentioned across everything we have read
+              </p>
             )}
           </CardContent>
         </Card>

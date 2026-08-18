@@ -3,6 +3,7 @@ import { getSessionContext } from '@/lib/auth'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { categoryTint } from '@/lib/ui-colors'
 import { Quotes } from '@/components/quotes'
+import { evidenceOf } from '@/lib/calibration'
 
 // Trends — how the market has moved across recent updates (Redesign Spec §6/§9,
 // unlocked once a tenant has ≥2 comparable updates on record). The dashboard is
@@ -154,6 +155,8 @@ export default async function TrendsPage() {
   const first = summaries[0]
   const last = summaries[summaries.length - 1]
   const period = last.period === 'monthly' ? 'monthly' : 'weekly'
+  // Denominator for "in N conversations now": videos tracked in the latest update.
+  const latestTracked = Number(last.total_videos ?? 0)
   const heroLine = `Tracking since ${shortDate(first.run_date)} · ${summaries.length} ${period} updates`
 
   // Period-layer series when EVERY row has it (a whole series must come from one
@@ -416,7 +419,7 @@ export default async function TrendsPage() {
                     </div>
                     <p className="truncate text-sm font-medium">{t.label}</p>
                     <p className="text-[11px] text-muted-foreground">
-                      {bucketLabel(t.bucket, brandShort)} · in {fmtInt(t.latestEvidence)} conversation{t.latestEvidence === 1 ? '' : 's'} now
+                      {bucketLabel(t.bucket, brandShort)} · in {evidenceOf(t.latestEvidence, latestTracked)} now
                     </p>
                   </div>
                   <div className="shrink-0 text-right">
@@ -430,7 +433,7 @@ export default async function TrendsPage() {
             </CardContent>
           </Card>
           <p className="text-[11px] text-muted-foreground">
-            Prominence is how strongly a theme registered in each update (0–10), tracked across the updates it appeared in.
+            The line is how widely a theme was heard in each update, tracked across the updates it appeared in.
           </p>
         </section>
       )}

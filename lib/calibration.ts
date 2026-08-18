@@ -91,6 +91,22 @@ export const SENTIMENT_TIER_RULE: Record<SentimentTier, string> = {
 // (hover explains the word where the confusion happens); the how-to-read
 // floating card renders the same lines, so tooltip and legend can never drift.
 
+/**
+ * "21 of 36 conversations" — the shape this module's own header has promised
+ * since it was written ("Badges always carry their evidence") without ever
+ * exporting a formatter for it. Four surfaces hand-rolled the string and the
+ * rest simply printed a bare count, so a reader could not tell whether "heard
+ * in 3 conversations" was 3 of 4 or 3 of 400 (Tier 1, 2026-08-18).
+ *
+ * Returns just the count when there is no denominator worth stating, rather
+ * than inventing one.
+ */
+export function evidenceOf(count: number, denom: number | null | undefined, noun = 'conversations'): string {
+  const n = Math.max(0, Math.round(count))
+  if (denom == null || denom <= 0 || denom < n) return `${n.toLocaleString('en-US')} ${noun}`
+  return `${n.toLocaleString('en-US')} of ${denom.toLocaleString('en-US')} ${noun}`
+}
+
 export const GLOSSARY = {
   conversations: ['Conversations', 'one video and the comments it sparked — the unit behind every "heard in…" and share figure; comments are always counted separately as comments'],
   dominant: ['Dominant', "at least 40% of the group's analysed conversations (minimum 10)"],
