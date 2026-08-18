@@ -1,4 +1,4 @@
-import { UserPlus, Users, Clock } from 'lucide-react'
+import { UserPlus, Users, Clock, Mail } from 'lucide-react'
 import { getSessionContext, canManageTenant } from '@/lib/auth'
 import { getBaseUrl } from '@/lib/site'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -27,10 +27,15 @@ export default async function TeamPage() {
   const canManage = canManageTenant(role)
   const isOwner = role === 'owner'
 
-  const [{ data: client }, { data: members }] = await Promise.all([
+  const [{ data: client }, { data: members }, { data: cfg }] = await Promise.all([
     supabase.from('clients').select('company_name').eq('id', clientId).maybeSingle(),
     supabase.from('users').select('id, full_name, email, role').eq('client_id', clientId).order('created_at'),
+    // Who actually receives the update. Accepting an invite adds you to this
+    // list (T0-10); showing it here is what makes "your team gets the update"
+    // checkable instead of a claim.
+    supabase.from('tracking_configs').select('report_emails').eq('client_id', clientId).maybeSingle(),
   ])
+  const reportEmails = ((cfg?.report_emails ?? []) as string[]).map((e) => e.trim()).filter(Boolean)
 
   // Pending invites + their shareable links are only fetched/built for managers.
   let invites: InviteRow[] = []
@@ -46,6 +51,8 @@ export default async function TeamPage() {
   }
 
   const memberRows = (members as MemberRow[] | null) ?? []
+  const recipientSet = new Set(reportEmails.map((e) => e.toLowerCase()))
+  const membersOffReport = memberRows.filter((m) => !recipientSet.has((m.email ?? '').toLowerCase()))
 
   return (
     <div className="space-y-6 max-w-3xl">
@@ -64,7 +71,7 @@ export default async function TeamPage() {
             <InviteForm inviterRole={role} />
             <p className="text-[11px] text-muted-foreground/70">
               We email the invite link directly. You can also copy the generated link and share it
-              yourself — it signs the person in and adds them to {client?.company_name ?? 'your workspace'}.
+              yourself. It signs the person in and adds them to {client?.company_name ?? 'your workspace'}.
             </p>
           </CardContent>
         </Card>
@@ -82,7 +89,12 @@ export default async function TeamPage() {
                     {m.full_name || m.email}
                     {isSelf && <span className="ml-2 text-[11px] text-muted-foreground">(you)</span>}
                   </p>
-                  <p className="truncate text-xs text-muted-foreground">{m.email}</p>
+                  <p className="truncate text-xs text-muted-foreground">
+                    {m.email}
+                    {recipientSet.has((m.email ?? '').toLowerCase())
+                      ? <span className="ml-2 text-[11px] text-primary">gets the update</span>
+                      : <span className="ml-2 text-[11px] text-muted-foreground/70">not on the update</span>}
+                  </p>
                 </div>
                 {isOwner && !isSelf
                   ? <MemberControls userId={m.id} currentRole={m.role} />
@@ -90,6 +102,23 @@ export default async function TeamPage() {
               </div>
             )
           })}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader><CardTitle className="flex items-center gap-2 text-sm"><Mail className="size-4 text-primary" aria-hidden /> Who gets the update ({reportEmails.length})</CardTitle></CardHeader>
+        <CardContent className="space-y-2">
+          {reportEmails.length === 0 ? (
+            <p className="text-sm text-muted-foreground">Nobody. Add an address in Settings, or invite a teammate and they are added when they join.</p>
+          ) : (
+            <p className="text-sm">{reportEmails.join(' · ')}</p>
+          )}
+          {membersOffReport.length > 0 && (
+            <p className="text-xs text-muted-foreground">
+              {membersOffReport.length} teammate{membersOffReport.length === 1 ? '' : 's'} on this workspace {membersOffReport.length === 1 ? 'is' : 'are'} not on the list.
+              {canManage ? ' Add them in Settings.' : ''}
+            </p>
+          )}
         </CardContent>
       </Card>
 

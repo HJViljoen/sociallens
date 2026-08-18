@@ -50,16 +50,23 @@ export interface SentimentFamily {
  * classify-meta (the video's own caption/transcript). The two are different
  * measurements and are never summed — before this split the headline number
  * was ~59% framing on Össur and a pass reorder read as a 6-point shift.
- * Videos with a sentiment but no provenance (pre-backfill rows) fall to
- * framing, the conservative bucket.
+ * Rows written without provenance (by code deployed before this split, in the
+ * window between the migration and the deploy) fall back to the lane: only the
+ * full lane reads comments, so 'full' means audience and anything else means
+ * framing. That is the same rule the migration's backfill applies.
  */
+export function sentimentSource(v: VideoRow): 'audience' | 'framing' {
+  if (v.sentiment_source === 'audience') return 'audience'
+  if (v.sentiment_source === 'framing') return 'framing'
+  return v.analyzed_lane === 'full' ? 'audience' : 'framing'
+}
+
 export function sentimentFamily(videos: VideoRow[], family: 'audience' | 'framing'): SentimentFamily {
   const counts = { positive: 0, neutral: 0, negative: 0, mixed: 0 }
   let judged = 0
   for (const v of videos) {
     if (!v.sentiment || !(v.sentiment in counts)) continue
-    const source = v.sentiment_source === 'audience' ? 'audience' : 'framing'
-    if (source !== family) continue
+    if (sentimentSource(v) !== family) continue
     counts[v.sentiment as keyof typeof counts]++
     judged++
   }

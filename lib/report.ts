@@ -58,6 +58,10 @@ interface ThemeItem {
 interface RecItem {
   title: string
   reasoning: string | null
+  /** The verbatim comment the recommendation rests on. The app has shown this
+   *  since 2026-07-07 and the site promises "every recommendation leads with a
+   *  verbatim quote" — the email never selected the column until T0-10. */
+  heroQuote: string | null
 }
 interface CompetitiveItem {
   competitorName: string | null
@@ -77,7 +81,6 @@ interface OwnedEventItem {
 interface EngageItem {
   categoryLabel: string
   text: string
-  author: string | null
   platform: string
   href: string | null
 }
@@ -176,7 +179,7 @@ export async function generateWeeklyReport(opts: {
         ? 'no report_emails configured'
         : sent
           ? undefined
-          : 'email provider not configured — report stored only',
+          : 'email provider not configured, report stored only',
   }
 }
 
@@ -231,7 +234,7 @@ async function buildReportData(
   const [delta, recRes, themeRes, ciRes, eventsRes] = await Promise.all([
     summary ? computeRunDelta(admin, clientId, summary) : Promise.resolve(null),
     admin.from('recommendations')
-      .select('title, reasoning, priority')
+      .select('title, reasoning, priority, hero_quote')
       .eq('client_id', clientId).eq('run_id', runId),
     admin.from('themes')
       .select('label, description, evidence_count, first_seen, member_themes')
@@ -249,7 +252,9 @@ async function buildReportData(
       .limit(3),
   ])
 
-  const recs = (recRes.data ?? []) as (RecItem & { priority: string | null })[]
+  const recs = ((recRes.data ?? []) as {
+    title: string; reasoning: string | null; priority: string | null; hero_quote: string | null
+  }[]).map((r) => ({ title: r.title, reasoning: r.reasoning, priority: r.priority, heroQuote: r.hero_quote }))
   const rec =
     recs.sort((a, b) => (PRIORITY_RANK[b.priority ?? ''] ?? 0) - (PRIORITY_RANK[a.priority ?? ''] ?? 0))[0] ?? null
 
@@ -292,7 +297,9 @@ async function buildReportData(
   ).map((c) => ({
     categoryLabel: ENGAGE_CATEGORY_LABEL[c.category] ?? c.category,
     text: c.comment.text.length > 180 ? `${c.comment.text.slice(0, 180)}…` : c.comment.text,
-    author: c.comment.author,
+    // The commenter's handle is deliberately NOT carried into the email (T0-9):
+    // the deep link is how a reply gets written, and an emailed handle is
+    // personal data leaving the platform it was posted on.
     platform: c.comment.platform,
     href: engageDeepLink(c.comment).href,
   }))
@@ -309,7 +316,7 @@ async function buildReportData(
     delta,
     share: readShare(summary?.share_of_voice ?? null),
     themes,
-    rec: rec ? { title: rec.title, reasoning: rec.reasoning } : null,
+    rec: rec ? { title: rec.title, reasoning: rec.reasoning, heroQuote: rec.heroQuote } : null,
     competitive: topComp
       ? { competitorName: topComp.competitor_name, title: topComp.title, finding: topComp.finding }
       : null,
@@ -446,28 +453,13 @@ function leadRows(d: ReportData): { title: string; rows: Row[] } {
         linkText: 'See the competitive picture',
       })
     }
-    if (newThemes) {
-      const labels = newThemes.labels.map((l) => `“${escapeHtml(l)}”`).join(' · ')
-      rows.push({
-        label: 'New themes',
-        text:
-          newThemes.count > 0
-            ? `<strong>${newThemes.count} new theme${newThemes.count === 1 ? '' : 's'}</strong> in your market's conversation${labels ? ` — ${labels}` : ''}`
-            : `No new themes — the conversation held steady`,
-        href: `${d.appUrl}/dashboard/voice`,
-        linkText: 'Hear the voices',
-      })
-    }
-    if (conversations) {
-      // A count, not a proportion: no band applies, so it carries no arrow.
-      // "comments" is the calibrated word for comment rows (lib/calibration
-      // GLOSSARY); "conversations" means a video and the comments under it.
-      rows.push({
-        label: 'Coverage',
-        text: `<strong>${fmtNum(conversations.now)}</strong> comments read this update, up from ${fmtNum(conversations.prev)}`,
-      })
-    }
-    return { title: 'What changed since your last update', rows }
+    // New themes and Coverage rows dropped from the lead (T0-10): the count of
+    // new themes lives in the subject and as NEW badges on the themes below,
+    // and a coverage count is not "what changed". The block keeps the two
+    // measured proportions, each carrying its own verdict.
+    const moved = [d.delta.sentiment?.verdict.state, d.delta.share?.verdict.state].includes('moved')
+    void newThemes; void conversations
+    return { title: moved ? 'What changed since your last update' : 'Where you stand this update', rows }
   }
 
   // First report — a baseline, framed as state. Sentiment comes from the
@@ -525,12 +517,16 @@ function renderReportHtml(d: ReportData, subject: string): string {
       </div>`
   }).join('')
 
+  // The one action, FIRST (T0-10). It used to render third, below the stat
+  // rows and the owned block, which on a 390px phone put the only thing to do
+  // below the fold. Order now: what to do, the voice it rests on, then state.
   const recHtml = d.rec ? `
     ${sectionTitle('The one thing to act on')}
     <div style="background:${GREEN};border-radius:12px;padding:16px 18px;margin-top:8px">
       <div style="font-size:15px;font-weight:700;color:#FFFFFF;line-height:1.4">${escapeHtml(d.rec.title)}</div>
       ${d.rec.reasoning ? `<div style="font-size:13px;color:#CBDCD1;line-height:1.55;margin-top:6px">${escapeHtml(d.rec.reasoning)}</div>` : ''}
-      <div style="margin-top:10px">
+      ${d.rec.heroQuote ? `<div style="font-size:14px;font-style:italic;color:#FFFFFF;line-height:1.55;margin-top:12px;border-left:3px solid #7FA98F;padding-left:12px">&ldquo;${escapeHtml(d.rec.heroQuote)}&rdquo;</div>` : ''}
+      <div style="margin-top:12px">
         <a href="${d.appUrl}/dashboard/market" style="color:#FFFFFF;font-size:12px;font-weight:700;text-decoration:none">Why this, why now →</a>
       </div>
     </div>` : ''
@@ -555,7 +551,7 @@ function renderReportHtml(d: ReportData, subject: string): string {
       ? `
       <div style="padding:11px 0;border-bottom:1px solid ${BORDER}">
         <div style="font-size:14px;font-weight:600;color:${INK}">${escapeHtml(d.ownedEvents[0].magnitudeLabel)}</div>
-        <div style="font-size:13px;color:${MUTED};line-height:1.5;margin-top:2px">The conversation we track doesn't account for this move — we flag it rather than guess at a cause. (${escapeHtml(platformLabel(d.ownedEvents[0].platform))})</div>
+        <div style="font-size:13px;color:${MUTED};line-height:1.5;margin-top:2px">The conversation we track doesn't account for this move, so we flag it rather than guess at a cause. (${escapeHtml(platformLabel(d.ownedEvents[0].platform))})</div>
       </div>`
       : ''
   const ownedHtml = ownedItems ? `${sectionTitle('On your account')}${ownedItems}` : ''
@@ -566,7 +562,7 @@ function renderReportHtml(d: ReportData, subject: string): string {
     ${sectionTitle('Worth a reply')}
     ${d.engage.map((e) => rowBlock({
       label: e.categoryLabel,
-      text: `&ldquo;${escapeHtml(e.text)}&rdquo;${e.author ? ` <span style="color:${MUTED}">— @${escapeHtml(e.author)} · ${escapeHtml(platformLabel(e.platform))}</span>` : ` <span style="color:${MUTED}">· ${escapeHtml(platformLabel(e.platform))}</span>`}`,
+      text: `&ldquo;${escapeHtml(e.text)}&rdquo; <span style="color:${MUTED}">· ${escapeHtml(platformLabel(e.platform))}</span>`,
       href: e.href ?? undefined,
       linkText: 'Join the conversation',
     })).join('')}` : ''
@@ -575,7 +571,7 @@ function renderReportHtml(d: ReportData, subject: string): string {
     ${sectionTitle('Competitive signal')}
     ${rowBlock({
       label: d.competitive.competitorName ? `vs ${d.competitive.competitorName}` : 'Competitors',
-      text: `<strong>${escapeHtml(d.competitive.title)}</strong>${d.competitive.finding ? ` — ${escapeHtml(d.competitive.finding)}` : ''}`,
+      text: `<strong>${escapeHtml(d.competitive.title)}</strong>${d.competitive.finding ? `. ${escapeHtml(d.competitive.finding)}` : ''}`,
       href: `${d.appUrl}/dashboard/competitive`,
       linkText: 'See the full picture',
     })}` : ''
@@ -592,14 +588,14 @@ function renderReportHtml(d: ReportData, subject: string): string {
         <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:600px;background:${CARD};border-radius:14px;overflow:hidden;border:1px solid ${BORDER}">
           <tr><td style="background:${GREEN};padding:24px 28px">
             <div style="color:${CREAM};font-size:12px;font-weight:700;letter-spacing:1.2px;text-transform:uppercase;opacity:.9">Verbatim · Consumer Intelligence</div>
-            <div style="color:#FFFFFF;font-size:20px;font-weight:700;margin-top:8px">${escapeHtml(d.companyName)} — ${escapeHtml(lead.title.toLowerCase())}</div>
+            <div style="color:#FFFFFF;font-size:20px;font-weight:700;margin-top:8px">${escapeHtml(d.companyName)}: ${escapeHtml(lead.title.toLowerCase())}</div>
             <div style="color:#BCD3C6;font-size:13px;margin-top:4px">Data through ${escapeHtml(fmtDate(d.runDate))}</div>
           </td></tr>
           <tr><td style="padding:8px 24px 22px">
+            ${recHtml}
             ${sectionTitle(lead.title)}
             ${lead.rows.map(rowBlock).join('')}
             ${ownedHtml}
-            ${recHtml}
             ${engageHtml}
             ${d.themes.length ? `${sectionTitle(d.delta ? 'Themes worth a look' : 'What your market is talking about')}${themeItems}` : ''}
             ${compHtml}
@@ -612,7 +608,7 @@ function renderReportHtml(d: ReportData, subject: string): string {
             </table>
           </td></tr>
           <tr><td style="padding:16px 28px;border-top:1px solid ${BORDER}">
-            <div style="font-size:12px;color:${MUTED};line-height:1.5">Verbatim — consumer intelligence, in their own words. You're receiving this because your team gets ${cadence} updates.</div>
+            <div style="font-size:12px;color:${MUTED};line-height:1.5">Verbatim. Consumer intelligence, in their own words. You're receiving this because your team gets ${cadence} updates.</div>
           </td></tr>
         </table>
       </td></tr>
@@ -624,7 +620,15 @@ function renderReportHtml(d: ReportData, subject: string): string {
 function renderReportText(d: ReportData, subject: string): string {
   const lead = leadRows(d)
   const strip = (html: string) => html.replace(/<[^>]+>/g, '')
-  const lines: string[] = [subject, `Data through ${fmtDate(d.runDate)}`, '', lead.title.toUpperCase()]
+  const lines: string[] = [subject, `Data through ${fmtDate(d.runDate)}`, '']
+  // Same order as the HTML: the action first, then state.
+  if (d.rec) {
+    lines.push('THE ONE THING TO ACT ON', `- ${d.rec.title}`)
+    if (d.rec.reasoning) lines.push(`  ${d.rec.reasoning}`)
+    if (d.rec.heroQuote) lines.push(`  "${d.rec.heroQuote}"`)
+    lines.push('')
+  }
+  lines.push(lead.title.toUpperCase())
   for (const r of lead.rows) lines.push(`- ${r.label}: ${strip(r.text)}`)
   lines.push('')
   const explained = d.ownedEvents.filter((e) => e.explained && e.explanation)
@@ -637,19 +641,15 @@ function renderReportText(d: ReportData, subject: string): string {
         if (e.heroQuote) lines.push(`  "${e.heroQuote}"`)
       }
     } else {
-      lines.push(`- ${d.ownedEvents[0].magnitudeLabel} — the conversation we track doesn't account for this move; flagged rather than guessed at.`)
+      lines.push(`- ${d.ownedEvents[0].magnitudeLabel}. The conversation we track doesn't account for this move, so we flag it rather than guess at a cause.`)
     }
-    lines.push('')
-  }
-  if (d.rec) {
-    lines.push('THE ONE THING TO ACT ON', `- ${d.rec.title}`)
-    if (d.rec.reasoning) lines.push(`  ${d.rec.reasoning}`)
     lines.push('')
   }
   if (d.engage.length) {
     lines.push('WORTH A REPLY')
     for (const e of d.engage) {
-      lines.push(`- [${e.categoryLabel}] "${e.text}"${e.author ? ` — @${e.author}` : ''} (${e.platform})`)
+      // No handle: the thread link is the way back to the person (T0-9).
+      lines.push(`- [${e.categoryLabel}] "${e.text}" (${e.platform})`)
       if (e.href) lines.push(`  ${e.href}`)
     }
     lines.push('')

@@ -71,8 +71,16 @@ export async function inviteMember(_prev: ActionState, formData: FormData): Prom
   }
 
   const inviteUrl = `${await getBaseUrl()}/invite/${token}`
-  // Stub: no-op send until a provider exists. The link is shown in the UI either way.
-  const { sent } = await sendInviteEmail({ to: email, inviteUrl, companyName: '', invitedByEmail: inviterEmail })
+  // The workspace name has always been available here; passing '' made every
+  // invite say "a Verbatim workspace" (T0-10). Resend is live, so this sends.
+  const { data: client } = await supabase
+    .from('clients').select('company_name').eq('id', clientId).maybeSingle()
+  const { sent } = await sendInviteEmail({
+    to: email,
+    inviteUrl,
+    companyName: (client?.company_name as string | undefined) ?? '',
+    invitedByEmail: inviterEmail,
+  })
 
   revalidatePath('/dashboard/team')
   return {

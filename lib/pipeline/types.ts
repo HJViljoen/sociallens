@@ -42,6 +42,10 @@ export interface VideoRow {
   /** Incremental Pass A pointer: the run whose rows are this video's current
    *  analysis (see AGENTS.md). Read by runPassA for step-retry idempotency. */
   analyzed_run_id?: string | null
+  /** 'full' | 'claims_only' | 'skip' — Pass A's lane at its last read. Used as
+   *  the fallback provenance for `sentiment` on rows written before
+   *  sentiment_source existed: only the full lane reads comments. */
+  analyzed_lane?: string | null
 }
 
 export interface CommentRow {
