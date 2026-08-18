@@ -394,6 +394,29 @@ function reportSubject(d: ReportData): string {
 
 // ---------- rendering ----------
 
+/**
+ * First sentence of a recommendation's reasoning, for the email (T0-10).
+ *
+ * The app shows the full rationale; the email leads with the action and needs
+ * one line of why before the quote, or the quote falls below the fold on a
+ * 390px phone. Ossur's live recommendations run to five sentences.
+ * Abbreviations that end in a period are not sentence ends, and a reasoning
+ * with no terminator at all is returned whole.
+ */
+export function firstSentence(text: string, maxChars = 240): string {
+  const trimmed = text.trim()
+  if (!trimmed) return ''
+  const match = trimmed.match(/^[\s\S]*?[.!?](?=\s|$)/)
+  let out = match ? match[0].trim() : trimmed
+  // Guard against an abbreviation ("e.g.", "vs.", "U.S.") cutting mid-thought.
+  if (match && out.length < 40 && trimmed.length > out.length) {
+    const second = trimmed.slice(out.length).match(/^\s*[\s\S]*?[.!?](?=\s|$)/)
+    if (second) out = (out + second[0]).trim()
+  }
+  if (out.length > maxChars) out = `${out.slice(0, maxChars).trimEnd()}…`
+  return out
+}
+
 const fmtNum = (n: number) =>
   n >= 1_000_000 ? `${(n / 1_000_000).toFixed(1)}M`
   : n >= 10_000 ? `${(n / 1_000).toFixed(0)}K`
@@ -559,7 +582,7 @@ function renderReportHtml(d: ReportData, subject: string): string {
     ${sectionTitle('The one thing to act on')}
     <div style="background:${GREEN};border-radius:12px;padding:16px 18px;margin-top:8px">
       <div style="font-size:15px;font-weight:700;color:#FFFFFF;line-height:1.4">${escapeHtml(d.rec.title)}</div>
-      ${d.rec.reasoning ? `<div style="font-size:13px;color:#CBDCD1;line-height:1.55;margin-top:6px">${escapeHtml(d.rec.reasoning)}</div>` : ''}
+      ${d.rec.reasoning ? `<div style="font-size:13px;color:#CBDCD1;line-height:1.55;margin-top:6px">${escapeHtml(firstSentence(d.rec.reasoning))}</div>` : ''}
       ${d.rec.heroQuote ? `<div style="font-size:14px;font-style:italic;color:#FFFFFF;line-height:1.55;margin-top:12px;border-left:3px solid #7FA98F;padding-left:12px">&ldquo;${escapeHtml(d.rec.heroQuote)}&rdquo;</div>` : ''}
       <div style="margin-top:12px">
         <a href="${d.appUrl}/dashboard/market" style="color:#FFFFFF;font-size:12px;font-weight:700;text-decoration:none">Why this, why now →</a>
@@ -659,7 +682,7 @@ function renderReportText(d: ReportData, subject: string): string {
   // Same order as the HTML: the action first, then state.
   if (d.rec) {
     lines.push('THE ONE THING TO ACT ON', `- ${d.rec.title}`)
-    if (d.rec.reasoning) lines.push(`  ${d.rec.reasoning}`)
+    if (d.rec.reasoning) lines.push(`  ${firstSentence(d.rec.reasoning)}`)
     if (d.rec.heroQuote) lines.push(`  "${d.rec.heroQuote}"`)
     lines.push('')
   }
