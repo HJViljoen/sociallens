@@ -6,7 +6,9 @@ export const metadata: Metadata = {
   description: 'The terms you agree to when you use Verbatim.',
 }
 
-const CONTACT = 'hello@verbatimintel.com'
+const CONTACT = 'heinrichjviljoen@gmail.com'  // A rights channel that does not receive mail is worse than none: this is
+// the address that actually reaches a human today. Change it only to another
+// mailbox someone reads.
 
 export default function TermsPage() {
   return (

@@ -6,7 +6,9 @@ export const metadata: Metadata = {
   description: 'What Verbatim collects, why, how long it is kept, and how to have it removed.',
 }
 
-const CONTACT = 'privacy@verbatimintel.com'
+const CONTACT = 'heinrichjviljoen@gmail.com'  // A rights channel that does not receive mail is worse than none: this is
+// the address that actually reaches a human today. Change it only to another
+// mailbox someone reads.
 
 export default function PrivacyPage() {
   return (
