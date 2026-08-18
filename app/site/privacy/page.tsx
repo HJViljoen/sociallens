@@ -72,7 +72,10 @@ export default function PrivacyPage() {
         <li>Raw platform payloads: 30 days, then deleted automatically.</li>
         <li>Prompt and response bodies in our AI audit log: 30 days, then stripped to metadata.</li>
         <li>Comment text and the analysis built from it: for as long as the customer&rsquo;s workspace is active, then deleted with the workspace.</li>
-        <li>YouTube data: refreshed or removed within 30 days, as the YouTube API Services Terms require.</li>
+        <li>
+          YouTube comments: after 30 days we delete the ones we never cited, and for the ones we did
+          cite we delete the commenter&rsquo;s name and keep only the sentence itself.
+        </li>
       </ul>
 
       <h2>Who else touches it</h2>

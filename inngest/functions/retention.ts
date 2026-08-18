@@ -1,5 +1,5 @@
 import { inngest } from '@/inngest/client'
-import { createAdminClient } from '@/lib/supabase-admin'
+import { createAdminClient, selectAll } from '@/lib/supabase-admin'
 import {
   RAW_PAYLOAD_RETENTION_DAYS,
   AI_LOG_BODY_RETENTION_DAYS,
@@ -57,24 +57,73 @@ export const retentionDaily = inngest.createFunction(
       return (data ?? []).length
     })
 
-    // 3. YouTube rows past the refresh window. We do not re-fetch (the gather
-    //    recheck already refreshes anything inside the window), so the policy
-    //    answer is to drop the stored comments for those videos. The video row
-    //    itself stays: it carries no personal data beyond the channel name,
-    //    and the analysis built from it is already aggregated.
-    const ytComments = await step.run('purge-stale-youtube-comments', async () => {
+    // 3. YouTube comments past the refresh window. YouTube comments come from
+    //    the official Data API (commentThreads.list), so the 30-day
+    //    refresh-or-remove rule genuinely applies to them, and we have no
+    //    refresh path for comment bodies.
+    //
+    //    But a cited comment CANNOT simply be deleted. insight_evidence and
+    //    language_samples both cascade from comments, and
+    //    insight_evidence_source_shape requires a 'comment' evidence row to
+    //    keep a non-null comment_id, so the row cannot even be orphaned. A
+    //    blind delete of the 745 rows currently past the window would have
+    //    taken 300 evidence rows across 152 insights and 118 language samples
+    //    with it, leaving insights standing with their quotes silently gone.
+    //    Measured against prod before writing this, not assumed.
+    //
+    //    So: uncited comments (551 of the 745) are deleted outright, and the
+    //    cited ones (194) lose the identifying field and keep the text that is
+    //    already quoted verbatim inside the evidence row. What we stop holding
+    //    is the person; what we keep is the sentence we cited.
+    const ytPurged = await step.run('purge-stale-youtube-comments', async () => {
       const admin = createAdminClient()
-      const { data, error } = await admin
-        .from('comments')
-        .delete()
-        .eq('platform', 'youtube')
-        .lt('created_at', cutoff(YOUTUBE_RETENTION_DAYS))
-        .select('id')
-      if (error) throw new Error(`purge youtube comments: ${error.message}`)
-      return (data ?? []).length
-    })
+      const before = cutoff(YOUTUBE_RETENTION_DAYS)
 
-    const summary = { rawDeleted, bodiesStripped, ytComments }
+      const stale = await selectAll<{ id: string }>(() =>
+        admin.from('comments').select('id')
+          .eq('platform', 'youtube').lt('created_at', before).order('id', { ascending: true }),
+      )
+      if (!stale.length) return { deleted: 0, pseudonymised: 0 }
+
+      const staleIds = stale.map((c) => c.id)
+      const cited = new Set<string>()
+      // Chunked: ~500 uuids in an `in.()` filter overflows the PostgREST URL cap.
+      for (let i = 0; i < staleIds.length; i += 200) {
+        const chunk = staleIds.slice(i, i + 200)
+        const [ev, ls] = await Promise.all([
+          admin.from('insight_evidence').select('comment_id').in('comment_id', chunk),
+          admin.from('language_samples').select('comment_id').in('comment_id', chunk),
+        ])
+        for (const r of (ev.data ?? []) as { comment_id: string | null }[]) if (r.comment_id) cited.add(r.comment_id)
+        for (const r of (ls.data ?? []) as { comment_id: string | null }[]) if (r.comment_id) cited.add(r.comment_id)
+      }
+
+      const deletable = staleIds.filter((id) => !cited.has(id))
+      let deleted = 0
+      for (let i = 0; i < deletable.length; i += 200) {
+        const chunk = deletable.slice(i, i + 200)
+        const { error } = await admin.from('comments').delete().in('id', chunk)
+        if (error) throw new Error(`purge youtube comments: ${error.message}`)
+        deleted += chunk.length
+      }
+
+      // Cited rows: drop the identity, keep the sentence.
+      const citedIds = [...cited]
+      let pseudonymised = 0
+      for (let i = 0; i < citedIds.length; i += 200) {
+        const chunk = citedIds.slice(i, i + 200)
+        const { error } = await admin.from('comments')
+          .update({ author: null })
+          .in('id', chunk)
+          .not('author', 'is', null)
+        if (error) throw new Error(`pseudonymise youtube comments: ${error.message}`)
+        pseudonymised += chunk.length
+      }
+      return { deleted, pseudonymised }
+    })
+    const ytComments = ytPurged.deleted + ytPurged.pseudonymised
+
+    const summary = { rawDeleted, bodiesStripped, ...ytPurged }
     console.log(`[retention] ${JSON.stringify(summary)}`)
 
     // One line a day is noise; a day that deletes nothing at all after the

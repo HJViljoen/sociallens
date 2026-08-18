@@ -201,7 +201,7 @@ export async function loadEngageCandidates(
   if (insights.length === 0) return []
   const byInsight = new Map(insights.map((i) => [i.id, i]))
 
-  const evidence = await chunkedIn<{ audience_insight_id: string; comment_id: string }>(
+  const evidence = await chunkedIn<{ audience_insight_id: string; comment_id: string | null }>(
     (ids) => () =>
       db.from('insight_evidence')
         .select('audience_insight_id, comment_id')
@@ -220,7 +220,10 @@ export async function loadEngageCandidates(
         .select('id, author, text, likes, comment_date, platform, video_id, comment_id')
         .in('id', ids)
         .order('id'),
-    [...new Set(evidence.map((e) => e.comment_id))],
+    // Retention nulls the author on cited comments and deletes uncited ones
+    // past 30 days (T0-9), so an evidence row can outlive its comment; a null
+    // id must never reach the `in.()` filter.
+    [...new Set(evidence.map((e) => e.comment_id).filter((id): id is string => Boolean(id)))],
   )
   const byComment = new Map(comments.map((c) => [c.id, c]))
 
@@ -240,7 +243,7 @@ export async function loadEngageCandidates(
   const candidates: EngageCandidate[] = []
   for (const e of evidence) {
     const insight = byInsight.get(e.audience_insight_id)
-    const comment = byComment.get(e.comment_id)
+    const comment = e.comment_id ? byComment.get(e.comment_id) : undefined
     if (!insight || !comment) continue
     const video = videoByKey.get(`${comment.platform}::${comment.video_id}`)
     candidates.push({
