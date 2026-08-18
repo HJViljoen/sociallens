@@ -10,7 +10,7 @@ import { InviteForm, RevokeButton, MemberControls, CopyLinkButton } from './team
 // server actions and by RLS — the UI gating below is only UX.
 
 interface MemberRow { id: string; full_name: string | null; email: string; role: 'owner' | 'admin' | 'member' }
-interface InviteRow { id: string; email: string; role: 'owner' | 'admin' | 'member'; expires_at: string; token: string }
+interface InviteRow { id: string; email: string; role: 'owner' | 'admin' | 'member'; expires_at: string; token: string | null }
 
 const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1)
 
@@ -38,15 +38,23 @@ export default async function TeamPage() {
   const reportEmails = ((cfg?.report_emails ?? []) as string[]).map((e) => e.trim()).filter(Boolean)
 
   // Pending invites + their shareable links are only fetched/built for managers.
+  // The invite TOKEN is only fetched for the person who sent that invite
+  // (T0-11). It is a live credential: the link it forms creates an account for
+  // the invited address and signs it in. Every owner and admin used to see
+  // every pending invite's token rendered as plain text, so any admin could
+  // take over any pending invitation on the tenant, including an owner one.
   let invites: InviteRow[] = []
   let baseUrl = ''
   if (canManage) {
     const { data } = await supabase
       .from('invitations')
-      .select('id, email, role, expires_at, token')
+      .select('id, email, role, expires_at, token, invited_by')
       .eq('client_id', clientId).eq('status', 'pending')
       .order('created_at', { ascending: false })
-    invites = (data as InviteRow[] | null) ?? []
+    invites = ((data as (InviteRow & { invited_by: string | null })[] | null) ?? []).map((inv) => ({
+      ...inv,
+      token: inv.invited_by === userId ? inv.token : null,
+    }))
     baseUrl = await getBaseUrl()
   }
 
@@ -135,11 +143,17 @@ export default async function TeamPage() {
                   <p className="truncate text-xs text-muted-foreground">
                     {cap(inv.role)} · expires {new Date(inv.expires_at).toLocaleDateString()}
                   </p>
-                  <code className="mt-1 block truncate text-[11px] text-muted-foreground/70">
-                    {baseUrl}/invite/{inv.token}
-                  </code>
+                  {inv.token ? (
+                    <code className="mt-1 block truncate text-[11px] text-muted-foreground/70">
+                      {baseUrl}/invite/{inv.token}
+                    </code>
+                  ) : (
+                    <p className="mt-1 text-[11px] text-muted-foreground/70">
+                      Link is visible to whoever sent this invite. We emailed it to them.
+                    </p>
+                  )}
                 </div>
-                <CopyLinkButton url={`${baseUrl}/invite/${inv.token}`} />
+                {inv.token && <CopyLinkButton url={`${baseUrl}/invite/${inv.token}`} />}
                 <RevokeButton id={inv.id} />
               </div>
             ))}

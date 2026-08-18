@@ -1,27 +1,19 @@
-import { timingSafeEqual } from 'crypto'
+import { adminKeyValid } from '@/lib/admin-auth'
 import { generateWeeklyReport, previewWeeklyReport } from '@/lib/report'
 
 // Superadmin ops hook: build/send a client's report outside the schedule —
 // ad-hoc re-sends and testing the email path (Resend creds live only in this
 // deployment, so a local script can't exercise real delivery). Same auth as
-// trigger-run: the Supabase service-role key in X-Admin-Key gates strictly
-// more privilege than it grants.
+// trigger-run: ADMIN_API_KEY in X-Admin-Key (T0-11), with the service-role key
+// still accepted during the changeover.
 //
 // Body: { clientId, runId?, mode? }
 //   mode 'preview' → build only, returns subject/recipients/html (no DB write, no email)
 //   mode 'store'   → persist to weekly_reports without sending
 //   default        → persist + send to tracking_configs.report_emails
 
-function keysMatch(provided: string, expected: string): boolean {
-  const a = Buffer.from(provided)
-  const b = Buffer.from(expected)
-  return a.length === b.length && timingSafeEqual(a, b)
-}
-
 export async function POST(req: Request): Promise<Response> {
-  const expected = process.env.SUPABASE_SERVICE_ROLE_KEY
-  const provided = req.headers.get('x-admin-key') ?? ''
-  if (!expected || !keysMatch(provided, expected)) {
+  if (!adminKeyValid(req.headers.get('x-admin-key'))) {
     return Response.json({ error: 'unauthorized' }, { status: 401 })
   }
 

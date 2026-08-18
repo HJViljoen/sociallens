@@ -632,7 +632,7 @@ export default async function DashboardPage({
             {topEmotions.length > 0 ? (
               <div className="space-y-1.5">
                 {topEmotions.map(([emotion, n]) => (
-                  <div key={emotion} className="flex items-center gap-2" title={`${cap(emotion)} · ${n} mention${n === 1 ? '' : 's'} this update`}>
+                  <div key={emotion} className="flex items-center gap-2" title={`${cap(emotion)} · ${n} mention${n === 1 ? '' : 's'} across everything we have read`}>
                     <span className="w-20 shrink-0 text-xs capitalize text-muted-foreground">{emotion}</span>
                     {/* bar needs its own track: a % width on the row itself gets flex-shrunk
                         to the same leftover space for every row on narrow screens */}
@@ -647,7 +647,7 @@ export default async function DashboardPage({
               <p className="text-xs text-muted-foreground">lands with the next update</p>
             )}
             {topEmotions.length > 0 && (
-              <p className="text-xs text-muted-foreground">how often each feeling is mentioned this update</p>
+              <p className="text-xs text-muted-foreground">how often each feeling comes up across everything we have read</p>
             )}
           </CardContent>
         </Card>

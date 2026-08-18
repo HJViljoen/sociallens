@@ -392,7 +392,9 @@ export default async function TrendsPage() {
                   </div>
                   <div className="shrink-0 text-right">
                     <Sparkline values={t.strength} color={movementStroke(t.movement)} />
-                    <p className="mt-1 text-[11px] text-muted-foreground">prominence {t.strength[t.strength.length - 1]}/10</p>
+                    {/* The raw strength score is an internal ranking number,
+                        not something a reader can act on (calibration rule: no
+                        raw scores on client surfaces). */}
                   </div>
                 </div>
               ))}

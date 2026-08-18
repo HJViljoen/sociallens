@@ -100,7 +100,9 @@ functions (defined in the baseline).
 - **After any Inngest function change**, re-register:
   `curl -X PUT https://app.verbatimintel.com/api/inngest`
 - **Manual run**: `POST /api/admin/trigger-run` with header `X-Admin-Key:
-  <service-role key>` and body `{"clientId": "..."}`. Add
+  <ADMIN_API_KEY>` and body `{"clientId": "..."}`. (The service-role key is
+  still accepted during the changeover; stop using it — the ops bearer is a
+  separate credential now so it can be rotated on its own.) Add
   `"options": {"runId": "...", "skipGather": true}` for an **analysis-only
   resume** — reuses the stored corpus, the recovery lever when a run's
   analysis half dies. Add `"forcePassA": true` to re-read every eligible video

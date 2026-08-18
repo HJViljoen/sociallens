@@ -57,7 +57,9 @@ A full dark theme exists (`.dark` block); every new surface must read in both.
 
 ## Shape & Elevation
 
-- Radius base `--radius: 1rem`; cards are `rounded-2xl`, chips/pills `rounded-full`.
+- Radius base `--radius: 0.3rem` (the value in `app/globals.css`, which is the
+  source of truth); chips/pills `rounded-full`. This doc drifted to `1rem` and
+  was corrected 2026-08-18 — when the two disagree, the stylesheet wins.
 - Card shadow (shared with the floating sidebar): `0 2px 6px -2px rgba(18,42,31,0.10), 0 18px 40px -16px rgba(18,42,31,0.32)` + `ring-1 ring-border/70`.
 
 ## Signature components
