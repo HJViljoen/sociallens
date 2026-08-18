@@ -54,6 +54,8 @@ async function main() {
   console.log(`videos processed:  ${summary.videosProcessed}`)
   console.log(`  analyzed:        ${summary.videosAnalyzed} (claims lane: ${summary.videosClaimsOnly})`)
   console.log(`  skipped (<min):  ${summary.videosSkipped}`)
+  console.log(`  errored:         ${summary.videosErrored}${summary.rateLimited ? ' (incl. 429)' : ''}  refused: ${summary.videosRefused}  already done this run: ${summary.videosAlreadyAnalyzed}`)
+  if (summary.errors.length) console.log(`  first errors:    ${summary.errors.join(' | ')}`)
   console.log(`insights kept:     ${summary.insightsKept}`)
   console.log(`insights dropped:  ${summary.insightsDropped}`)
   console.log(`evidence dropped:  ${summary.evidenceDropped}`)

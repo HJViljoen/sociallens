@@ -16,14 +16,14 @@ import { ingestOwnedPosts, supportsOwnedProfile } from '@/lib/gather/owned'
 import { discoverSubreddits } from '@/lib/gather/subreddit-discovery'
 import { activeSubreddits } from '@/lib/gather/subreddits'
 import { runStep2c } from '@/lib/pipeline/owned-events'
-import { summariseRunErrors, partialRunAlert, RUN_ERROR_CAP } from '@/lib/pipeline/run-errors'
+import { summariseRunErrors, partialRunAlert, passADegradation, RUN_ERROR_CAP } from '@/lib/pipeline/run-errors'
 import { decideOpenRun, RUN_STALE_AFTER_HOURS, PG_UNIQUE_VIOLATION, type RunningRow } from '@/lib/pipeline/run-guard'
 import { persistRunNews } from '@/lib/news/persist'
 import { persistThemes, loadThemes } from '@/lib/pipeline/themes'
 import { writeRunSummary } from '@/lib/pipeline/run-summary'
 import { computeMetrics } from '@/lib/pipeline/metrics'
 import { sendAlertEmail } from '@/lib/email'
-import { CLUSTER_SIMILARITY_THRESHOLD, EVIDENCE_FLOOR, TRANSCRIBE_PARALLEL, incrementalPassAEnabled, redditDiscoveryEnabled, transcriptsEnabled } from '@/lib/config'
+import { CLUSTER_SIMILARITY_THRESHOLD, EVIDENCE_FLOOR, PASS_A_ERROR_RATIO, TRANSCRIBE_PARALLEL, incrementalPassAEnabled, redditDiscoveryEnabled, transcriptsEnabled } from '@/lib/config'
 import type { Platform } from '@/lib/gather/types'
 import type { VideoRow, CommentRow } from '@/lib/pipeline/types'
 
@@ -487,29 +487,60 @@ export const runPipeline = inngest.createFunction(
     //    the per-reason tally so a run log shows what drove the re-reads.
     const passAPlan = await step.run('plan-pass-a', () => planPassABatches(clientId, runId, !!options.forcePassA))
     const batches = passAPlan.batches
-    const passA = { analyzed: 0, claimsOnly: 0, skipped: 0, insights: 0, languageSamples: 0, cost: 0, planned: passAPlan.selected, considered: passAPlan.considered, unchanged: passAPlan.reasons.unchanged, planReasons: passAPlan.reasons }
+    const passA = { analyzed: 0, claimsOnly: 0, skipped: 0, errored: 0, refused: 0, alreadyDone: 0, rateLimited: false, errors: [] as string[], batchesFailed: 0, insights: 0, languageSamples: 0, cost: 0, planned: passAPlan.selected, considered: passAPlan.considered, unchanged: passAPlan.reasons.unchanged, planReasons: passAPlan.reasons }
     // Batches dispatch in parallel waves — batches are disjoint video sets, so
     // ordering is irrelevant to output; this is purely wall-time (a serial
     // pass over a depth-100 corpus measured ~3 videos/min). Wave size stays
     // modest for OpenAI/Inngest concurrency headroom.
+    //
+    // Pass A errors are errors (Tier 0, 2026-08-18). runPassA absorbs a
+    // per-video OpenAI failure into its summary (the video keeps its old
+    // pointer and is re-read next run); the counts come back here and the
+    // run closes 'partial' + alerts past PASS_A_ERROR_RATIO or on any 429 —
+    // run ef1e28a3 had 340 calls fail on "no credits" and closed 'completed'.
+    // A batch step out of retries is caught (classify/transcribe precedent):
+    // its videos stay unstamped, so nothing stale is pruned and the next run
+    // re-reads them; the run records the batch and closes 'partial'.
     for (let w = 0; w < batches.length; w += PASS_A_PARALLEL) {
       const wave = await Promise.all(
         batches.slice(w, w + PASS_A_PARALLEL).map((videoIds, j) =>
-          step.run(`pass-a:${w + j + 1}-of-${batches.length}`, async () => {
-            const s = await runPassA({ clientId, runId, videoIds, persist: true })
-            return { analyzed: s.videosAnalyzed, claimsOnly: s.videosClaimsOnly, skipped: s.videosSkipped, insights: s.insightsKept, languageSamples: s.languageSamples, cost: s.costUsd }
-          }),
+          step
+            .run(`pass-a:${w + j + 1}-of-${batches.length}`, async () => {
+              const s = await runPassA({ clientId, runId, videoIds, persist: true })
+              return { analyzed: s.videosAnalyzed, claimsOnly: s.videosClaimsOnly, skipped: s.videosSkipped, errored: s.videosErrored, refused: s.videosRefused, alreadyDone: s.videosAlreadyAnalyzed, rateLimited: s.rateLimited, errors: s.errors, insights: s.insightsKept, languageSamples: s.languageSamples, cost: s.costUsd, stepFailed: false }
+            })
+            .catch((e: unknown) => {
+              const message = e instanceof Error ? e.message : String(e)
+              console.error(`[pass-a] batch ${w + j + 1}-of-${batches.length} out of retries: ${message}`)
+              noteError(`pass-a:${w + j + 1}-of-${batches.length}`, e)
+              return { analyzed: 0, claimsOnly: 0, skipped: 0, errored: videoIds.length, refused: 0, alreadyDone: 0, rateLimited: false, errors: [message.slice(0, 200)], insights: 0, languageSamples: 0, cost: 0, stepFailed: true }
+            }),
         ),
       )
       for (const r of wave) {
         passA.analyzed += r.analyzed
         passA.claimsOnly += r.claimsOnly ?? 0
         passA.skipped += r.skipped
+        passA.errored += r.errored ?? 0
+        passA.refused += r.refused ?? 0
+        passA.alreadyDone += r.alreadyDone ?? 0
+        passA.rateLimited = passA.rateLimited || Boolean(r.rateLimited)
+        if (r.stepFailed) passA.batchesFailed++
+        for (const m of r.errors ?? []) if (passA.errors.length < 5 && !passA.errors.includes(m)) passA.errors.push(m)
         passA.insights += r.insights
         passA.languageSamples += r.languageSamples
         passA.cost += r.cost
       }
     }
+    // Per-video failures: degrade the run past the ratio or on any 429;
+    // otherwise log and let the next run's plan re-read those videos. (A
+    // failed batch step counts its whole video set as errored, above.)
+    const passADegraded = passADegradation(
+      { attempted: passA.analyzed + passA.errored + passA.refused, errored: passA.errored, rateLimited: passA.rateLimited, firstError: passA.errors[0] },
+      PASS_A_ERROR_RATIO,
+    )
+    if (passADegraded) noteError('pass-a', passADegraded)
+    else if (passA.errored > 0) console.warn(`[pass-a] ${passA.errored} video call(s) failed under the ${PASS_A_ERROR_RATIO * 100}% ratio; re-read next run. First: ${passA.errors[0] ?? ''}`)
 
     // 5. Cross-reference detection — client-brand mentions under competitor /
     //    industry videos (deterministic regex, no GPT).

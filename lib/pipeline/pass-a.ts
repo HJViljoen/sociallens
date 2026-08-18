@@ -69,7 +69,7 @@ export interface PerVideoResult {
   videoUrl: string
   keptComments: number
   droppedLowSignal: number
-  status: 'analyzed' | 'skipped_too_few' | 'dry_run' | 'refused' | 'error'
+  status: 'analyzed' | 'skipped_too_few' | 'dry_run' | 'refused' | 'error' | 'already_analyzed'
   /** Wave 4 claims lane: analysed with no comments in the prompt (claims + classification only). */
   claimsOnly?: boolean
   insightsKept?: number
@@ -93,6 +93,19 @@ export interface RunPassASummary {
   /** Subset of videosAnalyzed that went through the claims lane. */
   videosClaimsOnly: number
   videosSkipped: number
+  /** Videos whose OpenAI call failed after the SDK's own retries (429/5xx/
+   *  network). Until 2026-08-18 these were absorbed silently: not counted, not
+   *  stamped, and a run whose every call failed still closed 'completed'. */
+  videosErrored: number
+  /** Videos the model refused / returned no parseable output for. */
+  videosRefused: number
+  /** Videos already stamped with this run's id — a retried batch step skips
+   *  them instead of re-spending the whole batch. */
+  videosAlreadyAnalyzed: number
+  /** True when at least one failed call was a 429 (rate limit or quota). */
+  rateLimited: boolean
+  /** First few distinct error messages, for the run's error record. */
+  errors: string[]
   insightsKept: number
   insightsDropped: number
   evidenceDropped: number
@@ -104,6 +117,18 @@ export interface RunPassASummary {
   costUsd: number
   estInputTokens: number
   perVideo: PerVideoResult[]
+}
+
+/** How many distinct error messages a summary keeps (the rest are counted). */
+const PASS_A_ERROR_MESSAGES_KEPT = 5
+
+/** 429 from OpenAI — rate limit or exhausted credits. The SDK has already
+ *  retried with backoff by the time this is seen, so it is a real failure. */
+function isRateLimitError(e: unknown): boolean {
+  const status = (e as { status?: unknown })?.status
+  if (status === 429) return true
+  const msg = e instanceof Error ? e.message : String(e)
+  return /\b429\b|rate limit|insufficient_quota|no credits/i.test(msg)
 }
 
 interface TrackingConfig {
@@ -488,6 +513,11 @@ export async function runPassA(opts: RunPassAOptions): Promise<RunPassASummary> 
     videosAnalyzed: 0,
     videosClaimsOnly: 0,
     videosSkipped: 0,
+    videosErrored: 0,
+    videosRefused: 0,
+    videosAlreadyAnalyzed: 0,
+    rateLimited: false,
+    errors: [],
     insightsKept: 0,
     insightsDropped: 0,
     evidenceDropped: 0,
@@ -504,6 +534,15 @@ export async function runPassA(opts: RunPassAOptions): Promise<RunPassASummary> 
   let callIndex = 0
   for (const v of videoRows) {
     summary.videosProcessed++
+    // Step-retry idempotency (2026-08-18): the pointer is stamped per video on
+    // success, so a batch step that timed out or died mid-way re-spends only
+    // the videos it had not finished. Skips are stamped too, so they are
+    // covered by the same check.
+    if (persist && trackAnalysis && opts.runId && v.analyzed_run_id === opts.runId) {
+      summary.videosAlreadyAnalyzed++
+      summary.perVideo.push({ videoId: v.id, videoUrl: v.video_url, keptComments: 0, droppedLowSignal: 0, status: 'already_analyzed' })
+      continue
+    }
     const all = commentsByVideo.get(`${v.platform}::${v.video_id}`) ?? []
     const { kept, lowSignal } = filterComments(all)
 
@@ -597,6 +636,12 @@ export async function runPassA(opts: RunPassAOptions): Promise<RunPassASummary> 
       res.status = 'error'
       res.error = e instanceof Error ? e.message : String(e)
       summary.perVideo.push(res)
+      // Count it. The video keeps its old analyzed_run_id (no stamp on the
+      // error path), so the next run's plan re-selects it — that is the retry.
+      summary.videosErrored++
+      if (isRateLimitError(e)) summary.rateLimited = true
+      const short = res.error.slice(0, 200)
+      if (summary.errors.length < PASS_A_ERROR_MESSAGES_KEPT && !summary.errors.includes(short)) summary.errors.push(short)
       if (persist) await logCall(admin, { clientId, runId, callIndex, promptVersion, systemPrompt, userPrompt, response: null, error: res.error, usage, durationMs: Date.now() - startedAt, validationStatus: 'parse_error' })
       continue
     }
@@ -613,6 +658,7 @@ export async function runPassA(opts: RunPassAOptions): Promise<RunPassASummary> 
     if (!parsed) {
       res.status = 'refused'
       res.error = refusal ?? 'no parsed output'
+      summary.videosRefused++
       summary.perVideo.push(res)
       if (persist) await logCall(admin, { clientId, runId, callIndex, promptVersion, systemPrompt, userPrompt, response: { refusal }, error: res.error, usage, durationMs, validationStatus: 'parse_error' })
       continue

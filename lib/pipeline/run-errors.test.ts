@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { summariseRunErrors, partialRunAlert, RUN_ERROR_CAP, ALERT_ERROR_LIST_CAP } from './run-errors'
+import { summariseRunErrors, partialRunAlert, passADegradation, RUN_ERROR_CAP, ALERT_ERROR_LIST_CAP } from './run-errors'
 
 describe('summariseRunErrors', () => {
   it('returns null for a clean run so error_message stays NULL', () => {
@@ -74,5 +74,26 @@ describe('partialRunAlert', () => {
     expect(text).toContain(`- comments:instagram:${ALERT_ERROR_LIST_CAP}: 429`)
     expect(text).not.toContain(`- comments:instagram:${ALERT_ERROR_LIST_CAP + 1}: 429`)
     expect(text).toContain(`…and ${40 - ALERT_ERROR_LIST_CAP} more in pipeline_runs.errors`)
+  })
+})
+
+describe('passADegradation — Pass A errors are errors (T0-4)', () => {
+  it('clean pass → null', () => {
+    expect(passADegradation({ attempted: 100, errored: 0, rateLimited: false }, 0.05)).toBeNull()
+  })
+  it('a stray failure under the ratio does not demote the run (the video is re-read next run)', () => {
+    expect(passADegradation({ attempted: 100, errored: 3, rateLimited: false }, 0.05)).toBeNull()
+  })
+  it('over the ratio → degraded, with the share and first message', () => {
+    const r = passADegradation({ attempted: 40, errored: 4, rateLimited: false, firstError: 'boom' }, 0.05)
+    expect(r).toBe('4 of 40 video calls failed (10%) — first: boom')
+  })
+  it('any 429 → degraded even at 1 of 400 (the 2026-08-09 shape: credits ran dry, run closed completed)', () => {
+    const r = passADegradation({ attempted: 400, errored: 1, rateLimited: true, firstError: '429 You have no credits remaining' }, 0.05)
+    expect(r).toContain('incl. a 429')
+    expect(r).toContain('1 of 400')
+  })
+  it('errors with zero attempts recorded still count as fully failed', () => {
+    expect(passADegradation({ attempted: 0, errored: 2, rateLimited: false }, 0.05)).toContain('100%')
   })
 })

@@ -374,6 +374,15 @@ export function incrementalPassAEnabled(): boolean {
 export const PASS_A_RECHECK_MIN = 3
 export const PASS_A_RECHECK_SHARE = 0.2
 
+/** Pass A failure tolerance (Tier 0, 2026-08-18). A run whose live Pass A
+ *  calls failed above this share of attempts — or that saw ANY 429 (rate
+ *  limit / exhausted credits) — closes 'partial' and alerts, instead of
+ *  presenting the analysis as complete. Below it, the failed videos keep their
+ *  old pointer and the next run's plan simply re-reads them. Run ef1e28a3
+ *  (2026-08-09) had 340 calls fail on "no credits remaining" and still closed
+ *  'completed' with errors=[]. */
+export const PASS_A_ERROR_RATIO = 0.05
+
 /** Theme registry (shape B-lite, 2026-08-17). OFF unless set, so merging the
  *  branch changes nothing until it is switched on in Vercel. Gates the registry
  *  write + the `first_seen`-from-registry rule only; the tables and the

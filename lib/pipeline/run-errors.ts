@@ -83,3 +83,23 @@ export function partialRunAlert(input: {
 
   return { subject: `Verbatim run PARTIAL — ${clientName}`, text }
 }
+
+/**
+ * Pass A degradation rule (Tier 0, 2026-08-18): the run is degraded when any
+ * live call died on a 429, or when failed calls exceed `ratio` of attempts.
+ * Returns the one-line reason to record via noteError, or null when the run
+ * may still close clean (the failed videos are simply re-read next run).
+ */
+export function passADegradation(
+  a: { attempted: number; errored: number; rateLimited: boolean; firstError?: string },
+  ratio: number,
+): string | null {
+  if (a.errored <= 0) return null
+  const share = a.attempted > 0 ? a.errored / a.attempted : 1
+  const degraded = a.rateLimited || share > ratio
+  if (!degraded) return null
+  const pct = Math.round(share * 100)
+  const why = a.rateLimited ? ' incl. a 429 (rate limit / credits)' : ''
+  const first = a.firstError ? ` — first: ${a.firstError}` : ''
+  return `${a.errored} of ${a.attempted} video calls failed (${pct}%)${why}${first}`
+}

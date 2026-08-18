@@ -34,6 +34,9 @@ export interface VideoRow {
   transcript?: string | null
   transcript_lang?: string | null
   transcript_status?: string | null
+  /** Incremental Pass A pointer: the run whose rows are this video's current
+   *  analysis (see AGENTS.md). Read by runPassA for step-retry idempotency. */
+  analyzed_run_id?: string | null
 }
 
 export interface CommentRow {
