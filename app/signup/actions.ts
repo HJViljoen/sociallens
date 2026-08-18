@@ -42,6 +42,12 @@ export async function signUp(_prev: SignupState, formData: FormData): Promise<Si
   const gate = checkSignupCode(String(formData.get('invite_code') ?? ''))
   if (!gate.ok) return { ok: false, message: gate.message }
 
+  // Consent is checked server-side too: the checkbox alone is not a control,
+  // since the action is directly POST-reachable (T0-9).
+  if (!formData.get('accept_terms')) {
+    return { ok: false, message: 'Please accept the terms and privacy notice.' }
+  }
+
   const parsed = schema.safeParse({
     full_name: formData.get('full_name'),
     email: String(formData.get('email') ?? '').trim().toLowerCase(),

@@ -374,6 +374,22 @@ export function incrementalPassAEnabled(): boolean {
 export const PASS_A_RECHECK_MIN = 3
 export const PASS_A_RECHECK_SHARE = 0.2
 
+// --- Data retention (Tier 0 T0-9, 2026-08-18) --------------------------------
+// The windows the privacy notice states. Nothing in the product deleted source
+// data before this: video_raw held whole actor payloads (IG owner names, tagged
+// users, locations, TikTok lat/long) forever, ai_call_log held every prompt
+// with its comment text, and YouTube rows were never refreshed or purged
+// (against YouTube API Services Developer Policy III.E.4.d).
+
+/** Raw platform payloads. Only the transcribe step reads them, within the run. */
+export const RAW_PAYLOAD_RETENTION_DAYS = 30
+/** Prompt/response bodies in the AI audit log. Metadata (cost, tokens, timing,
+ *  validation status) is kept indefinitely; only the bodies are stripped. */
+export const AI_LOG_BODY_RETENTION_DAYS = 30
+/** YouTube-sourced comments. Matches RECHECK_WINDOW_DAYS: past it we neither
+ *  refresh nor keep. */
+export const YOUTUBE_RETENTION_DAYS = 30
+
 // --- Gather spend ceilings (Tier 0 T0-2, 2026-08-18) -------------------------
 // tracking_configs now carries CHECK ceilings on the individual knobs; these
 // two bound the RUN, which is what actually spends. Sized well above the real

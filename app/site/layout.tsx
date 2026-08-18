@@ -101,6 +101,18 @@ export default function MarketingLayout({
             >
               Early access
             </a>
+            <a
+              href="/privacy"
+              className="flex h-11 items-center transition-colors duration-200 ease-site hover:text-foreground"
+            >
+              Privacy
+            </a>
+            <a
+              href="/terms"
+              className="flex h-11 items-center transition-colors duration-200 ease-site hover:text-foreground"
+            >
+              Terms
+            </a>
             <span className="flex h-11 items-center">© 2026 Verbatim</span>
           </div>
         </div>

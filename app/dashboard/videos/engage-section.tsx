@@ -110,9 +110,13 @@ export async function EngageSection({
                   <span className={`inline-block rounded-full px-2 py-0.5 text-xs font-medium ${CATEGORY_CHIP[c.category] ?? 'bg-muted text-muted-foreground'}`}>
                     {ENGAGE_CATEGORY_LABEL[c.category] ?? c.category}
                   </span>
+                  {/* The commenter's handle is deliberately absent (T0-9,
+                      2026-08-18): the deep link is how a reply gets written, and
+                      re-publishing a member of the public's handle inside our
+                      product is processing we have no basis for. The account
+                      posted ON is a brand, not a person, so it stays. */}
                   <span className="text-xs text-muted-foreground">
-                    {c.comment.author ? `@${c.comment.author}` : 'Someone'}
-                    {c.comment.account ? <> on @{c.comment.account}&rsquo;s post</> : null}
+                    {c.comment.account ? <>On @{c.comment.account}&rsquo;s post</> : 'A comment'}
                     <span className="capitalize"> · {c.comment.platform}</span>
                     {c.comment.commentDate ? ` · ${c.comment.commentDate.slice(0, 10)}` : ''}
                     {c.comment.likes > 0 ? ` · ${c.comment.likes} likes` : ''}
@@ -182,8 +186,7 @@ export async function EngageSection({
               {detailCandidates.map((c) => (
                 <p key={c.comment.id} className="text-sm">
                   &ldquo;{c.comment.text}&rdquo;
-                  <span className="ml-2 text-xs text-muted-foreground">
-                    {c.comment.author ? `@${c.comment.author} · ` : ''}
+                  <span className="ml-2 text-xs capitalize text-muted-foreground">
                     {c.comment.platform}
                   </span>
                 </p>

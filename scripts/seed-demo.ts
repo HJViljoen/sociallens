@@ -1,4 +1,4 @@
-import { randomUUID } from 'crypto'
+import { randomUUID, createHash } from 'crypto'
 import { createAdminClient, selectAll } from '../lib/supabase-admin'
 import { computeMetrics } from '../lib/pipeline/metrics'
 import type { VideoRow, CommentRow, Step2aMetrics } from '../lib/pipeline/types'
@@ -64,10 +64,27 @@ const admin = createAdminClient()
 const iso = (s: string) => new Date(s).toISOString()
 const slug = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '')
 
-// Fixed demo password — this is a throwaway showcase/dev tenant holding only
-// synthetic data, so a memorable password is deliberate (Supabase enforces a
-// 6-char minimum, so it can't be shorter than this).
-const DEMO_PASSWORD = '123456'
+// Demo password. NOT hardcoded any more (T0-9, 2026-08-18): the old comment
+// said this tenant held "only synthetic data" and that was false. The comments
+// and videos are a verbatim clone of a real client's corpus, 4,701 distinct
+// real handles among them, and '123456' was the whole lock. Handles are hashed
+// on clone below, and the password comes from the environment.
+function demoPassword(): string {
+  const p = process.env.DEMO_PASSWORD
+  if (!p || p.length < 12) {
+    throw new Error('Set DEMO_PASSWORD (12+ chars) before seeding the demo tenant.')
+  }
+  return p
+}
+
+/** Stable pseudonym for a commenter in the demo tenant. Deterministic so the
+ *  same person reads as the same voice across the six seeded weeks, one-way so
+ *  the tenant carries no real handles. Not a security boundary: it is the
+ *  removal of personal data from a showcase that did not need it. */
+function pseudonymise(author: unknown): string | null {
+  if (author == null || author === '') return null
+  return `user_${createHash('sha256').update(String(author)).digest('hex').slice(0, 8)}`
+}
 
 async function insertRows(table: string, rows: Row[], chunk = 500): Promise<number> {
   let n = 0
@@ -176,7 +193,7 @@ async function createTenant(): Promise<{ password: string; authUserId: string }>
   })
   if (cfgErr) throw new Error(`create tracking_configs: ${cfgErr.message}`)
 
-  const password = DEMO_PASSWORD
+  const password = demoPassword()
   const { data: created, error: authErr } = await admin.auth.admin.createUser({
     email: DEMO_EMAIL,
     password,
@@ -409,6 +426,8 @@ async function cloneW6(): Promise<{ maps: CloneMaps; actual: W6Actual }> {
   // comments (run-scoped + the referenced stragglers, all reparented to W6)
   const commentRows = [...comments, ...extraComments].map((c) => ({
     ...c, id: maps.comment.get(c.id as string)!, client_id: DEMO_CLIENT_ID, run_id: runId, created_at: stamp,
+    // Real people do not need to be in the showcase (T0-9).
+    author: pseudonymise(c.author),
   }))
   await insertRows('comments', commentRows)
 

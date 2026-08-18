@@ -79,6 +79,11 @@ export async function acceptInvitation(_prev: AcceptState, formData: FormData): 
   if (!full_name || !password) {
     return { ok: false, message: 'Enter your name and a password of at least 8 characters.' }
   }
+  // Consent, re-checked server-side (T0-9). Only on this path: someone already
+  // signed in accepted at their own signup.
+  if (!formData.get('accept_terms')) {
+    return { ok: false, message: 'Please accept the terms and privacy notice.' }
+  }
 
   const { data: created, error: createErr } = await admin.auth.admin.createUser({
     email: invite.email,
