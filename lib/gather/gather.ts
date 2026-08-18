@@ -6,6 +6,7 @@ import { parseSubreddits, activeSubreddits, subredditLabel } from './subreddits'
 import { logAiCall } from '../pipeline/ai-log'
 import { resolveTranscript, gateTranscript, normaliseLang } from './transcript'
 import { dedupeBy, round2 } from './util'
+import { loadSuppressedKeys, filterSuppressed } from './suppression'
 import { classifyRelevance, type RelevanceMethod } from './relevance'
 import { buildGateVerdictRows, recordGateVerdicts } from './gate-verdicts'
 import { attributeVideos, type AttributionMethod } from './attribution'
@@ -539,7 +540,10 @@ export async function gatePlatform(opts: {
     r.video.competitor_name = r.state.competitor_name
     for (const kw of r.video.source_keywords ?? []) { const s = stats.get(kw); if (s) s.survived++ }
   }
-  const toUpsert = [...kept, ...resurfacedInWindow.map((r) => r.video)]
+  // refreshed_at: these rows were just read from their source, so the
+  // retention refresh (YouTube) starts its 30-day clock here (Tier 1.5).
+  const stampedAt = new Date().toISOString()
+  const toUpsert = [...kept, ...resurfacedInWindow.map((r) => r.video)].map((v) => ({ ...v, refreshed_at: stampedAt }))
 
   // Upsert kept videos (merge on natural key — preserves Pass A columns).
   if (!opts.dryRun && toUpsert.length) {
@@ -690,6 +694,11 @@ export async function scrapeCommentsBatch(opts: {
   const ctx: NormaliseCtx = { clientId: opts.clientId, runId: opts.runId, config }
   const errors: string[] = []
 
+  // Suppression (Tier 1.5): handles erased on request must never come back
+  // through a re-scrape. One read per batch; best-effort (a failed read
+  // suppresses nothing rather than failing the gather).
+  const suppressedKeys = opts.dryRun ? new Set<string>() : await loadSuppressedKeys(admin, opts.platform)
+  let suppressedTotal = 0
   let commentCount = 0
   for (const ref of opts.refs) {
     try {
@@ -702,12 +711,16 @@ export async function scrapeCommentsBatch(opts: {
       } else {
         throw new Error(`adapter ${opts.platform} has no comment source`)
       }
-      const comments = dedupeBy(
+      const normalised = dedupeBy(
         rawComments
           .map((r) => adapter.normaliseComment(r, ref, ctx))
           .filter((c): c is CommentInsert => c !== null),
         (c) => c.comment_id,
-      ).map((c) => (opts.source ? { ...c, source: opts.source } : c))
+      )
+      const { kept: unsuppressed, suppressed } = filterSuppressed(normalised, suppressedKeys, opts.platform)
+      suppressedTotal += suppressed
+      const refreshed_at = new Date().toISOString()
+      const comments = unsuppressed.map((c) => (opts.source ? { ...c, source: opts.source, refreshed_at } : { ...c, refreshed_at }))
       if (!opts.dryRun && comments.length) {
         const { error } = await admin
           .from('comments')
@@ -732,6 +745,7 @@ export async function scrapeCommentsBatch(opts: {
       errors.push(`comment scrape (${ref.video_id}): ${(e as Error).message}`)
     }
   }
+  if (suppressedTotal) console.log(`[${opts.platform}] suppression: ${suppressedTotal} comment(s) dropped at ingest (erased commenters)`)
   return { comments: commentCount, errors }
 }
 
