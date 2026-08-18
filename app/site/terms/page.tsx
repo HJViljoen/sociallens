@@ -2,7 +2,7 @@ import type { Metadata } from 'next'
 import { LegalPage } from '../legal-page'
 
 export const metadata: Metadata = {
-  title: 'Terms — Verbatim',
+  title: 'Terms · Verbatim',
   description: 'The terms you agree to when you use Verbatim.',
 }
 

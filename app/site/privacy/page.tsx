@@ -2,7 +2,7 @@ import type { Metadata } from 'next'
 import { LegalPage } from '../legal-page'
 
 export const metadata: Metadata = {
-  title: 'Privacy — Verbatim',
+  title: 'Privacy · Verbatim',
   description: 'What Verbatim collects, why, how long it is kept, and how to have it removed.',
 }
 
@@ -39,13 +39,27 @@ export default function PrivacyPage() {
           for videos that carry speech.
         </li>
         <li>
+          <strong>News about the brands and categories we track.</strong> Headlines, publisher
+          names, links and publication dates, from Google News RSS searches for a customer&rsquo;s
+          brand, competitors and category. We keep the headline and the link. We do not fetch or
+          store the article itself.
+        </li>
+        <li>
           <strong>Account data for our customers.</strong> Name, work email, workspace membership
           and role, and billing status.
         </li>
       </ul>
       <p>
-        We do not buy data, we do not track you across the web, and we place no advertising or
-        analytics cookies. The only cookies we set are the ones that keep a signed-in session.
+        We do not buy data, and we set no advertising or analytics cookies. The only cookies we set
+        keep a signed-in session.
+      </p>
+      <p>
+        We do not follow individuals around the internet. There is no pixel, no tracking tag, no
+        fingerprinting, and nothing that builds a picture of what any one person browses. We do
+        read things published on the web: comments people posted in public, and journalism written
+        about the brands we track. That is a different activity from following a person, and we
+        think the difference is worth stating plainly rather than leaving you to guess which one we
+        meant.
       </p>
 
       <h2>Why we may do this</h2>
@@ -72,6 +86,7 @@ export default function PrivacyPage() {
       <h2>How long we keep it</h2>
       <ul>
         <li>Raw platform payloads: 30 days, then deleted automatically.</li>
+        <li>News headlines and links: kept with the customer&rsquo;s workspace, deleted with it.</li>
         <li>Prompt and response bodies in our AI audit log: 30 days, then stripped to metadata.</li>
         <li>Comment text and the analysis built from it: for as long as the customer&rsquo;s workspace is active, then deleted with the workspace.</li>
         <li>
