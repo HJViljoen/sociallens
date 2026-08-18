@@ -374,6 +374,23 @@ export function incrementalPassAEnabled(): boolean {
 export const PASS_A_RECHECK_MIN = 3
 export const PASS_A_RECHECK_SHARE = 0.2
 
+// --- Gather spend ceilings (Tier 0 T0-2, 2026-08-18) -------------------------
+// tracking_configs now carries CHECK ceilings on the individual knobs; these
+// two bound the RUN, which is what actually spends. Sized well above the real
+// tenants at the time (Ossur ~33 searches, Sealand ~57) so an operator never
+// meets them, and a pathological config cannot outrun the Apify credit.
+
+/** Hard cap on keyword searches dispatched by one run, across all platforms.
+ *  Each search is an Apify actor run; the plan is keywords x platforms, so a
+ *  config at every ceiling (45 keywords, 4 platforms) would otherwise plan 180. */
+export const GATHER_MAX_SEARCHES_PER_RUN = 80
+
+/** Hard ceilings applied to the config as READ, so a row that predates the
+ *  CHECK constraints (or is edited by an operator with service-role access)
+ *  still cannot make a run unbounded. Matches the migration's CHECKs. */
+export const GATHER_MAX_VIDEOS_PER_SEARCH = 100
+export const GATHER_MAX_COMMENT_DEPTH = 500
+
 /** Pass A failure tolerance (Tier 0, 2026-08-18). A run whose live Pass A
  *  calls failed above this share of attempts — or that saw ANY 429 (rate
  *  limit / exhausted credits) — closes 'partial' and alerts, instead of

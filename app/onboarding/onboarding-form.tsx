@@ -30,12 +30,12 @@ export function OnboardingForm() {
           <Input name="company_name" required placeholder="Acme Co." />
         </Field>
 
-        <Field label="Industry keywords" hint="Comma-separated. The terms that define your category — used to find relevant content.">
-          <Input name="industry_keywords" required placeholder="running shoes, trail running, marathon" />
+        <Field label="Competitors" hint="Comma-separated. The brands you compete with. We listen under their posts too.">
+          <Input name="competitor_names" required placeholder="Nike, Hoka, On" />
         </Field>
 
-        <Field label="Competitor names" hint="Comma-separated. Optional — add the brands you compete with.">
-          <Input name="competitor_names" placeholder="Nike, Hoka, On" />
+        <Field label="Category words" hint="Comma-separated, optional. A few words people use for what you sell.">
+          <Input name="industry_keywords" placeholder="running shoes, trail running, marathon" />
         </Field>
 
         <div className="space-y-1.5">

@@ -5,6 +5,7 @@ import { redirect } from 'next/navigation'
 import { requireUser } from '@/lib/auth'
 import { createAdminClient } from '@/lib/supabase-admin'
 import { SELECTABLE_PLATFORMS } from '@/app/dashboard/settings/constants'
+import { deriveCompetitorKeywords, ONBOARDING_MAX_VIDEOS } from '@/lib/onboarding-config'
 
 // State shape (a type) — idle value lives in the client form; a 'use server'
 // module may only export async functions.
@@ -16,10 +17,15 @@ export interface OnboardingState {
 const csv = (v: FormDataEntryValue | null) =>
   String(v ?? '').split(',').map((x) => x.trim()).filter(Boolean)
 
+// Competitors are required and category words are not (T0-7): the marketing
+// site promises "Your brand. Your competitors. That's everything. No keyword
+// tuning", and the form asked for the exact opposite. Competitors are also the
+// half the product cannot work without, since half the corpus is found through
+// them and every competitive surface reads them.
 const schema = z.object({
   company_name: z.string().trim().min(1, 'enter your company name'),
-  industry_keywords: z.array(z.string()).min(1, 'add at least one industry keyword'),
-  competitor_names: z.array(z.string()),
+  industry_keywords: z.array(z.string()),
+  competitor_names: z.array(z.string()).min(1, 'add at least one competitor'),
   platforms: z.array(z.enum(SELECTABLE_PLATFORMS)).min(1, 'pick at least one platform'),
 })
 
@@ -50,12 +56,17 @@ export async function createWorkspace(_prev: OnboardingState, formData: FormData
   }
   const { company_name, industry_keywords, competitor_names, platforms } = parsed.data
 
-  // 1) Client (tenant)
+  // 1) Client (tenant). Created INACTIVE and unapproved (T0-2): a signup used
+  //    to become a live tenant that the next Monday's scheduler picked up and
+  //    started spending Apify and OpenAI money on, unattended and unbilled. An
+  //    operator sets is_active + approved_at once the workspace is real.
   const { data: client, error: clientErr } = await admin
     .from('clients')
     .insert({
       company_name,
       plan: 'trial',
+      is_active: false,
+      approved_at: null,
       trial_ends_at: new Date(Date.now() + TRIAL_DAYS * 86_400_000).toISOString(),
     })
     .select('id')
@@ -65,13 +76,19 @@ export async function createWorkspace(_prev: OnboardingState, formData: FormData
   }
   const clientId = client.id as string
 
-  // 2) Initial tracking config (most columns default; seed what we collected).
+  // 2) Initial tracking config. competitor_keywords is DERIVED (T0-7): gather
+  //    searches from it while tagging matches on competitor_names, and nothing
+  //    ever wrote it, so a self-serve tenant gathered nothing about the
+  //    competitors it just named. max_videos overrides the column default of
+  //    10, which is too thin for the analysis floors to leave anything.
   const { error: cfgErr } = await admin.from('tracking_configs').insert({
     client_id: clientId,
     brand_keywords: [company_name],
     competitor_names,
+    competitor_keywords: deriveCompetitorKeywords(competitor_names),
     industry_keywords,
     platforms,
+    max_videos: ONBOARDING_MAX_VIDEOS,
     report_emails: user.email ? [user.email] : [],
   })
   if (cfgErr) return { ok: false, message: `Could not save tracking settings: ${cfgErr.message}` }

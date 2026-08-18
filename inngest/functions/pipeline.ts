@@ -23,6 +23,7 @@ import { persistThemes, loadThemes } from '@/lib/pipeline/themes'
 import { writeRunSummary } from '@/lib/pipeline/run-summary'
 import { computeMetrics } from '@/lib/pipeline/metrics'
 import { sendAlertEmail } from '@/lib/email'
+import { billingAccess, type BillingClient } from '@/lib/billing'
 import { CLUSTER_SIMILARITY_THRESHOLD, EVIDENCE_FLOOR, PASS_A_ERROR_RATIO, TRANSCRIBE_PARALLEL, incrementalPassAEnabled, redditDiscoveryEnabled, transcriptsEnabled } from '@/lib/config'
 import type { Platform } from '@/lib/gather/types'
 import type { VideoRow, CommentRow } from '@/lib/pipeline/types'
@@ -124,7 +125,7 @@ export const runPipeline = inngest.createFunction(
     //    string) so a run in flight across the deploy replays cleanly.
     const opened = await step.run('open-run', async (): Promise<OpenRunResult> => {
       const admin = createAdminClient()
-      let running = await admin
+      const running = await admin
         .from('pipeline_runs')
         .select('id, started_at')
         .eq('client_id', clientId)
@@ -748,9 +749,21 @@ const THEMES_PARALLEL = 2
  *  dashboard was reachable. */
 async function assertRunActive(clientId: string): Promise<void> {
   const admin = createAdminClient()
-  const { data } = await admin.from('clients').select('is_active').eq('id', clientId).maybeSingle()
-  if (data && (data as { is_active: boolean | null }).is_active === false) {
+  const { data } = await admin.from('clients')
+    .select('is_active, is_comped, trial_ends_at, subscription_status, approved_at')
+    .eq('id', clientId).maybeSingle()
+  if (!data) return
+  const client = data as BillingClient & { is_active: boolean | null }
+  if (client.is_active === false) {
     throw new Error(`run aborted: client ${clientId} is inactive (operator abort switch)`)
+  }
+  // Billing gate (T0-2): the abort switch only ever asked "is this tenant
+  // switched on", so an expired trial or a cancelled subscription still bought
+  // a full run. Comped tenants pass. Checked here, outside step.run, so it is
+  // re-read at every step boundary like the abort switch itself.
+  const access = billingAccess(client)
+  if (!access.hasAccess) {
+    throw new Error(`run aborted: client ${clientId} has no access (${access.reason})`)
   }
 }
 

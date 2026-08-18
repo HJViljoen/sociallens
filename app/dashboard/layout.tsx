@@ -1,15 +1,23 @@
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar"
 import { AppSidebar } from "@/components/app-sidebar"
+import { AccessBanner } from "@/components/access-banner"
 import { getSessionContext } from "@/lib/auth"
+import { billingAccess, type BillingClient } from "@/lib/billing"
 
 export default async function DashboardLayout({ children }: { children: React.ReactNode }) {
   // Trends needs ≥2 comparable updates (run_summary snapshots) before it has
   // anything to chart; only then does it earn a nav slot.
   const { supabase, clientId } = await getSessionContext()
-  const { count } = await supabase.from("run_summary")
-    .select("id", { head: true, count: "exact" })
-    .eq("client_id", clientId)
+  const [{ count }, { data: clientRow }] = await Promise.all([
+    supabase.from("run_summary")
+      .select("id", { head: true, count: "exact" })
+      .eq("client_id", clientId),
+    // select('*'): the billing columns are optional on older rows, and this
+    // must render whether or not a given migration has landed.
+    supabase.from("clients").select("*").eq("id", clientId).maybeSingle(),
+  ])
   const showTrends = (count ?? 0) >= 2
+  const access = billingAccess((clientRow ?? {}) as BillingClient)
 
   return (
     <SidebarProvider>
@@ -30,6 +38,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
           <SidebarTrigger />
         </header>
         <main className="relative z-10 flex-1 min-h-0 overflow-y-auto p-6">
+          <AccessBanner access={access} />
           {children}
         </main>
       </div>

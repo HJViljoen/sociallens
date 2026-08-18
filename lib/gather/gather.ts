@@ -1,5 +1,5 @@
 import { createAdminClient, selectAll } from '../supabase-admin'
-import { ANALYSIS_MODEL, REDDIT_COMMENT_SCRAPE_CAP, redditDiscoveryEnabled, periodWindowDays, RECHECK_MIN_GROWTH, RECHECK_CAP, RECHECK_WINDOW_DAYS, TRANSCRIBE_CAP, TRANSCRIBE_BATCH, TRANSCRIBE_MODEL, CONTENT_GATE_MODEL, WHISPER_PER_MINUTE, YT_TRANSCRIPT_PER_ITEM_USD, estimateCost, transcriptsEnabled } from '../config'
+import { ANALYSIS_MODEL, REDDIT_COMMENT_SCRAPE_CAP, redditDiscoveryEnabled, periodWindowDays, RECHECK_MIN_GROWTH, RECHECK_CAP, RECHECK_WINDOW_DAYS, TRANSCRIBE_CAP, TRANSCRIBE_BATCH, TRANSCRIBE_MODEL, CONTENT_GATE_MODEL, WHISPER_PER_MINUTE, YT_TRANSCRIPT_PER_ITEM_USD, estimateCost, transcriptsEnabled, GATHER_MAX_SEARCHES_PER_RUN, GATHER_MAX_VIDEOS_PER_SEARCH, GATHER_MAX_COMMENT_DEPTH } from '../config'
 import { runActor, isActorRunFailedError } from './apify'
 import { adapters } from './platforms'
 import { parseSubreddits, activeSubreddits, subredditLabel } from './subreddits'
@@ -147,8 +147,10 @@ async function loadConfig(admin: Admin, clientId: string): Promise<GatherConfig>
     competitor_names: data.competitor_names ?? [],
     industry_keywords: data.industry_keywords ?? [],
     platforms: data.platforms ?? ['tiktok', 'youtube', 'instagram'],
-    max_videos: data.max_videos ?? DEFAULT_CONFIG.max_videos,
-    comment_depth: data.comment_depth ?? DEFAULT_CONFIG.comment_depth,
+    // Clamped, not trusted (T0-2). The CHECK constraints bound what a tenant
+    // can write; this bounds what a run will act on whatever the row says.
+    max_videos: Math.min(data.max_videos ?? DEFAULT_CONFIG.max_videos, GATHER_MAX_VIDEOS_PER_SEARCH),
+    comment_depth: Math.min(data.comment_depth ?? DEFAULT_CONFIG.comment_depth, GATHER_MAX_COMMENT_DEPTH),
     report_period: data.report_period ?? DEFAULT_CONFIG.report_period,
     own_handles: data.own_handles ?? {},
     subreddits: parseSubreddits(data.subreddits),
@@ -259,6 +261,16 @@ export async function planGatherSearches(clientId: string, platforms?: Platform[
         tasks.push({ platform, keyword: subredditLabel(name), bucket: 'industry', community: name })
       }
     }
+  }
+  // Run-level ceiling (T0-2). Each task is a paid actor run, and nothing
+  // bounded their number: keywords x platforms with no cap on either. The
+  // truncation is loud — a silently shortened plan reads as a quiet week.
+  if (tasks.length > GATHER_MAX_SEARCHES_PER_RUN) {
+    console.warn(
+      `[plan-gather] ${tasks.length} searches planned, capping at ${GATHER_MAX_SEARCHES_PER_RUN}. ` +
+      `Dropped: ${tasks.slice(GATHER_MAX_SEARCHES_PER_RUN).map((t) => `${t.platform}:${t.keyword}`).join(', ')}`,
+    )
+    return tasks.slice(0, GATHER_MAX_SEARCHES_PER_RUN)
   }
   return tasks
 }

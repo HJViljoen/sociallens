@@ -3,6 +3,8 @@
 import { z } from 'zod'
 import { revalidatePath } from 'next/cache'
 import { getSessionContext, canManageTenant } from '@/lib/auth'
+import { createAdminClient } from '@/lib/supabase-admin'
+import { deriveCompetitorKeywords } from '@/lib/onboarding-config'
 import { PERIODS, DAYS } from './constants'
 
 export interface SettingsFormState {
@@ -19,7 +21,7 @@ const csv = (v: FormDataEntryValue | null) =>
 // deliberately absent here so a crafted POST can't move cost/quality knobs
 // even though the row-level UPDATE policy would allow the write.
 const schema = z.object({
-  competitor_names: z.array(z.string()),
+  competitor_names: z.array(z.string()).min(1, 'add at least one competitor'),
   report_emails: z.array(z.email()),
   report_period: z.enum(PERIODS),
   report_day: z.enum(DAYS),
@@ -50,13 +52,53 @@ export async function updateTrackingConfig(
     return { ok: false, message: `Invalid ${field}: ${first?.message ?? 'check your input.'}` }
   }
 
+  const { data: current } = await supabase
+    .from('tracking_configs')
+    .select('report_period, competitor_names, competitor_keywords')
+    .eq('client_id', clientId)
+    .maybeSingle()
+
+  // Paused stays paused (T0-7). 'paused' is an operator lever the form cannot
+  // represent, so the select rendered it as 'weekly' and this save would have
+  // written that back, re-arming the scheduler on a tenant meant to be quiet.
+  // Three live tenants sit at 'paused' today, Sealand among them.
+  const isPaused = current?.report_period === 'paused'
+
   const { error } = await supabase
     .from('tracking_configs')
-    .update({ ...parsed.data, updated_at: new Date().toISOString() })
+    .update({
+      ...parsed.data,
+      ...(isPaused ? { report_period: 'paused' } : {}),
+      updated_at: new Date().toISOString(),
+    })
     .eq('client_id', clientId)
 
   if (error) {
     return { ok: false, message: `Could not save: ${error.message}` }
+  }
+
+  // competitor_keywords follows competitor_names unless an operator curated it
+  // (T0-7): gather searches from the keywords while tagging matches on the
+  // names, and no app surface ever wrote the keywords, so a self-serve tenant
+  // gathered nothing about the competitors it just named. Written with the
+  // admin client on purpose: T0-2 revoked the column from `authenticated`, so
+  // it stays unreachable from a crafted POST and moves only through this
+  // derivation. Authorization already passed (role check + the RLS update
+  // above). Non-fatal: the four facts are saved either way.
+  const storedKeywords = (current?.competitor_keywords ?? []) as string[]
+  const previousDerived = deriveCompetitorKeywords((current?.competitor_names ?? []) as string[])
+  const sameSet = (a: string[], b: string[]) =>
+    JSON.stringify([...a].sort()) === JSON.stringify([...b].sort())
+  const operatorCurated = storedKeywords.length > 0 && !sameSet(storedKeywords, previousDerived)
+  if (!operatorCurated) {
+    const next = deriveCompetitorKeywords(parsed.data.competitor_names)
+    if (!sameSet(storedKeywords, next)) {
+      const { error: kwErr } = await createAdminClient()
+        .from('tracking_configs')
+        .update({ competitor_keywords: next })
+        .eq('client_id', clientId)
+      if (kwErr) console.error(`[settings] competitor_keywords not updated for ${clientId}: ${kwErr.message}`)
+    }
   }
 
   revalidatePath('/dashboard/settings')

@@ -1,5 +1,6 @@
 import { inngest } from '@/inngest/client'
 import { createAdminClient } from '@/lib/supabase-admin'
+import { billingAccess, type BillingClient } from '@/lib/billing'
 
 // Daily cron that decides which clients are due a run today and dispatches one
 // `pipeline/run.requested` event each (runPipeline handles a single client).
@@ -32,15 +33,25 @@ export const scheduledPipelineDispatcher = inngest.createFunction(
       const { weekday, dayOfMonth } = localToday()
 
       const [{ data: clients }, { data: configs }] = await Promise.all([
-        admin.from('clients').select('id').eq('is_active', true),
+        admin.from('clients')
+          .select('id, is_active, is_comped, trial_ends_at, subscription_status, approved_at')
+          .eq('is_active', true),
         admin.from('tracking_configs').select('client_id, report_period, report_day'),
       ])
 
       const cfgByClient = new Map((configs ?? []).map((c) => [c.client_id, c]))
       const due: string[] = []
-      for (const client of clients ?? []) {
+      for (const client of (clients ?? []) as (BillingClient & { id: string })[]) {
         const cfg = cfgByClient.get(client.id)
         if (!cfg) continue
+        // Billing gate (T0-2): is_active alone let an expired trial or a
+        // cancelled subscription keep drawing paid runs every week. Comped
+        // tenants (all four live ones today) pass unchanged.
+        const access = billingAccess(client)
+        if (!access.hasAccess) {
+          console.log(`[scheduler] skipping ${client.id}: no access (${access.reason})`)
+          continue
+        }
         const isWeeklyDue = cfg.report_period === 'weekly' && cfg.report_day === weekday
         const isMonthlyDue = cfg.report_period === 'monthly' && dayOfMonth === 1
         if (isWeeklyDue || isMonthlyDue) due.push(client.id)

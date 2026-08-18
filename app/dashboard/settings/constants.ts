@@ -13,7 +13,16 @@ export const PLATFORMS = ['tiktok', 'youtube', 'instagram', 'reddit'] as const
 // never self-served. Used by BOTH the form and its server-action validator: the
 // form alone is not a control, since a hand-crafted POST bypasses it.
 export const SELECTABLE_PLATFORMS = PLATFORMS.filter((p) => p !== 'reddit')
+
+// What a tenant may CHOOSE. 'paused' is a real production value (three tenants
+// carry it) that this list deliberately excludes: pausing is an operator lever.
+// Because the select could not represent it, the form rendered 'paused' as
+// 'weekly' and the next save silently re-armed the scheduler on a tenant that
+// was meant to be quiet — see settings-form.tsx and the T0-7 guard in the
+// action, which refuses to move a paused tenant rather than rewriting it.
 export const PERIODS = ['weekly', 'monthly'] as const
+/** Every value the pipeline understands, including operator-only ones. */
+export const ALL_PERIODS = ['weekly', 'monthly', 'daily', 'paused'] as const
 export const DAYS = [
   'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday',
 ] as const

@@ -2,6 +2,7 @@ import { inngest } from '@/inngest/client'
 import { createAdminClient } from '@/lib/supabase-admin'
 import { sendAlertEmail } from '@/lib/email'
 import { acceptSnapshot, fetchOwnProfile, supportsOwnedProfile } from '@/lib/gather/owned'
+import { billingAccess, type BillingClient } from '@/lib/billing'
 
 // Daily owned-account snapshots (Wave 2, 2026-08-11). Runs at 05:30 SAST —
 // before the 06:00 pipeline dispatcher — so a scheduled run's Step 2c always
@@ -22,12 +23,28 @@ export const ownedSnapshotsDaily = inngest.createFunction(
   async ({ step }) => {
     const clients = await step.run('find-owned-clients', async () => {
       const admin = createAdminClient()
-      const { data, error } = await admin
-        .from('tracking_configs')
-        .select('client_id, own_handles')
-        .not('own_handles', 'eq', '{}')
+      const [{ data, error }, { data: clientRows }] = await Promise.all([
+        admin.from('tracking_configs')
+          .select('client_id, own_handles')
+          .not('own_handles', 'eq', '{}'),
+        admin.from('clients')
+          .select('id, is_active, is_comped, trial_ends_at, subscription_status, approved_at'),
+      ])
       if (error) throw new Error(`load own_handles: ${error.message}`)
+      // Billing gate (T0-2): this cron reads paid Apify profiles every morning
+      // and checked nothing at all, so a deactivated or unpaid tenant kept
+      // spending daily. Same rule as the scheduler and the pipeline.
+      const allowed = new Set(
+        ((clientRows ?? []) as (BillingClient & { id: string })[])
+          .filter((c) => billingAccess(c).hasAccess)
+          .map((c) => c.id),
+      )
       return ((data ?? []) as { client_id: string; own_handles: Record<string, string> }[])
+        .filter((r) => {
+          if (allowed.has(r.client_id)) return true
+          console.log(`[owned-snapshots] skipping ${r.client_id}: no access`)
+          return false
+        })
         .map((r) => ({
           clientId: r.client_id,
           // Drop handles for platforms with no owned-profile concept (Reddit) —
