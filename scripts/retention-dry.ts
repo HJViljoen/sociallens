@@ -57,6 +57,7 @@ async function main() {
     const c = await refreshYoutubeComments(admin, { now, cap: YOUTUBE_REFRESH_NIGHTLY_CAP, dryRun: true, sample })
     console.log(`   due rows ${c.due} · sampled ids ${c.distinctIds} · found ${c.refreshed} row(s) · missing ${c.missing} row(s) · text changed ${c.textChanged}`)
     console.log(`   would drop: ${c.evidenceDropped} evidence row(s) (edited quotes), ${c.samplesDropped} language sample(s); would delete ${c.deleted} gone row(s) touching ${c.insightsAffected} insight(s), nulling ${c.heroQuotesNulled} hero quote(s)`)
+    if (c.missingExamples.length) console.log(`   gone examples: ${c.missingExamples.join(', ')}`)
     const v = await refreshYoutubeVideos(admin, { now, cap: Math.min(sample, YOUTUBE_VIDEO_REFRESH_NIGHTLY_CAP), dryRun: true })
     console.log(`   videos: due ${v.due} · sampled ${Math.min(sample, v.due)} · found ${v.refreshed} · missing ${v.missing} (would tombstone ${v.tombstoned}, deleting ${v.commentsDeleted} of their comments)`)
     console.log(`   quota spent by this sample: ~${Math.ceil(c.distinctIds / 50) + Math.ceil(Math.min(sample, v.due) / 50)} unit(s)`)

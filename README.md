@@ -119,9 +119,12 @@ functions (defined in the baseline).
   III.E.4.d), rows YouTube no longer serves are deleted (evidence cascades,
   hero-quote copies nulled), vanished videos are tombstoned; the Tier 0 delete
   path stays as a 30-day backstop and logs loudly if it ever fires. Preview with
-  `scripts/retention-dry.ts`. Enable only after
-  `20260822110000_demographic_redact_backfill.sql` has been applied — it must
-  follow the code deploy, not precede it.
+  `scripts/retention-dry.ts`. **Order:** apply
+  `20260822100000_retention_refresh.sql` (schema) BEFORE deploying this code
+  (gather/Pass A write the new columns) → deploy + re-register Inngest →
+  apply `20260822110000_demographic_redact_backfill.sql` AFTER (its readers
+  must be live) → run `retention-dry.ts --refresh-sample 50` → then
+  `RETENTION_ENABLED=1` and watch the first sweep.
 - Run state lives in `pipeline_runs.status`
   (`running`/`completed`/`partial`/`failed`); a run failure also emails
   `ALERT_EMAIL` when configured.

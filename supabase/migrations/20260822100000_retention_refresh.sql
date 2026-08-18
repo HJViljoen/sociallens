@@ -1,8 +1,11 @@
 -- Tier 1.5 (2026-08-22): YouTube refresh, redacted evidence, commenter suppression.
 --
--- Additive only. Safe to apply before or after the code that uses it. The
--- data backfill that depends on the new code lives in the NEXT migration
--- (20260822110000_demographic_redact_backfill.sql) and must run after deploy.
+-- Additive only, and it must be applied BEFORE the code that uses it deploys:
+-- gather now writes refreshed_at on every upsert and Pass A writes
+-- insight_evidence.redacted, so code-before-schema breaks ingest and persist.
+-- Old code against the new schema is fine (nullable columns, a default). The
+-- data backfill lives in the NEXT migration
+-- (20260822110000_demographic_redact_backfill.sql) and must run AFTER deploy.
 --
 -- 1. refreshed_at on comments and videos. The YouTube API Services Developer
 --    Policy (III.E.4.d) lets an API Client store Non-Authorized Data for at

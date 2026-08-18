@@ -1,5 +1,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { normForMatch } from './quote-match'
+import { selectAll } from '../supabase-admin'
 
 // hero_quote copies (Tier 1.5, 2026-08-22). Four tables carry a verbatim comment
 // excerpt with NO foreign key back to `comments`: recommendations,
@@ -35,9 +36,11 @@ export async function loadHeroQuotes(admin: SupabaseClient, clientIds: string[])
   if (!clientIds.length) return []
   const out: HeroQuoteRow[] = []
   for (const table of HERO_QUOTE_TABLES) {
-    const { data, error } = await admin.from(table).select('id, hero_quote').in('client_id', clientIds).not('hero_quote', 'is', null)
-    if (error) throw new Error(`load hero_quote ${table}: ${error.message}`)
-    for (const r of (data ?? []) as { id: string; hero_quote: string | null }[]) out.push({ table, id: r.id, hero_quote: r.hero_quote })
+    // selectAll: these tables accumulate across runs; a bare select caps at 1000.
+    const rows = await selectAll<{ id: string; hero_quote: string | null }>(() =>
+      admin.from(table).select('id, hero_quote').in('client_id', clientIds).not('hero_quote', 'is', null).order('id', { ascending: true }),
+    )
+    for (const r of rows) out.push({ table, id: r.id, hero_quote: r.hero_quote })
   }
   return out
 }

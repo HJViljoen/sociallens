@@ -69,10 +69,18 @@ export interface CommentDiff {
   textById: Map<string, string>
 }
 
+export interface DiffOptions {
+  /** Tenants whose stored `author` is a pseudonym (the demo clone — Tier 0
+   *  migration 20260820130000): the refresh must not write the real display
+   *  name back. Text, likes and reply counts still refresh. */
+  keepAuthorForClients?: ReadonlySet<string>
+}
+
 export function diffRefreshedComments(
   stored: StoredComment[],
   fetched: Map<string, RefreshedComment>,
   nowIso: string,
+  opts: DiffOptions = {},
 ): CommentDiff {
   const upserts: CommentUpsertRow[] = []
   const missingIds: string[] = []
@@ -87,7 +95,7 @@ export function diffRefreshedComments(
       platform: 'youtube',
       video_id: s.video_id,
       comment_id: s.comment_id,
-      author: f.author,
+      author: opts.keepAuthorForClients?.has(s.client_id) ? s.author : f.author,
       text: f.text,
       likes: f.likes,
       reply_count: f.reply_count,
@@ -225,4 +233,14 @@ export function distinctIds<T extends { comment_id?: string; video_id?: string }
     if (out.length >= cap) break
   }
   return out
+}
+
+/** Circuit breaker for the refresh (fresh-eyes review, 2026-08-22): "missing"
+ *  is what gets DELETED, so a systemic failure that reads as absence must stop
+ *  the sweep before any write. Measured gone-rate is ~4% (oldest cohort ~30%);
+ *  nothing found at all, or more than half gone across a real batch, is not
+ *  churn — it is a broken key, a changed API, or a bug. Throws. */
+export function assertPlausibleGoneRate(kind: 'comments' | 'videos', requested: number, found: number): void {
+  if (requested >= 10 && found === 0) throw new Error(`refresh ${kind}: 0 of ${requested} ids found — refusing to treat that as deletions`)
+  if (requested >= 50 && found / requested < 0.5) throw new Error(`refresh ${kind}: only ${found} of ${requested} ids found (${Math.round((1 - found / requested) * 100)}% gone) — refusing to delete at that rate`)
 }

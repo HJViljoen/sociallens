@@ -227,16 +227,19 @@ export const youtube: PlatformAdapter = {
       try {
         data = await ytGet('commentThreads', params)
       } catch (e) {
-        // A 400 on a multi-id batch is almost always "too many ids" — halve
-        // and retry down to one, so one bad id costs one call, not the batch.
+        // A 400 on a multi-id batch may be "too many ids" — halve and retry
+        // down to one. A single id that STILL errors is thrown, never treated
+        // as missing: an invalid API key also answers 400, and "missing" is
+        // what the retention job deletes. Absence is only ever read from a
+        // successful response (a gone thread is simply not in `items`; the
+        // live probe confirmed comments-disabled and video-deleted ids come
+        // back 200 with the id absent).
         if (ids.length > 1 && /\b400\b/.test((e as Error).message)) {
           const mid = Math.ceil(ids.length / 2)
           await fetchBatch(ids.slice(0, mid))
           await fetchBatch(ids.slice(mid))
           return
         }
-        // A single id that 400s/404s is a thread the API will not serve → missing.
-        if (ids.length === 1 && /\b40[04]\b/.test((e as Error).message)) return
         throw e
       }
       for (const raw of itemsOf(data)) {

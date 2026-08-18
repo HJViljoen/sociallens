@@ -543,7 +543,9 @@ export async function gatePlatform(opts: {
   // refreshed_at: these rows were just read from their source, so the
   // retention refresh (YouTube) starts its 30-day clock here (Tier 1.5).
   const stampedAt = new Date().toISOString()
-  const toUpsert = [...kept, ...resurfacedInWindow.map((r) => r.video)].map((v) => ({ ...v, refreshed_at: stampedAt }))
+  // unavailable_at: null — a video the search just returned is, by definition,
+  // available again (clears a retention tombstone if the creator un-privated it).
+  const toUpsert = [...kept, ...resurfacedInWindow.map((r) => r.video)].map((v) => ({ ...v, refreshed_at: stampedAt, unavailable_at: null }))
 
   // Upsert kept videos (merge on natural key — preserves Pass A columns).
   if (!opts.dryRun && toUpsert.length) {
@@ -697,7 +699,7 @@ export async function scrapeCommentsBatch(opts: {
   // Suppression (Tier 1.5): handles erased on request must never come back
   // through a re-scrape. One read per batch; best-effort (a failed read
   // suppresses nothing rather than failing the gather).
-  const suppressedKeys = opts.dryRun ? new Set<string>() : await loadSuppressedKeys(admin, opts.platform)
+  const suppressedKeys = await loadSuppressedKeys(admin, opts.platform)
   let suppressedTotal = 0
   let commentCount = 0
   for (const ref of opts.refs) {

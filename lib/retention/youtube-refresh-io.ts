@@ -1,10 +1,11 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { selectAll } from '../supabase-admin'
+import { DEMO_CLIENT_ID } from '../config'
 import { adapters } from '../gather/platforms'
 import { loadHeroQuotes, matchHeroQuotes, nullHeroQuotes } from '../pipeline/hero-quotes'
 import {
   diffRefreshedComments, evidenceToDrop, phrasesToDrop, diffRefreshedVideos, videoTombstone,
-  refreshCutoffs, distinctIds, type StoredComment, type StoredVideoStats,
+  refreshCutoffs, distinctIds, assertPlausibleGoneRate, type StoredComment, type StoredVideoStats,
 } from './youtube-refresh'
 
 // The I/O half of the YouTube refresh (Tier 1.5, 2026-08-22). Called from
@@ -24,6 +25,8 @@ export interface CommentRefreshSummary {
   deleted: number
   insightsAffected: number
   heroQuotesNulled: number
+  /** A few platform ids that were not returned, for the operator's eyes. */
+  missingExamples: string[]
 }
 
 export interface VideoRefreshSummary {
@@ -90,15 +93,17 @@ export async function refreshYoutubeComments(
   const batch = stored.filter((s) => idSet.has(s.comment_id))
   const summary: CommentRefreshSummary = {
     due: stored.length, distinctIds: ids.length, refreshed: 0, textChanged: 0, evidenceDropped: 0,
-    samplesDropped: 0, missing: 0, deleted: 0, insightsAffected: 0, heroQuotesNulled: 0,
+    samplesDropped: 0, missing: 0, deleted: 0, insightsAffected: 0, heroQuotesNulled: 0, missingExamples: [],
   }
   if (!ids.length) return summary
 
   const { found } = await adapter.refreshComments(ids)
-  const diff = diffRefreshedComments(batch, new Map(found.map((f) => [f.comment_id, f])), nowIso)
+  assertPlausibleGoneRate('comments', ids.length, found.length)
+  const diff = diffRefreshedComments(batch, new Map(found.map((f) => [f.comment_id, f])), nowIso, { keepAuthorForClients: new Set([DEMO_CLIENT_ID]) })
   summary.refreshed = diff.upserts.length
   summary.textChanged = diff.textChangedIds.length
   summary.missing = diff.missingIds.length
+  summary.missingExamples = [...new Set(diff.missingIds.map((id) => batch.find((b) => b.id === id)?.comment_id ?? id))].slice(0, 5)
 
   if (!opts.dryRun) {
     for (let i = 0; i < diff.upserts.length; i += CHUNK) {
@@ -177,6 +182,7 @@ export async function refreshYoutubeVideos(
   if (!ids.length) return summary
 
   const { found } = await adapter.refreshVideoStats(ids)
+  assertPlausibleGoneRate('videos', ids.length, found.size)
   const diff = diffRefreshedVideos(batch, found, nowIso)
   summary.refreshed = diff.updates.length
   summary.missing = diff.missingIds.length

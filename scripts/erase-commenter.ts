@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto'
 import { createAdminClient, selectAll } from '../lib/supabase-admin'
 import { authorKey, handleVariants } from '../lib/gather/suppression'
 import { deleteCommentsProperly } from '../lib/retention/youtube-refresh-io'
-import { AI_LOG_BODY_RETENTION_DAYS } from '../lib/config'
+import { AI_LOG_BODY_RETENTION_DAYS, DEMO_CLIENT_ID } from '../lib/config'
 
 // Erase one commenter on request (Tier 1.5, 2026-08-22). The privacy notice
 // says: write with the handle and platform and we will remove the comments tied
@@ -31,12 +31,12 @@ import { AI_LOG_BODY_RETENTION_DAYS } from '../lib/config'
 //      (older bodies are already stripped by the retention sweep), nulled.
 //   6. a suppressed_commenters row per key variant, so a re-scrape never brings
 //      the handle back (lib/gather/suppression.ts filters at ingest).
+//   7. weekly_reports.html_content — the stored copy of every report we sent —
+//      scrubbed of the erased text (raw and HTML-escaped forms), best-effort.
 // video_raw is not touched: it never carries comment items (only video-search
 // and transcribe payloads).
 // What it cannot undo, and the reply must say so: reports already emailed;
 // OpenAI's copy of API inputs for its retention period (until zero-data-retention).
-
-const DEMO_CLIENT_ID = 'de300055-0000-4000-8000-000000000001'
 
 interface Args { platform: string; handle: string; apply: boolean; note: string }
 function parseArgs(argv: string[]): Args {
@@ -60,15 +60,19 @@ function demoPseudonyms(author: string): string[] {
   return ['md5', 'sha256'].map((alg) => `user_${createHash(alg).update(author).digest('hex').slice(0, 8)}`)
 }
 
-const escapeLike = (s: string) => s.replace(/[\\%_]/g, (m) => `\\${m}`)
+// PostgREST turns '*' into '%' inside ilike patterns, so a display name like
+// "**Sarah**" would otherwise match every author containing "sarah" — escape it
+// too, and post-filter in JS for exact (case-insensitive) equality anyway.
+const escapeLike = (s: string) => s.replace(/[\\%_*]/g, (m) => `\\${m}`)
 
 interface CommentRow { id: string; client_id: string; author: string | null; text: string | null; platform: string; video_id: string; comment_id: string }
 
 async function main() {
   const args = parseArgs(process.argv.slice(2))
   const admin = createAdminClient()
-  const bare = args.handle.trim().replace(/^@/, '')
-  const patterns = [...new Set([bare, `@${bare}`])]
+  const bare = args.handle.trim().replace(/^@/, '').replace(/^\/?u\//i, '')
+  const patterns = [...new Set([bare, `@${bare}`, ...(args.platform === 'reddit' ? [`u/${bare}`, `/u/${bare}`] : [])])]
+  const patternSet = new Set(patterns.map((p) => p.toLowerCase()))
 
   console.log(`erase-commenter · platform=${args.platform} · handle="${args.handle}" · ${args.apply ? 'APPLY' : 'DRY RUN (add --apply to execute)'}\n`)
 
@@ -78,7 +82,7 @@ async function main() {
     const rows = await selectAll<CommentRow>(() =>
       admin.from('comments').select('id, client_id, author, text, platform, video_id, comment_id').eq('platform', args.platform).ilike('author', escapeLike(p)).order('id', { ascending: true }),
     )
-    for (const r of rows) found.set(r.id, r)
+    for (const r of rows) if (r.author && patternSet.has(r.author.trim().toLowerCase())) found.set(r.id, r)
   }
   const exactAuthors = [...new Set([...found.values()].map((r) => r.author).filter((a): a is string => !!a))]
 
@@ -141,6 +145,30 @@ async function main() {
     }
   }
 
+  // 7. Stored report copies. Best-effort: the renderer HTML-escapes text, so
+  //    both the raw and the escaped forms are replaced. Reports already emailed
+  //    cannot be recalled — the reply says so.
+  let reportsScrubbed = 0
+  if (clientIds.length && texts.length) {
+    const esc = (t: string) => t.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;')
+    const needles = [...new Set(texts.flatMap((t) => [t, esc(t)]))]
+    const reports = await selectAll<{ id: string; html_content: string }>(() =>
+      admin.from('weekly_reports').select('id, html_content').in('client_id', clientIds).order('id', { ascending: true }),
+    )
+    for (const r of reports) {
+      let html = r.html_content
+      for (const n of needles) html = html.split(n).join('[removed at the commenter\'s request]')
+      if (html !== r.html_content) {
+        reportsScrubbed++
+        if (args.apply) {
+          const { error } = await admin.from('weekly_reports').update({ html_content: html }).eq('id', r.id)
+          if (error) throw new Error(`scrub weekly_reports ${r.id}: ${error.message}`)
+        }
+      }
+    }
+    console.log(`stored report copies carrying the text: ${reportsScrubbed} of ${reports.length} → ${args.apply ? 'scrubbed' : 'would be scrubbed'}`)
+  }
+
   // 6. Suppression — every key variant we know of.
   const keys = [...new Set([authorKey(args.platform, args.handle), ...exactAuthors.map((a) => authorKey(args.platform, a))].filter((k): k is string => !!k))]
   console.log(`suppression keys (${args.platform}): ${keys.join(', ')} → ${args.apply ? 'recorded' : 'would be recorded'}`)
@@ -154,7 +182,7 @@ async function main() {
 
   console.log(`\n--- reply template ---
 We have removed the ${rows.length} comment(s) tied to ${args.handle} on ${args.platform} from Verbatim, together with every quote of them in our analysis${del.heroQuotesNulled ? ' and in report headlines' : ''}, and we have recorded the handle so it is not collected again.
-What we cannot undo: report emails already sent to our customers before your request, and our AI provider's copy of any analysis input for its own retention period (${AI_LOG_BODY_RETENTION_DAYS} days).
+What we cannot undo: report emails already sent to our customers before your request, and our AI provider's copy of any analysis input for its own retention period (up to 30 days).
 ${args.apply ? '' : '(DRY RUN — nothing has been changed yet.)'}`)
 }
 

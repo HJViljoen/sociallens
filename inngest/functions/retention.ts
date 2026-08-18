@@ -92,16 +92,36 @@ export const retentionDaily = inngest.createFunction(
 
     // 3. YouTube comments: refresh, don't delete. Costs 1 quota unit per 50
     //    ids (~115 units a month for the whole corpus as of 2026-08-18).
-    const ytComments = await step.run('refresh-youtube-comments', async () => {
-      const admin = createAdminClient()
-      return refreshYoutubeComments(admin, { cap: YOUTUBE_REFRESH_NIGHTLY_CAP })
-    })
+    //    A refresh step that is out of retries (quota, key, network) is caught
+    //    so the BACKSTOP below still runs — it exists for exactly the night the
+    //    API fails — and the run is then failed at the end so it stays visible.
+    const refreshErrors: string[] = []
+    const emptyComments = { due: 0, distinctIds: 0, refreshed: 0, textChanged: 0, evidenceDropped: 0, samplesDropped: 0, missing: 0, deleted: 0, insightsAffected: 0, heroQuotesNulled: 0, missingExamples: [] as string[] }
+    const ytComments = await step
+      .run('refresh-youtube-comments', async () => {
+        const admin = createAdminClient()
+        return refreshYoutubeComments(admin, { cap: YOUTUBE_REFRESH_NIGHTLY_CAP })
+      })
+      .catch((e: unknown) => {
+        const message = e instanceof Error ? e.message : String(e)
+        console.error(`[retention] refresh-youtube-comments failed: ${message}`)
+        refreshErrors.push(`comments: ${message.slice(0, 200)}`)
+        return emptyComments
+      })
 
     // 4. YouTube video statistics: same rule (III.E.4.b/d), same cadence.
-    const ytVideos = await step.run('refresh-youtube-videos', async () => {
-      const admin = createAdminClient()
-      return refreshYoutubeVideos(admin, { cap: YOUTUBE_VIDEO_REFRESH_NIGHTLY_CAP })
-    })
+    const emptyVideos = { due: 0, refreshed: 0, missing: 0, tombstoned: 0, commentsDeleted: 0, insightsAffected: 0, heroQuotesNulled: 0 }
+    const ytVideos = await step
+      .run('refresh-youtube-videos', async () => {
+        const admin = createAdminClient()
+        return refreshYoutubeVideos(admin, { cap: YOUTUBE_VIDEO_REFRESH_NIGHTLY_CAP })
+      })
+      .catch((e: unknown) => {
+        const message = e instanceof Error ? e.message : String(e)
+        console.error(`[retention] refresh-youtube-videos failed: ${message}`)
+        refreshErrors.push(`videos: ${message.slice(0, 200)}`)
+        return emptyVideos
+      })
 
     // 5. Backstop — the Tier 0 path, now scoped to rows the refresh has failed
     //    to reach for 30 days. A cited comment CANNOT simply be deleted:
@@ -168,6 +188,9 @@ export const retentionDaily = inngest.createFunction(
     if (rawDeleted === 0 && bodiesStripped === 0 && ytComments.due === 0 && ytVideos.due === 0 && ytPurged.deleted + ytPurged.pseudonymised === 0) {
       console.log('[retention] nothing due today')
     }
+    // Every step ran; now surface a refresh failure as a failed run (retries
+    // replay memoised steps, so nothing is redone — it just stays red).
+    if (refreshErrors.length) throw new Error(`retention: refresh failed — ${refreshErrors.join(' | ')}`)
     return summary
   },
 )

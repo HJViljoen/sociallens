@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   diffRefreshedComments, evidenceToDrop, phrasesToDrop, diffRefreshedVideos, videoTombstone,
-  refreshCutoffs, distinctIds, type StoredComment, type RefreshedComment,
+  refreshCutoffs, distinctIds, assertPlausibleGoneRate, type StoredComment, type RefreshedComment,
 } from './youtube-refresh'
 
 const NOW = '2026-08-22T02:00:00.000Z'
@@ -28,6 +28,13 @@ describe('diffRefreshedComments', () => {
     const d = diffRefreshedComments(rows, new Map([['yt-1', fetched()]]), NOW)
     expect(d.upserts.map((u) => u.client_id)).toEqual(['c1', 'c2'])
     expect(d.upserts[1].run_id).toBe('r9')
+  })
+
+  it('keeps the stored (pseudonymised) author for protected tenants, still refreshes text/counts', () => {
+    const rows = [stored({ id: 'demo', client_id: 'demo-tenant', author: 'user_49d29304' }), stored({ id: 'real', client_id: 'c1' })]
+    const d = diffRefreshedComments(rows, new Map([['yt-1', fetched({ author: '@Alice Real', likes: 9 })]]), NOW, { keepAuthorForClients: new Set(['demo-tenant']) })
+    expect(d.upserts.find((u) => u.client_id === 'demo-tenant')).toMatchObject({ author: 'user_49d29304', likes: 9 })
+    expect(d.upserts.find((u) => u.client_id === 'c1')).toMatchObject({ author: '@Alice Real', likes: 9 })
   })
 
   it('missing on YouTube → missingIds, no upsert', () => {
@@ -107,5 +114,19 @@ describe('cutoffs + distinctIds', () => {
     const rows = [{ comment_id: 'a' }, { comment_id: 'b' }, { comment_id: 'a' }, { comment_id: 'c' }]
     expect(distinctIds(rows, 'comment_id', 10)).toEqual(['a', 'b', 'c'])
     expect(distinctIds(rows, 'comment_id', 2)).toEqual(['a', 'b'])
+  })
+})
+
+describe('assertPlausibleGoneRate — the circuit breaker', () => {
+  it('lets the measured world through: 4% gone, and even the oldest cohort at 30%', () => {
+    expect(() => assertPlausibleGoneRate('comments', 196, 188)).not.toThrow()
+    expect(() => assertPlausibleGoneRate('comments', 50, 35)).not.toThrow()
+    expect(() => assertPlausibleGoneRate('videos', 50, 45)).not.toThrow()
+    expect(() => assertPlausibleGoneRate('comments', 5, 0)).not.toThrow() // too few to judge
+  })
+  it('refuses a systemic failure that reads as absence', () => {
+    expect(() => assertPlausibleGoneRate('comments', 50, 0)).toThrow(/0 of 50/)
+    expect(() => assertPlausibleGoneRate('comments', 200, 60)).toThrow(/70% gone/)
+    expect(() => assertPlausibleGoneRate('videos', 10, 0)).toThrow()
   })
 })

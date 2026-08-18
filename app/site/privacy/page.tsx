@@ -94,7 +94,8 @@ export default function PrivacyPage() {
         <li>Comment text and the analysis built from it: for as long as the customer&rsquo;s workspace is active, then deleted with the workspace.</li>
         <li>
           YouTube comments and video statistics: re-checked against YouTube at least every 30 days.
-          Anything deleted or hidden on YouTube is deleted here too, together with any quote of it.
+          Anything deleted or hidden on YouTube is deleted here too, together with any quote of it in
+          the product.
         </li>
       </ul>
 
@@ -110,9 +111,10 @@ export default function PrivacyPage() {
       <p>
         You can ask what we hold about you, ask us to correct or delete it, or object to our
         processing. Write to <a href={`mailto:${CONTACT}`}>{CONTACT}</a> with the handle and platform
-        and we will remove the comments tied to it, and any quote of them, within 7 days, and make
-        sure they are not collected again. You can also complain to your data protection authority,
-        or in South Africa to the Information Regulator.
+        and within 7 days we will remove the comments tied to it, and any quote of them in the
+        product and in our stored reports, and make sure they are not collected again. Report
+        emails already sent cannot be recalled. You can also complain to your data protection
+        authority, or in South Africa to the Information Regulator.
       </p>
 
       <h2>YouTube</h2>

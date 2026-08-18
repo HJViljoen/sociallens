@@ -468,6 +468,11 @@ export function captureRunFlags(): RunFlags {
   }
 }
 
+/** The demo tenant (scripts/seed-demo.ts). Its comment authors are one-way
+ *  pseudonyms; the retention refresh must never write real names back into it,
+ *  and the erasure script looks for clones in it. */
+export const DEMO_CLIENT_ID = 'de300055-0000-4000-8000-000000000001'
+
 /** Master switch for the retention sweep. OFF unless set, so the cron deploys
  *  dormant and its first pass is something an operator watches rather than
  *  something that happens at 04:00. It is the only destructive job in the
