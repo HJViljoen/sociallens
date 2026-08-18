@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { buildSystemPrompt, buildUserPrompt, indexThemes } from './pass-c'
+import { buildSystemPrompt, buildUserPrompt, indexThemes, thinBuckets } from './pass-c'
 import type { AggregatedTheme } from './types'
 
 // Pins for the v5 claims block: present exactly when competitor claims exist,
@@ -45,5 +45,39 @@ describe('pass C v5 claims block', () => {
     const idx = indexThemes([theme()])
     expect(buildUserPrompt(idx, undefined, [])).toBe(buildUserPrompt(idx, undefined))
     expect(buildUserPrompt(idx, undefined)).not.toContain('WHAT COMPETITORS SAY')
+  })
+})
+
+describe('thinBuckets + the coverage floor (Tier 1)', () => {
+  const sov = {
+    client: { videos: 27, views: 0, pct_videos: 5.8 },
+    'competitor:Ottobock': { videos: 75, views: 0, pct_videos: 16 },
+    'competitor:Freitag': { videos: 4, views: 0, pct_videos: 0.9 },
+    'industry-other': { videos: 366, views: 0, pct_videos: 78.2 },
+  }
+
+  it('names only the buckets under the floor', () => {
+    expect(thinBuckets(sov)).toEqual(['competitor:Freitag'])
+  })
+
+  it('is empty when every bucket clears it, and safe with no share data', () => {
+    expect(thinBuckets({ client: { videos: 30, views: 0, pct_videos: 50 } })).toEqual([])
+    expect(thinBuckets(undefined)).toEqual([])
+  })
+
+  it('marks the thin bucket in the prompt and rules it out', () => {
+    const prompt = buildUserPrompt([], sov)
+    expect(prompt).toContain('competitor:Freitag: 4 videos (0.9% of corpus)  [TOO THIN TO COMPARE]')
+    expect(prompt).toContain('THIN BUCKETS')
+    expect(prompt).toContain('is not evidence about that entity')
+    // A bucket that clears the floor carries no warning.
+    expect(prompt).toContain('competitor:Ottobock: 75 videos (16% of corpus)\n')
+  })
+
+  it('gives the model evidence and share, never the strongest-member score', () => {
+    const t = theme({ bucket: 'competitor:Ottobock', evidenceCount: 15, strengthScore: 9, label: 'Fit problems' })
+    const prompt = buildUserPrompt([{ label: 'T1', theme: t }], sov)
+    expect(prompt).toContain('heard in 15 videos (20% of its bucket)')
+    expect(prompt).not.toContain('strength 9')
   })
 })

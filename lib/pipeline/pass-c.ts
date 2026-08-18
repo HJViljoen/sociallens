@@ -1,7 +1,7 @@
 import { zodResponseFormat } from 'openai/helpers/zod'
 import { createAdminClient } from '../supabase-admin'
 import { openai, samplingParams } from '../openai'
-import { SYNTHESIS_MODEL, CITATION_RELEVANCE_FLOOR, estimateCost } from '../config'
+import { SYNTHESIS_MODEL, CITATION_RELEVANCE_FLOOR, COMPETITIVE_MIN_VIDEOS, estimateCost } from '../config'
 import { PassCSchema, type PassCOutput } from './schemas'
 import { logAiCall } from './ai-log'
 import { CALIBRATED_PROSE_RULE, stripThemeRefs } from './prose-rules'
@@ -102,6 +102,7 @@ export function buildSystemPrompt(tc: TrackingConfig | undefined, brandName?: st
     '- Do NOT invent counts, percentages, or metrics.',
     CALIBRATED_PROSE_RULE,
     `- A finding must rest on a genuine cross-bucket contrast. If only ONE bucket is present (no competitor or ${name} data to compare), return an empty "competitive_insights" array. Do not manufacture comparisons.`,
+    `- Buckets marked TOO THIN TO COMPARE hold fewer than ${COMPETITIVE_MIN_VIDEOS} videos. Never rest a finding on one. We barely gathered them, so their quiet says nothing about the brand.`,
     '- impact_level reflects how much the finding should affect the brand’s strategy. "high" is scarce: at most one or two findings per run genuinely demand a strategy response — when in doubt, medium.',
   ]
   if (!hasClaims) return base.join('\n')
@@ -115,6 +116,23 @@ export function buildSystemPrompt(tc: TrackingConfig | undefined, brandName?: st
   ].join('\n')
 }
 
+/**
+ * Entity buckets too thin to carry a comparison (Tier 1). Returns the bucket
+ * keys below the floor, so the prompt can name them and rule them out rather
+ * than leaving the model to discover their thinness from a video count it has
+ * no instruction about.
+ */
+export function thinBuckets(
+  sov: Record<string, SovEntry> | undefined,
+  floor: number = COMPETITIVE_MIN_VIDEOS,
+): string[] {
+  if (!sov) return []
+  return Object.entries(sov)
+    .filter(([, e]) => Number(e?.videos ?? 0) < floor)
+    .map(([bucket]) => bucket)
+    .sort()
+}
+
 /** Exported for tests (v5 claims-block pins). */
 export function buildUserPrompt(
   themeIndex: { label: string; theme: AggregatedTheme }[],
@@ -122,12 +140,22 @@ export function buildUserPrompt(
   competitorClaims: BrandClaim[] = [],
 ): string {
   const lines: string[] = []
+  const thin = thinBuckets(sov)
   if (sov && Object.keys(sov).length) {
     lines.push('SHARE OF VOICE (by bucket):')
     for (const [bucket, e] of Object.entries(sov)) {
-      lines.push(`- ${bucket}: ${e.videos} videos (${e.pct_videos}% of corpus)`)
+      const mark = thin.includes(bucket) ? '  [TOO THIN TO COMPARE]' : ''
+      lines.push(`- ${bucket}: ${e.videos} videos (${e.pct_videos}% of corpus)${mark}`)
     }
     lines.push('')
+  }
+  if (thin.length) {
+    lines.push(
+      `THIN BUCKETS (under ${COMPETITIVE_MIN_VIDEOS} videos): ${thin.join(', ')}. ` +
+        'Do not build a finding whose contrast depends on one of these. Absence of ' +
+        'conversation about an entity we barely gathered is not evidence about that entity.',
+      '',
+    )
   }
   if (competitorClaims.length) {
     lines.push('WHAT COMPETITORS SAY IN THEIR OWN VIDEOS (from transcripts):')
@@ -138,9 +166,14 @@ export function buildUserPrompt(
   }
   lines.push(`THEMES (${themeIndex.length})`)
   for (const { label, theme } of themeIndex) {
+    // Evidence and share, not `strength`: that was the strongest SINGLE member
+    // insight and said nothing about how widely a theme was heard, while being
+    // the only salience number the model saw (Tier 1).
+    const bucketVideos = Number(sov?.[theme.bucket]?.videos ?? 0)
+    const share = bucketVideos > 0 ? ` (${Math.round((theme.evidenceCount / bucketVideos) * 100)}% of its bucket)` : ''
     lines.push(
       `[${label}] bucket=${theme.bucket} category=${theme.category} "${theme.label ?? theme.theme}" ` +
-        `· ${theme.evidenceCount} videos · strength ${theme.strengthScore} ` +
+        `· heard in ${theme.evidenceCount} videos${share} ` +
         `· ${theme.dominantEmotion}/${theme.dominantSentimentImpact}`,
     )
   }

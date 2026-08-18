@@ -397,6 +397,21 @@ export const PASS_B_PARALLEL = 3
 // (against YouTube API Services Developer Policy III.E.4.d).
 
 /**
+ * Minimum analysed videos in an entity's bucket before the product will draw a
+ * comparison involving it (Tier 1, 2026-08-18).
+ *
+ * Nothing gated this: Pass C was handed every bucket with no coverage signal
+ * and asked to find contrasts, so a competitor with a handful of videos could
+ * anchor a "competitive threat" the client reads as a finding about their
+ * market. Set at 10 to match the numerator floor the share bands already use
+ * (lib/report-bands SHARE_BAND.minK). Measured for reference: Össur's period
+ * buckets are client 27 / Ottobock 75 / category 366, and Sealand's thinnest
+ * tracked competitor sits at 22 videos all-time, so this excludes the genuinely
+ * empty ones without touching a real tenant's comparisons.
+ */
+export const COMPETITIVE_MIN_VIDEOS = 10
+
+/**
  * The feature flags a run's behaviour depends on, captured once (Tier 1,
  * 2026-08-18).
  *
