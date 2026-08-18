@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { decideOpenRun, RUN_STALE_AFTER_HOURS } from './run-guard'
+import { decideOpenRun, runIdForEvent, RUN_STALE_AFTER_HOURS } from './run-guard'
 
 const NOW = new Date('2026-08-23T04:30:00Z')
 const hoursAgo = (h: number) => new Date(NOW.getTime() - h * 3600_000).toISOString()
@@ -34,5 +34,17 @@ describe('decideOpenRun — single-flight per client', () => {
       NOW,
     )
     expect(d).toEqual({ action: 'skip', blockingRunId: 'live' })
+  })
+})
+
+describe('runIdForEvent — a step retry must recognise its own row', () => {
+  it('is stable for the same event, so attempt 2 reuses attempt 1s id', () => {
+    expect(runIdForEvent('01J8ZQ')).toBe(runIdForEvent('01J8ZQ'))
+  })
+  it('differs across events, so two scheduled runs never collide', () => {
+    expect(runIdForEvent('evt_a')).not.toBe(runIdForEvent('evt_b'))
+  })
+  it('is a well-formed v4-shaped uuid the column will accept', () => {
+    expect(runIdForEvent('evt_a')).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/)
   })
 })

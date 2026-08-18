@@ -1,5 +1,6 @@
 import { UserPlus, Users, Clock, Mail } from 'lucide-react'
 import { getSessionContext, canManageTenant } from '@/lib/auth'
+import { createAdminClient } from '@/lib/supabase-admin'
 import { getBaseUrl } from '@/lib/site'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { InviteForm, RevokeButton, MemberControls, CopyLinkButton } from './team-ui'
@@ -46,15 +47,28 @@ export default async function TeamPage() {
   let invites: InviteRow[] = []
   let baseUrl = ''
   if (canManage) {
+    // The list comes through RLS (session client) and deliberately does NOT
+    // select `token`: the column is revoked from `authenticated`, so it is
+    // unreadable from PostgREST with a tenant JWT at all. Nulling it in
+    // JavaScript was not a control — any admin could have read every pending
+    // token directly, and the not-signed-in accept path turns a stolen OWNER
+    // token into a takeover with no mailbox access.
     const { data } = await supabase
       .from('invitations')
-      .select('id, email, role, expires_at, token, invited_by')
+      .select('id, email, role, expires_at, invited_by')
       .eq('client_id', clientId).eq('status', 'pending')
       .order('created_at', { ascending: false })
-    invites = ((data as (InviteRow & { invited_by: string | null })[] | null) ?? []).map((inv) => ({
-      ...inv,
-      token: inv.invited_by === userId ? inv.token : null,
-    }))
+    const rows = ((data as (Omit<InviteRow, 'token'> & { invited_by: string | null })[] | null) ?? [])
+
+    // Tokens for the invites YOU sent, read with the service role.
+    const mine = rows.filter((r) => r.invited_by === userId).map((r) => r.id)
+    const tokenById = new Map<string, string>()
+    if (mine.length) {
+      const { data: withTokens } = await createAdminClient()
+        .from('invitations').select('id, token').in('id', mine)
+      for (const t of ((withTokens ?? []) as { id: string; token: string }[])) tokenById.set(t.id, t.token)
+    }
+    invites = rows.map((r) => ({ ...r, token: tokenById.get(r.id) ?? null }))
     baseUrl = await getBaseUrl()
   }
 

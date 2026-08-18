@@ -17,7 +17,14 @@ export default async function DashboardLayout({ children }: { children: React.Re
     supabase.from("clients").select("*").eq("id", clientId).maybeSingle(),
   ])
   const showTrends = (count ?? 0) >= 2
-  const access = billingAccess((clientRow ?? {}) as BillingClient)
+  // No row (RLS hiccup, transient failure) is NOT the same as "no access":
+  // billingAccess would read the missing approved_at as pending and tell a
+  // comped design partner their workspace was never switched on. Say nothing
+  // rather than something wrong; the scheduler and pipeline gates are the ones
+  // that actually stop spend.
+  const access = clientRow
+    ? billingAccess(clientRow as BillingClient)
+    : { hasAccess: true, reason: 'comped' as const }
 
   return (
     <SidebarProvider>

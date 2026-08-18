@@ -122,7 +122,6 @@ export async function runPassB(opts: RunPassBOptions): Promise<RunPassBResult> {
   if (themes.length === 0 || dryRun) return result
 
   const themeIndex = indexThemes(themes)
-  const byLabel = new Map(themeIndex.map((t) => [t.label.toLowerCase(), t.theme]))
   const systemPrompt = buildSystemPrompt(opts.brandName)
   const chunks = chunkThemesForLabelling(themeIndex)
 
@@ -172,6 +171,13 @@ export async function runPassB(opts: RunPassBOptions): Promise<RunPassBResult> {
       result.costUsd += estimateCost(SYNTHESIS_MODEL, usage.prompt_tokens, usage.completion_tokens)
       if (!parsed) continue
 
+      // The lookup is scoped to THIS chunk. Indices are globally unique and
+      // non-contiguous within a chunk (themes are strength-sorted before being
+      // grouped by bucket), which is exactly the shape a model "helpfully"
+      // renumbers from T1. A global map would resolve that renumbering to some
+      // other chunk's theme and silently overwrite its label, with
+      // rejectedRefs 0 and validation 'ok'. Scoped, it is rejected.
+      const byLabel = new Map(chunks[w + j].map((t) => [t.label.toLowerCase(), t.theme]))
       let labelledHere = 0
       let rejectedHere = 0
       for (const tl of parsed.theme_labels ?? []) {

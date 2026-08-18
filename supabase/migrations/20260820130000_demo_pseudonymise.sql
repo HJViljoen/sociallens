@@ -14,8 +14,11 @@
 -- showing; the seeded weekly_reports were checked and contain no handles.
 --
 -- Idempotent: rows already pseudonymised are skipped. Recoverable by re-running
--- scripts/seed-demo.ts, which now applies the same transform on clone and
--- refuses to run without a real DEMO_PASSWORD.
+-- scripts/seed-demo.ts, which pseudonymises on clone and refuses to run without
+-- a real DEMO_PASSWORD. Note the seeder hashes with sha256 while this uses
+-- md5 — both are one-way and both match the `user_[0-9a-f]{8}` shape the
+-- idempotency guard looks for, so a re-seed simply produces a different set of
+-- pseudonyms. Nothing joins on them.
 
 update public.comments
 set author = 'user_' || left(md5(author), 8)

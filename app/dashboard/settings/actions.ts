@@ -20,9 +20,11 @@ const csv = (v: FormDataEntryValue | null) =>
 // editable facts. Keywords, platforms, and scrape depth are operator levers —
 // deliberately absent here so a crafted POST can't move cost/quality knobs
 // even though the row-level UPDATE policy would allow the write.
+// Caps mirror the tracking_configs CHECK constraints (T0-2) so the limit
+// arrives as a sentence rather than as a raw Postgres constraint name.
 const schema = z.object({
-  competitor_names: z.array(z.string()).min(1, 'add at least one competitor'),
-  report_emails: z.array(z.email()),
+  competitor_names: z.array(z.string()).min(1, 'add at least one competitor').max(15, 'track at most 15 competitors'),
+  report_emails: z.array(z.email()).max(25, 'send to at most 25 addresses'),
   report_period: z.enum(PERIODS),
   report_day: z.enum(DAYS),
 })
@@ -39,10 +41,25 @@ export async function updateTrackingConfig(
     return { ok: false, message: 'You don’t have permission to change settings.' }
   }
 
+  // Read the stored config BEFORE validating: a paused tenant's form has no
+  // period control at all (the select cannot represent 'paused'), so the field
+  // is absent from the POST and has to be filled in from what is stored.
+  const { data: current } = await supabase
+    .from('tracking_configs')
+    .select('report_period, competitor_names, competitor_keywords')
+    .eq('client_id', clientId)
+    .maybeSingle()
+
+  // Paused stays paused (T0-7). Before, the select rendered 'paused' as
+  // 'weekly' and a save wrote that back, re-arming the scheduler on a tenant
+  // meant to be quiet. Three live tenants sit at 'paused' today, Sealand
+  // among them.
+  const isPaused = current?.report_period === 'paused'
+
   const parsed = schema.safeParse({
     competitor_names: csv(formData.get('competitor_names')),
     report_emails: csv(formData.get('report_emails')),
-    report_period: formData.get('report_period'),
+    report_period: isPaused ? 'weekly' : formData.get('report_period'),
     report_day: formData.get('report_day'),
   })
 
@@ -51,18 +68,6 @@ export async function updateTrackingConfig(
     const field = first?.path.join('.') || 'form'
     return { ok: false, message: `Invalid ${field}: ${first?.message ?? 'check your input.'}` }
   }
-
-  const { data: current } = await supabase
-    .from('tracking_configs')
-    .select('report_period, competitor_names, competitor_keywords')
-    .eq('client_id', clientId)
-    .maybeSingle()
-
-  // Paused stays paused (T0-7). 'paused' is an operator lever the form cannot
-  // represent, so the select rendered it as 'weekly' and this save would have
-  // written that back, re-arming the scheduler on a tenant meant to be quiet.
-  // Three live tenants sit at 'paused' today, Sealand among them.
-  const isPaused = current?.report_period === 'paused'
 
   const { error } = await supabase
     .from('tracking_configs')

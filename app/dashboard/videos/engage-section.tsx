@@ -114,7 +114,9 @@ export async function EngageSection({
                       2026-08-18): the deep link is how a reply gets written, and
                       re-publishing a member of the public's handle inside our
                       product is processing we have no basis for. The account
-                      posted ON is a brand, not a person, so it stays. */}
+                      posted ON is the publisher of a video we already track and
+                      link to — often a brand, sometimes a creator, never a
+                      passer-by — so it stays. */}
                   <span className="text-xs text-muted-foreground">
                     {c.comment.account ? <>On @{c.comment.account}&rsquo;s post</> : 'A comment'}
                     <span className="capitalize"> · {c.comment.platform}</span>

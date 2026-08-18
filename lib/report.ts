@@ -489,7 +489,7 @@ function leadRows(d: ReportData): { title: string; rows: Row[] } {
   const rows: Row[] = []
 
   if (d.delta) {
-    const { sentiment, share, newThemes, conversations } = d.delta
+    const { sentiment, share } = d.delta
     if (sentiment) {
       rows.push({
         label: 'Sentiment',
@@ -516,7 +516,6 @@ function leadRows(d: ReportData): { title: string; rows: Row[] } {
     // and a coverage count is not "what changed". The block keeps the two
     // measured proportions, each carrying its own verdict.
     const moved = [d.delta.sentiment?.verdict.state, d.delta.share?.verdict.state].includes('moved')
-    void newThemes; void conversations
     return { title: moved ? 'What changed since your last update' : 'Where you stand this update', rows }
   }
 
@@ -554,6 +553,7 @@ function leadRows(d: ReportData): { title: string; rows: Row[] } {
 
 function renderReportHtml(d: ReportData, subject: string): string {
   const lead = leadRows(d)
+  const cadence = d.period === 'monthly' ? 'monthly' : 'weekly'
   const showNewBadges = Boolean(d.delta?.newThemes)
 
   const themeItems = d.themes.map((t) => {
@@ -634,8 +634,6 @@ function renderReportHtml(d: ReportData, subject: string): string {
       linkText: 'See the full picture',
     })}` : ''
 
-  const cadence = d.period === 'monthly' ? 'monthly' : 'weekly'
-
   return `<!doctype html>
 <html>
   <head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
@@ -646,13 +644,12 @@ function renderReportHtml(d: ReportData, subject: string): string {
         <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:600px;background:${CARD};border-radius:14px;overflow:hidden;border:1px solid ${BORDER}">
           <tr><td style="background:${GREEN};padding:24px 28px">
             <div style="color:${CREAM};font-size:12px;font-weight:700;letter-spacing:1.2px;text-transform:uppercase;opacity:.9">Verbatim · Consumer Intelligence</div>
-            <div style="color:#FFFFFF;font-size:20px;font-weight:700;margin-top:8px">${escapeHtml(d.companyName)}: ${escapeHtml(lead.title.toLowerCase())}</div>
+            <div style="color:#FFFFFF;font-size:20px;font-weight:700;margin-top:8px">${escapeHtml(d.companyName)}: ${escapeHtml(lead.rows.length ? lead.title.toLowerCase() : `your ${cadence} update`)}</div>
             <div style="color:#BCD3C6;font-size:13px;margin-top:4px">Data through ${escapeHtml(fmtDate(d.runDate))}</div>
           </td></tr>
           <tr><td style="padding:8px 24px 22px">
             ${recHtml}
-            ${sectionTitle(lead.title)}
-            ${lead.rows.map(rowBlock).join('')}
+            ${lead.rows.length ? `${sectionTitle(lead.title)}${lead.rows.map(rowBlock).join('')}` : ''}
             ${ownedHtml}
             ${engageHtml}
             ${d.themes.length ? `${sectionTitle(d.delta ? 'Themes worth a look' : 'What your market is talking about')}${themeItems}` : ''}
@@ -686,9 +683,11 @@ function renderReportText(d: ReportData, subject: string): string {
     if (d.rec.heroQuote) lines.push(`  "${d.rec.heroQuote}"`)
     lines.push('')
   }
-  lines.push(lead.title.toUpperCase())
-  for (const r of lead.rows) lines.push(`- ${r.label}: ${strip(r.text)}`)
-  lines.push('')
+  if (lead.rows.length) {
+    lines.push(lead.title.toUpperCase())
+    for (const r of lead.rows) lines.push(`- ${r.label}: ${strip(r.text)}`)
+    lines.push('')
+  }
   const explained = d.ownedEvents.filter((e) => e.explained && e.explanation)
   if (explained.length || d.ownedEvents.length) {
     lines.push('ON YOUR ACCOUNT')

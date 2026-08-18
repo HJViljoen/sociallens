@@ -15,7 +15,7 @@ export function DeltaBadge({ delta, unit }: { delta: number | null; unit?: strin
   if (delta === 0) {
     return (
       <span className="whitespace-nowrap text-xs font-medium text-muted-foreground" title="no change since your last update">
-        — unchanged
+        unchanged
       </span>
     )
   }

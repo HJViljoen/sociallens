@@ -51,7 +51,9 @@ export const retentionDaily = inngest.createFunction(
         .from('ai_call_log')
         .update({ request: null, response: null })
         .lt('created_at', cutoff(AI_LOG_BODY_RETENTION_DAYS))
-        .not('request', 'is', null)
+        // Either body still present: filtering on `request` alone left rows
+        // whose request was already null but whose response was not.
+        .or('request.not.is.null,response.not.is.null')
         .select('id')
       if (error) throw new Error(`strip ai_call_log bodies: ${error.message}`)
       return (data ?? []).length

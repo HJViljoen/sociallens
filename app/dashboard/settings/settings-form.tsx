@@ -57,9 +57,19 @@ export function SettingsForm({ cfg, canEdit }: { cfg: TrackingConfig; canEdit: b
             <CardHeader><CardTitle className="text-sm">Reports</CardTitle></CardHeader>
             <CardContent className="space-y-4">
               <Labeled label="Report period">
-                <select name="report_period" defaultValue={cfg.report_period ?? 'weekly'} className={selectCls}>
-                  {PERIODS.map((p) => <option key={p} value={p}>{cap(p)}</option>)}
-                </select>
+                {cfg.report_period === 'paused' ? (
+                  // Pausing is an operator lever this select cannot represent.
+                  // Before, it rendered as "Weekly" and a save reported success
+                  // while the action quietly wrote 'paused' back: the UI lied
+                  // about what had happened.
+                  <p className="text-sm text-muted-foreground">
+                    Paused. Updates are not being sent. Contact us to start them again.
+                  </p>
+                ) : (
+                  <select name="report_period" defaultValue={cfg.report_period ?? 'weekly'} className={selectCls}>
+                    {PERIODS.map((p) => <option key={p} value={p}>{cap(p)}</option>)}
+                  </select>
+                )}
               </Labeled>
               <Labeled label="Report day">
                 <select name="report_day" defaultValue={cfg.report_day ?? 'monday'} className={selectCls}>

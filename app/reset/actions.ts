@@ -33,8 +33,11 @@ export async function requestReset(_prev: ResetState, formData: FormData): Promi
   if (!parsed.success) return sameAnswer
 
   const supabase = await createServerSupabaseClient()
+  // Through the code-exchange route, not straight at the page: the SSR client
+  // uses PKCE, so the link carries a `code` that something has to redeem for a
+  // session before /reset/confirm can set a password.
   const { error } = await supabase.auth.resetPasswordForEmail(parsed.data.email, {
-    redirectTo: `${await getBaseUrl()}/reset/confirm`,
+    redirectTo: `${await getBaseUrl()}/auth/callback?next=/reset/confirm`,
   })
   if (error) console.error(`[reset] ${parsed.data.email}: ${error.message}`)
   return sameAnswer

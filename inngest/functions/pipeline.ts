@@ -1,4 +1,3 @@
-import { randomUUID } from 'crypto'
 import { inngest } from '@/inngest/client'
 import { createAdminClient, selectAll } from '@/lib/supabase-admin'
 import { planGatherSearches, searchOne, gatePlatform, scrapeCommentsBatch, transcribeBatch, planTranscribeBatches, resolveGatherWindow, inWindow, loadGatherConfig, type SearchResult } from '@/lib/gather/gather'
@@ -17,7 +16,7 @@ import { discoverSubreddits } from '@/lib/gather/subreddit-discovery'
 import { activeSubreddits } from '@/lib/gather/subreddits'
 import { runStep2c } from '@/lib/pipeline/owned-events'
 import { summariseRunErrors, partialRunAlert, passADegradation, RUN_ERROR_CAP } from '@/lib/pipeline/run-errors'
-import { decideOpenRun, RUN_STALE_AFTER_HOURS, PG_UNIQUE_VIOLATION, type RunningRow } from '@/lib/pipeline/run-guard'
+import { decideOpenRun, runIdForEvent, RUN_STALE_AFTER_HOURS, PG_UNIQUE_VIOLATION, type RunningRow } from '@/lib/pipeline/run-guard'
 import { persistRunNews } from '@/lib/news/persist'
 import { persistThemes, loadThemes } from '@/lib/pipeline/themes'
 import { writeRunSummary } from '@/lib/pipeline/run-summary'
@@ -123,6 +122,11 @@ export const runPipeline = inngest.createFunction(
     //    way through instead of blocking the client forever. The step keeps its
     //    id and tolerates the pre-2026-08-18 memoised shape (a bare run id
     //    string) so a run in flight across the deploy replays cleanly.
+    // Derived from the event, not random: a retry of this step must recognise
+    // the row its own previous attempt inserted, or it reads its own side
+    // effect as "someone else is running" and skips the run for good.
+    const newRunId = runIdForEvent((event as { id?: string }).id ?? `${clientId}:${JSON.stringify(options)}`)
+
     const opened = await step.run('open-run', async (): Promise<OpenRunResult> => {
       const admin = createAdminClient()
       const running = await admin
@@ -131,11 +135,27 @@ export const runPipeline = inngest.createFunction(
         .eq('client_id', clientId)
         .eq('status', 'running')
       if (running.error) throw new Error(`open run (guard): ${running.error.message}`)
-      const rows = ((running.data ?? []) as RunningRow[]).filter((r) => r.id !== options.runId)
+      const all = (running.data ?? []) as RunningRow[]
+      // Our own row (a retry's insert, or the row an analysis-only resume is
+      // reopening while it is still marked running) is not competition.
+      const mine = new Set([newRunId, options.runId].filter(Boolean) as string[])
+      const rows = all.filter((r) => !mine.has(r.id))
       const decision = decideOpenRun(rows)
       if (decision.action === 'skip') {
         console.warn(`[open-run] skipped: client ${clientId} already has run ${decision.blockingRunId} in flight`)
         return { runId: null, skipped: `run ${decision.blockingRunId} already in flight` }
+      }
+      // A resume whose target row is STILL running is a duplicate resume, not a
+      // resume: two invocations on one run_id race persistThemes, writeRunSummary
+      // (delete-then-insert) and prune, and double the GPT spend. Before T0-1 the
+      // step-concurrency limit accidentally serialised them; now they would
+      // genuinely overlap, so this has to be refused explicitly.
+      if (options.runId) {
+        const target = all.find((r) => r.id === options.runId)
+        if (target && decideOpenRun([target]).action === 'skip') {
+          console.warn(`[open-run] skipped: run ${options.runId} is still in flight; not resuming it twice`)
+          return { runId: null, skipped: `run ${options.runId} is already running` }
+        }
       }
       if (decision.staleRunIds.length) {
         console.warn(`[open-run] closing ${decision.staleRunIds.length} abandoned running row(s): ${decision.staleRunIds.join(', ')}`)
@@ -144,26 +164,57 @@ export const runPipeline = inngest.createFunction(
           .in('id', decision.staleRunIds)
       }
       if (options.runId) {
+        // started_at moves to NOW. It is set only at insert, and a resumed run
+        // is by definition hours old, so leaving it would make every resumed
+        // run instantly "abandoned" to the next open-run — which would stamp a
+        // live run failed and open a second one alongside it.
         const { error } = await admin
           .from('pipeline_runs')
-          .update({ status: 'running', error_message: null, completed_at: null })
+          .update({ status: 'running', error_message: null, completed_at: null, started_at: new Date().toISOString() })
           .eq('id', options.runId).eq('client_id', clientId)
         if (error?.code === PG_UNIQUE_VIOLATION) return { runId: null, skipped: 'another run opened first (unique index)' }
         if (error) throw new Error(`reopen run: ${error.message}`)
         return { runId: options.runId }
       }
-      const id = randomUUID()
       const { error } = await admin
         .from('pipeline_runs')
-        .insert({ id, client_id: clientId, status: 'running' })
-      if (error?.code === PG_UNIQUE_VIOLATION) return { runId: null, skipped: 'another run opened first (unique index)' }
+        .insert({ id: newRunId, client_id: clientId, status: 'running' })
+      if (error?.code === PG_UNIQUE_VIOLATION) {
+        // Either our own previous attempt's row (same id), or another run won
+        // the race for this client (different id).
+        const { data: ours } = await admin.from('pipeline_runs')
+          .select('id').eq('id', newRunId).eq('client_id', clientId).maybeSingle()
+        if (ours) {
+          console.warn(`[open-run] reusing run ${newRunId} from a previous attempt of this step`)
+          return { runId: newRunId }
+        }
+        return { runId: null, skipped: 'another run opened first (unique index)' }
+      }
       if (error) throw new Error(`open run: ${error.message}`)
-      return { runId: id }
+      return { runId: newRunId }
     })
     // Pre-2026-08-18 memoised shape: the step returned the run id itself.
     const runId: string | null = typeof opened === 'string' ? opened : opened.runId
     if (!runId) {
-      return { runId: null, status: 'skipped', reason: typeof opened === 'string' ? '' : opened.skipped ?? '' }
+      const reason = typeof opened === 'string' ? '' : opened.skipped ?? ''
+      // A skipped SCHEDULED run would otherwise cost the client their whole
+      // update: the report is emitted at the end of a run that never happens,
+      // and the only trace is a log line that ages out within the hour. Alert
+      // instead, so a skipped Sunday is something the operator finds out about.
+      if (options.sendReport) {
+        await step
+          .run('alert-skipped', async () => {
+            const admin = createAdminClient()
+            const { data: client } = await admin.from('clients')
+              .select('company_name').eq('id', clientId).maybeSingle()
+            return sendAlertEmail(
+              `Verbatim run SKIPPED — ${client?.company_name ?? clientId}`,
+              `A scheduled run was skipped because another run is already in flight.\n\nClient: ${client?.company_name ?? '?'} (${clientId})\nReason: ${reason}\n\nNo report was sent for this period. Resume lever: POST /api/admin/trigger-run once the in-flight run closes.`,
+            )
+          })
+          .catch(() => ({ sent: false }))
+      }
+      return { runId: null, status: 'skipped', reason }
     }
 
     // News context layer (Wave 2): free RSS fetch + ring-assign + store for
@@ -536,11 +587,19 @@ export const runPipeline = inngest.createFunction(
     // Per-video failures: degrade the run past the ratio or on any 429;
     // otherwise log and let the next run's plan re-read those videos. (A
     // failed batch step counts its whole video set as errored, above.)
+    // Refusals are NOT in the denominator: a call that returned nothing usable
+    // is not evidence the run went well, and counting it as an attempt let
+    // 10 errors beside 190 refusals read as a 5% failure rate and close
+    // 'completed' with zero insights — the exact shape of run ef1e28a3 that
+    // this item exists to prevent. They are counted as failures instead.
+    const passAFailed = passA.errored + passA.refused
     const passADegraded = passADegradation(
-      { attempted: passA.analyzed + passA.errored + passA.refused, errored: passA.errored, rateLimited: passA.rateLimited, firstError: passA.errors[0] },
+      { attempted: passA.analyzed + passAFailed, errored: passAFailed, rateLimited: passA.rateLimited, firstError: passA.errors[0] },
       PASS_A_ERROR_RATIO,
     )
-    if (passADegraded) noteError('pass-a', passADegraded)
+    // A batch step that died already went through noteError; don't count it twice.
+    if (passADegraded && passA.batchesFailed === 0) noteError('pass-a', passADegraded)
+    else if (passADegraded) console.warn(`[pass-a] ${passADegraded} (already recorded as failed batch steps)`)
     else if (passA.errored > 0) console.warn(`[pass-a] ${passA.errored} video call(s) failed under the ${PASS_A_ERROR_RATIO * 100}% ratio; re-read next run. First: ${passA.errors[0] ?? ''}`)
 
     // 5. Cross-reference detection — client-brand mentions under competitor /
@@ -749,9 +808,13 @@ const THEMES_PARALLEL = 2
  *  dashboard was reachable. */
 async function assertRunActive(clientId: string): Promise<void> {
   const admin = createAdminClient()
-  const { data } = await admin.from('clients')
+  const { data, error } = await admin.from('clients')
     .select('is_active, is_comped, trial_ends_at, subscription_status, approved_at')
     .eq('id', clientId).maybeSingle()
+  // Fail CLOSED. The error was discarded before, so any transient Supabase
+  // failure read as "active" and the run kept spending — and once the billing
+  // gate moved in here, a failure silently disabled that too.
+  if (error) throw new Error(`abort check failed for client ${clientId}: ${error.message}`)
   if (!data) return
   const client = data as BillingClient & { is_active: boolean | null }
   if (client.is_active === false) {

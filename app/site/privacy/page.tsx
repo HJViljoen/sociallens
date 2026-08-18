@@ -28,9 +28,11 @@ export default function PrivacyPage() {
       <ul>
         <li>
           <strong>Public posts and comments.</strong> Videos, captions, comment text, like and
-          comment counts, post dates, and the account names that posted them, from TikTok, YouTube,
-          Instagram and Reddit. We collect this through third-party scraping and platform APIs, for
-          content matching a customer&rsquo;s brand, competitors and category.
+          comment counts, post dates, the account names that posted them, and the display name or
+          handle attached to a public comment, from TikTok, YouTube, Instagram and Reddit. We
+          collect this through third-party scraping and platform APIs, for content matching a
+          customer&rsquo;s brand, competitors and category. We do not show commenter handles inside
+          the product or in the emails we send.
         </li>
         <li>
           <strong>Transcripts.</strong> Captions where a platform publishes them, or speech-to-text
@@ -80,9 +82,10 @@ export default function PrivacyPage() {
 
       <h2>Who else touches it</h2>
       <p>
-        We use processors to run the service: Supabase (database), Vercel (hosting), OpenAI
-        (analysis), Apify (collection), Resend (email). They act on our instructions only. Some
-        process data outside South Africa and the EEA, under the standard contractual clauses.
+        We use processors to run the service: Supabase (database), Vercel (hosting), Inngest
+        (job orchestration), OpenAI (analysis), Apify (collection), Resend (email) and Stripe
+        (billing). They act on our instructions only. Some process data outside South Africa and
+        the EEA, under the standard contractual clauses.
       </p>
 
       <h2>Your rights</h2>

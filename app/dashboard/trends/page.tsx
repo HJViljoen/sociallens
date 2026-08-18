@@ -29,6 +29,12 @@ interface RunSummary {
   period_comments: number | null
   period_share_of_voice: Record<string, { pct_videos?: number }> | null
   period_sentiment_positive: number | null
+  /** Audience sentiment only (T0-8). The legacy columns above blended Pass A's
+   *  comment-derived read with classify-meta's caption framing on rows written
+   *  before 2026-08-18, so a series that mixes the two fabricates a step
+   *  change on the deploy. Null on those older rows. */
+  audience_sentiment: { positive: number | null; judged: number } | null
+  period_audience_sentiment: { positive: number | null; judged: number } | null
   period: string | null
 }
 
@@ -100,7 +106,7 @@ export default async function TrendsPage() {
     supabase.from('clients').select('company_name').eq('id', clientId).maybeSingle(),
     selectAll<RunSummary>(() =>
       supabase.from('run_summary')
-        .select('run_id, run_date, total_videos, total_comments, share_of_voice, overall_sentiment_positive, overall_sentiment_negative, period_comments, period_share_of_voice, period_sentiment_positive, period')
+        .select('run_id, run_date, total_videos, total_comments, share_of_voice, overall_sentiment_positive, overall_sentiment_negative, period_comments, period_share_of_voice, period_sentiment_positive, audience_sentiment, period_audience_sentiment, period')
         .eq('client_id', clientId).order('run_date', { ascending: true }),
     ),
     selectAll<ThemeRow>(() =>
@@ -171,9 +177,19 @@ export default async function TrendsPage() {
 
   const clientSeries = summaries.map(clientShareOf)
   const compSeries = summaries.map(compShareOf)
-  const sentSeries = summaries.map((s) =>
-    Number((allPeriod ? s.period_sentiment_positive : s.overall_sentiment_positive) ?? 0),
-  )
+  // Sentiment charts from the AUDIENCE family alone (T0-8). The legacy columns
+  // hold a blended number on rows written before 2026-08-18 (Össur: 1,155
+  // judged videos blended vs 496 audience), so plotting old rows beside new
+  // ones would draw a step change that is nothing but the provenance split and
+  // narrate it as "eased N points". Until every row in the window carries the
+  // family, the sentiment surfaces self-gate rather than lie — the same rule
+  // that gates this whole page on having two comparable updates.
+  const audienceOf = (s: RunSummary) =>
+    (allPeriod ? s.period_audience_sentiment : s.audience_sentiment) ?? s.audience_sentiment
+  const hasSentimentSeries = summaries.every((s) => audienceOf(s)?.positive != null)
+  const sentSeries = hasSentimentSeries
+    ? summaries.map((s) => Number(audienceOf(s)?.positive ?? 0))
+    : []
   const volSeries = summaries.map((s) => Number((allPeriod ? s.period_comments : s.total_comments) ?? 0))
 
   const delta = (arr: number[]) => arr[arr.length - 1] - arr[0]
@@ -238,8 +254,8 @@ export default async function TrendsPage() {
   const shareVals = [...clientSeries, ...compSeries]
   const shareMin = Math.max(0, Math.floor(Math.min(...shareVals) - 1))
   const shareMax = Math.ceil(Math.max(...shareVals) + 1)
-  const sentMin = Math.max(0, Math.floor(Math.min(...sentSeries) - 1))
-  const sentMax = Math.min(100, Math.ceil(Math.max(...sentSeries) + 1))
+  const sentMin = hasSentimentSeries ? Math.max(0, Math.floor(Math.min(...sentSeries) - 1)) : 0
+  const sentMax = hasSentimentSeries ? Math.min(100, Math.ceil(Math.max(...sentSeries) + 1)) : 100
   const volMax = Math.ceil(Math.max(...volSeries) / 1000) * 1000
 
   const shareCaption =
@@ -279,7 +295,9 @@ export default async function TrendsPage() {
     (a, b) => b.event_date.localeCompare(a.event_date) || b.severity - a.severity,
   )
 
-  const sentAvg = Math.round(sentSeries.reduce((a, b) => a + b, 0) / sentSeries.length)
+  const sentAvg = hasSentimentSeries
+    ? Math.round(sentSeries.reduce((a, b) => a + b, 0) / sentSeries.length)
+    : 0
 
   return (
     <div className="space-y-8">
@@ -295,10 +313,12 @@ export default async function TrendsPage() {
           label={`${leadCompetitor ?? 'Competitor'} share`} dot="bg-clay" value={fmtPct(compSeries[compSeries.length - 1])}
           series={compSeries} stroke="var(--accent-clay)" delta={compDelta} good="down" unit="pt"
         />
-        <StatTrend
-          label="Positive sentiment" dot="bg-positive" value={fmtPct(sentSeries[sentSeries.length - 1])}
-          series={sentSeries} stroke="var(--positive)" delta={sentDelta} good="up" unit="pt"
-        />
+        {hasSentimentSeries && (
+          <StatTrend
+            label="Positive sentiment" dot="bg-positive" value={fmtPct(sentSeries[sentSeries.length - 1])}
+            series={sentSeries} stroke="var(--positive)" delta={sentDelta} good="up" unit="pt"
+          />
+        )}
         <StatTrend
           label="Conversation volume" dot="bg-pine" value={fmtInt(volSeries[volSeries.length - 1])}
           series={volSeries} stroke="var(--accent-pine)" delta={volDelta} good="neutral" unit="count"
@@ -339,13 +359,22 @@ export default async function TrendsPage() {
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-3">
-            <TrendChart
-              dates={dates} yMin={sentMin} yMax={sentMax} format={fmtPct}
-              series={[{ label: 'Positive', color: 'var(--positive)', values: sentSeries }]}
-            />
-            <p className="text-xs text-muted-foreground">
-              Positive sentiment {sentDelta < -0.05 ? `eased ${round1(Math.abs(sentDelta))} points` : sentDelta > 0.05 ? `rose ${round1(sentDelta)} points` : 'held steady'}, staying near {fmtPct(sentAvg)}.
-            </p>
+            {hasSentimentSeries ? (
+              <>
+                <TrendChart
+                  dates={dates} yMin={sentMin} yMax={sentMax} format={fmtPct}
+                  series={[{ label: 'Positive', color: 'var(--positive)', values: sentSeries }]}
+                />
+                <p className="text-xs text-muted-foreground">
+                  Positive sentiment {sentDelta < -0.05 ? `eased ${round1(Math.abs(sentDelta))} points` : sentDelta > 0.05 ? `rose ${round1(sentDelta)} points` : 'held steady'}, staying near {fmtPct(sentAvg)}.
+                </p>
+              </>
+            ) : (
+              <p className="text-xs text-muted-foreground">
+                We changed how audience sentiment is measured, so this chart starts again from your
+                next update. Earlier points were measured a different way and are not comparable.
+              </p>
+            )}
           </CardContent>
         </Card>
 

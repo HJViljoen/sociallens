@@ -136,8 +136,15 @@ async function addToReportRecipients(clientId: string, email: string): Promise<v
       .from('tracking_configs').select('report_emails').eq('client_id', clientId).maybeSingle()
     const current = (data?.report_emails ?? []) as string[]
     const next = addRecipient(current, email)
-    if (next.length === current.length) return
-    await admin.from('tracking_configs').update({ report_emails: next }).eq('client_id', clientId)
+    // Compare CONTENT, not length: addRecipient also drops stored blanks, so a
+    // list like ['owner@x', ''] plus a new address is the same length and the
+    // new teammate would have been silently left off the report.
+    if (next.length === current.length && next.every((e, i) => e === current[i])) return
+    const { error } = await admin.from('tracking_configs').update({ report_emails: next }).eq('client_id', clientId)
+    // supabase-js returns errors rather than throwing, so the surrounding
+    // try/catch never saw this: a 26th recipient hitting the cardinality CHECK
+    // would have failed in complete silence.
+    if (error) console.error(`[invite] report_emails not updated for ${clientId}: ${error.message}`)
   } catch (e) {
     console.error(`[invite] could not add ${email} to report_emails: ${e instanceof Error ? e.message : String(e)}`)
   }

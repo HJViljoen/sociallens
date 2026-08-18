@@ -1093,6 +1093,10 @@ async function verify(maps: CloneMaps, password: string, weeks: WeekSpec[]): Pro
 // ---- main -------------------------------------------------------------------
 
 async function main() {
+  // Fail before deleteDemo(): validating only inside createTenant() meant a
+  // run without DEMO_PASSWORD destroyed the demo tenant and THEN threw,
+  // leaving no workspace and no login.
+  demoPassword()
   if (!process.env.NEXT_PUBLIC_SUPABASE_URL || !process.env.SUPABASE_SERVICE_ROLE_KEY) {
     throw new Error('Missing NEXT_PUBLIC_SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY (source .env.local first)')
   }

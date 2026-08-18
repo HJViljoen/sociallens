@@ -1,9 +1,11 @@
 -- Tier 0 T0-11 (2026-08-18): the smaller locks.
 --
 -- 1. Stripe event de-duplication. The webhook applied every delivery it
---    received, and Stripe retries: a redelivered subscription event re-applied
---    its update, and an out-of-order delivery could resurrect a stale status.
---    Recording processed ids makes the handler idempotent. Service-role only.
+--    received, and Stripe retries, so a redelivered subscription event
+--    re-applied its update. Recording processed ids makes a REDELIVERY a
+--    no-op. It does not order anything: two different events arriving out of
+--    order still apply in the order they arrive, which is a separate problem
+--    and not one this table solves. Service-role only.
 create table if not exists public.stripe_events (
   id text primary key,
   type text not null,

@@ -1,3 +1,5 @@
+import { createHash } from 'crypto'
+
 /**
  * Single-flight guard for pipeline runs (Tier 0, 2026-08-18).
  *
@@ -45,6 +47,30 @@ export function decideOpenRun(
   return { action: 'open', staleRunIds: running.map((r) => r.id) }
 }
 
-/** Postgres unique-violation code, raised by the partial unique index when two
+/** Postgres unique-violation code, raised by the unique index when two
  *  open-run steps race past the pre-check. */
 export const PG_UNIQUE_VIOLATION = '23505'
+
+/**
+ * A run id derived from the triggering event, so a RETRY of the open-run step
+ * recognises the row its own previous attempt inserted (fresh-eyes review,
+ * 2026-08-18).
+ *
+ * With `randomUUID()` the sequence was: attempt 1 inserts the row, its response
+ * is lost ("fetch failed" appears five times in this codebase's comments), the
+ * step throws and retries, attempt 2's guard sees a run in flight one second
+ * old and SKIPS. The run silently never happens, the client is blocked for six
+ * hours, and the phantom row is later stamped failed. Deriving the id from the
+ * event makes the retry idempotent instead.
+ */
+export function runIdForEvent(eventId: string): string {
+  const h = createHash('sha256').update(`verbatim:run:${eventId}`).digest('hex')
+  // Shape the digest as a v4-looking uuid so the uuid column accepts it.
+  return [
+    h.slice(0, 8),
+    h.slice(8, 12),
+    `4${h.slice(13, 16)}`,
+    ((parseInt(h[16], 16) & 0x3) | 0x8).toString(16) + h.slice(17, 20),
+    h.slice(20, 32),
+  ].join('-')
+}

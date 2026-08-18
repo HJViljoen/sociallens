@@ -25,7 +25,7 @@ export async function proxy(request: NextRequest) {
       return NextResponse.redirect(url, 308)
     }
     // Old apex links to app paths (the apex used to 307 to the app) keep working.
-    const appPaths = ['/login', '/signup', '/invite', '/dashboard', '/onboarding']
+    const appPaths = ['/login', '/signup', '/invite', '/dashboard', '/onboarding', '/reset', '/auth']
     if (appPaths.some((p) => url.pathname.startsWith(p))) {
       url.host = 'app.verbatimintel.com'
       return NextResponse.redirect(url, 308)
@@ -77,9 +77,11 @@ export async function proxy(request: NextRequest) {
     pathname.startsWith('/login') ||
     pathname.startsWith('/signup') ||
     pathname.startsWith('/invite') ||
-    // Password reset: the request page has no session by definition, and the
-    // confirm page is reached from the emailed recovery link (T0-3).
+    // Password reset: the request page has no session by definition, the
+    // callback is where the emailed link redeems its code for one, and the
+    // confirm page runs on the session the callback just established (T0-3).
     pathname.startsWith('/reset') ||
+    pathname.startsWith('/auth/callback') ||
     // Marketing pages need no session — reachable directly in local dev, where
     // the host isn't the apex and the rewrite above doesn't apply.
     pathname.startsWith('/site')

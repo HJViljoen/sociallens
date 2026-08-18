@@ -30,10 +30,14 @@ export async function POST(req: Request): Promise<Response> {
 
   const admin = createAdminClient()
 
-  // Idempotency (T0-11). Stripe retries deliveries and can deliver out of
-  // order; every delivery used to be applied. Claiming the event id first
-  // makes a redelivery a no-op. A claim failure that is NOT a duplicate falls
-  // through and processes, since dropping a real billing event is worse.
+  // Idempotency (T0-11). Stripe retries deliveries, and every delivery used to
+  // be applied. Claiming the event id first makes a redelivery a no-op.
+  //
+  // The claim is REMOVED again if the handler fails (below). Claim-then-throw
+  // is the classic version of this bug: the 500 makes Stripe retry, the retry
+  // hits the claim, and the event is acked as already-processed having never
+  // been applied — entitlement then stays wrong forever, in whichever
+  // direction the missed event would have corrected.
   const { error: claimErr } = await admin
     .from('stripe_events')
     .insert({ id: event.id, type: event.type })
@@ -62,7 +66,7 @@ export async function POST(req: Request): Promise<Response> {
               console.error(`[stripe] could not read subscription ${subscriptionId}:`, e)
             }
           }
-          await admin
+          const { error } = await admin
             .from('clients')
             .update({
               stripe_customer_id: asId(session.customer),
@@ -71,6 +75,10 @@ export async function POST(req: Request): Promise<Response> {
               plan: status,
             })
             .eq('id', clientId)
+          // supabase-js RETURNS errors, it does not throw them, so an
+          // unchecked write here would have acked the event with nothing
+          // written — the most likely failure, silently.
+          if (error) throw new Error(`clients update (checkout): ${error.message}`)
         }
         break
       }
@@ -81,7 +89,7 @@ export async function POST(req: Request): Promise<Response> {
         const customerId = asId(sub.customer)
         if (customerId) {
           const canceled = event.type === 'customer.subscription.deleted'
-          await admin
+          const { error } = await admin
             .from('clients')
             .update({
               stripe_subscription_id: sub.id,
@@ -89,6 +97,7 @@ export async function POST(req: Request): Promise<Response> {
               plan: canceled ? 'canceled' : 'active',
             })
             .eq('stripe_customer_id', customerId)
+          if (error) throw new Error(`clients update (subscription): ${error.message}`)
         }
         break
       }
@@ -99,6 +108,11 @@ export async function POST(req: Request): Promise<Response> {
     }
   } catch (err) {
     console.error(`[stripe] handler error for ${event.type}:`, err)
+    // Release the idempotency claim so Stripe's retry actually re-processes.
+    // Without this the retry would see the claim, ack as a duplicate, and the
+    // event would be lost for good.
+    const { error: releaseErr } = await admin.from('stripe_events').delete().eq('id', event.id)
+    if (releaseErr) console.error(`[stripe] could not release claim ${event.id}: ${releaseErr.message}`)
     return new Response('Handler error', { status: 500 }) // Stripe will retry
   }
 
