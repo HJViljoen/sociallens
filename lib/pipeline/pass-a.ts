@@ -7,6 +7,7 @@ import { filterComments } from './spam-filter'
 import { computeQualityScore } from './metrics'
 import { usableTranscript } from './transcript-input'
 import type { VideoRow, CommentRow } from './types'
+import { normForMatch } from './quote-match'
 
 // Pass A — per-video analysis (Architecture/Analysis-Passes §Pass A), built in
 // code per Architecture/Migration-to-Code. One GPT call per video that clears
@@ -285,20 +286,11 @@ function buildUserPrompt(v: VideoRow, refs: CommentRef[], transcript: string | n
 
 // ---- validation ------------------------------------------------------------
 
-/** The one definition of "this quote appears in that text". Exported so the
- *  eval harness measures exactly what the pipeline enforces — a second copy
- *  would drift, and this repo has already been burned by a diagnostic that
- *  carried its own copy of production logic and produced confident, wrong
- *  evidence (scripts/diagnose-owned, 2026-08-16). */
-export function normForMatch(s: string): string {
-  return s
-    .toLowerCase()
-    .replace(/[‘’‚‛]/g, "'")
-    .replace(/[“”„‟]/g, '"')
-    .replace(/\p{Extended_Pictographic}/gu, '')
-    .replace(/\s+/g, ' ')
-    .trim()
-}
+/** The one definition of "this quote appears in that text" lives in
+ *  lib/pipeline/quote-match.ts (moved 2026-08-22 so the retention refresh and
+ *  the erasure script can share it without importing this module). Re-exported
+ *  here so existing importers keep working. */
+export { normForMatch }
 
 export interface ValidatedEvidence {
   /** Real comment id for source 'comment'; null for source 'video'. */
