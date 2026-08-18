@@ -15,9 +15,13 @@ import { AI_LOG_BODY_RETENTION_DAYS } from '../lib/config'
 // What it touches, in order:
 //   1. comments rows on that platform whose author matches the handle
 //      (case-insensitive, with or without a leading '@'), across EVERY tenant.
-//   2. the demo tenant's clone of those rows — the demo pseudonymises authors as
-//      user_<sha256(exact author)[:8]> (scripts/seed-demo.ts), so the clone is
-//      found by recomputing that from each exact author string we matched.
+//   2. the demo tenant's clone of those rows. The clone keeps platform +
+//      comment_id unchanged, so it is found by THAT (verified on prod: 156/156
+//      YouTube clones match by comment_id, 0 by pseudonym — source author
+//      strings changed shape when YouTube moved from Apify to the API). The
+//      pseudonym is only a secondary net: the Tier 0 migration hashed with md5
+//      (20260820130000_demo_pseudonymise.sql), a re-seed hashes with sha256
+//      (scripts/seed-demo.ts) — both shapes are tried.
 //   3. what the delete cascades: insight_evidence and language_samples (FKs),
 //      counted so the reply can say how many insights lost a quote.
 //   4. hero_quote copies in recommendations / market_insights /
@@ -49,14 +53,16 @@ function parseArgs(argv: string[]): Args {
   return a
 }
 
-/** Same function as scripts/seed-demo.ts pseudonymise — kept identical on purpose. */
-function demoPseudonym(author: string): string {
-  return `user_${createHash('sha256').update(author).digest('hex').slice(0, 8)}`
+/** Both pseudonym shapes the demo has carried: md5 (Tier 0 migration) and
+ *  sha256 (scripts/seed-demo.ts pseudonymise). Secondary net only — the primary
+ *  match is by comment_id. */
+function demoPseudonyms(author: string): string[] {
+  return ['md5', 'sha256'].map((alg) => `user_${createHash(alg).update(author).digest('hex').slice(0, 8)}`)
 }
 
 const escapeLike = (s: string) => s.replace(/[\\%_]/g, (m) => `\\${m}`)
 
-interface CommentRow { id: string; client_id: string; author: string | null; text: string | null; platform: string; video_id: string }
+interface CommentRow { id: string; client_id: string; author: string | null; text: string | null; platform: string; video_id: string; comment_id: string }
 
 async function main() {
   const args = parseArgs(process.argv.slice(2))
@@ -70,23 +76,30 @@ async function main() {
   const found = new Map<string, CommentRow>()
   for (const p of patterns) {
     const rows = await selectAll<CommentRow>(() =>
-      admin.from('comments').select('id, client_id, author, text, platform, video_id').eq('platform', args.platform).ilike('author', escapeLike(p)).order('id', { ascending: true }),
+      admin.from('comments').select('id, client_id, author, text, platform, video_id, comment_id').eq('platform', args.platform).ilike('author', escapeLike(p)).order('id', { ascending: true }),
     )
     for (const r of rows) found.set(r.id, r)
   }
   const exactAuthors = [...new Set([...found.values()].map((r) => r.author).filter((a): a is string => !!a))]
 
-  // 2. Demo clones — the pseudonym is of the EXACT stored author string.
-  const pseudonyms = [...new Set([...exactAuthors, ...handleVariants(args.handle)].map(demoPseudonym))]
-  const demoRows = await selectAll<CommentRow>(() =>
-    admin.from('comments').select('id, client_id, author, text, platform, video_id').eq('client_id', DEMO_CLIENT_ID).eq('platform', args.platform).in('author', pseudonyms).order('id', { ascending: true }),
-  )
+  // 2. Demo clones — by comment_id first (the clone keeps it), pseudonyms second.
+  const realCommentIds = [...new Set([...found.values()].filter((r) => r.client_id !== DEMO_CLIENT_ID).map((r) => r.comment_id))]
+  const demoRows: CommentRow[] = []
+  for (let i = 0; i < realCommentIds.length; i += 200) {
+    demoRows.push(...await selectAll<CommentRow>(() =>
+      admin.from('comments').select('id, client_id, author, text, platform, video_id, comment_id').eq('client_id', DEMO_CLIENT_ID).eq('platform', args.platform).in('comment_id', realCommentIds.slice(i, i + 200)).order('id', { ascending: true }),
+    ))
+  }
+  const pseudonyms = [...new Set([...exactAuthors, ...handleVariants(args.handle)].flatMap(demoPseudonyms))]
+  demoRows.push(...await selectAll<CommentRow>(() =>
+    admin.from('comments').select('id, client_id, author, text, platform, video_id, comment_id').eq('client_id', DEMO_CLIENT_ID).eq('platform', args.platform).in('author', pseudonyms).order('id', { ascending: true }),
+  ))
   for (const r of demoRows) found.set(r.id, r)
 
   const rows = [...found.values()]
   const byClient = new Map<string, number>()
   for (const r of rows) byClient.set(r.client_id, (byClient.get(r.client_id) ?? 0) + 1)
-  console.log(`comments matched: ${rows.length} (${demoRows.length} of them demo-tenant clones)`)
+  console.log(`comments matched: ${rows.length} (${rows.filter((r) => r.client_id === DEMO_CLIENT_ID).length} of them demo-tenant clones)`)
   for (const [c, n] of byClient) console.log(`   ${c === DEMO_CLIENT_ID ? 'DEMO' : c}: ${n}`)
   console.log(`author strings seen: ${exactAuthors.map((a) => JSON.stringify(a)).join(', ') || '(none)'}`)
   if (!rows.length) {
