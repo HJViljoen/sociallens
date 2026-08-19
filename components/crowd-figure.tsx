@@ -12,9 +12,10 @@
 // chart here anyway (no chart libraries — DESIGN rule), and it themes, scales
 // and gives the evidence blocks real coordinates to point at.
 //
-// Drawn FILLED here while the backdrop crowd stays in line: the page's subject
-// should read as a person standing in front of the crowd, not as one more
-// outline in it.
+// Drawn as a filled cream body with a deep-green outline while the backdrop
+// crowd stays in thin line: the page's subject should read as a person standing
+// in FRONT of the crowd — solid enough to occlude it — not as one more outline
+// lost in it.
 
 const FIGURES = {
   a: { d: 'M-27.3,116.6 Q-34.4,42.9 0.0,44.4 Q34.8,42.9 27.2,116.6', r: 18.6, w: 34.8, h: 116.6 },
@@ -56,8 +57,15 @@ export function CrowdFigure({
     <svg
       viewBox={`${-(f.w + pad)} ${-pad} ${width} ${f.h + 2 * pad}`}
       className={className}
-      fill="currentColor"
-      stroke="none"
+      // Warm cream body, deep-green outline. The opaque cream (not --card,
+      // which is translucent) matters: a see-through body would let the crowd
+      // backdrop show through the subject. Filled this way the figure OCCLUDES
+      // the crowd, which is what makes it read as standing in front of it.
+      fill="var(--popover)"
+      stroke="currentColor"
+      strokeWidth={3}
+      strokeLinecap="round"
+      strokeLinejoin="round"
       role={title ? 'img' : 'presentation'}
       aria-hidden={title ? undefined : true}
       // Bottom-anchored: the figure stands ON the bottom of whatever box it is
@@ -70,8 +78,13 @@ export function CrowdFigure({
             closes it along the hem and gives a solid body — the same silhouette
             the crowd draws in line, brought forward as a subject rather than a
             sketch. */}
-        <path d={f.d} />
-        <circle cx={0} cy={f.r} r={f.r} />
+        {/* The shoulder path is open, so the fill closes it along the hem
+            while the stroke does not — the body has no bottom line, which is
+            what makes it read as continuing past the edge rather than sitting
+            on a shelf. non-scaling-stroke keeps the outline an even weight
+            however large the figure is drawn. */}
+        <path d={f.d} vectorEffect="non-scaling-stroke" />
+        <circle cx={0} cy={f.r} r={f.r} vectorEffect="non-scaling-stroke" />
       </g>
     </svg>
   )
