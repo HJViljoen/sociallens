@@ -204,10 +204,11 @@ export default async function ConsumerProfilePage({
           off the bottom edge, the way it stands in the crowd behind every other
           page. The persona's description is one of the blocks rather than a
           caption under the figure, so nothing follows the figure down. */}
-      <div className="grid gap-6 lg:min-h-[calc(100dvh-10rem)] lg:grid-cols-[1fr_1.5fr_1fr] lg:gap-10">
-        <div className="order-2 flex flex-col gap-6 lg:order-1">
+      {/* relative: the connector overlay positions against this box. */}
+      <div className="relative grid gap-6 lg:min-h-[calc(100dvh-10rem)] lg:grid-cols-[1fr_1.05fr_1fr] lg:gap-7">
+        <Connectors />
+        <div className="order-2 flex flex-col gap-6 lg:order-1 lg:h-full lg:justify-between">
           <div className="relative">
-          <Connector side="right" />
           <Card className="rounded-3xl ring-1 ring-primary/25">
             <CardHeader className="pb-2">
               <CardTitle className="flex items-center gap-2 text-base font-semibold">
@@ -245,10 +246,10 @@ export default async function ConsumerProfilePage({
             </CardContent>
           </Card>
           </div>
-          <Block title="What drives them" Icon={Compass} body={active.wants} quote={drivesVoice} connect="right" />
+          <Block title="What drives them" Icon={Compass} body={active.wants} quote={drivesVoice} />
         </div>
 
-        <div className="order-1 flex h-full min-w-0 flex-col items-center lg:order-2">
+        <div className="relative z-10 order-1 flex h-full min-w-0 flex-col items-center lg:order-2">
           {/* The figure takes whatever height is left and stands ON the bottom
               edge: -mb-6 eats the pane's own padding so the hem lands on the
               edge itself rather than floating above it. h-full + w-auto keeps
@@ -263,9 +264,9 @@ export default async function ConsumerProfilePage({
           </div>
         </div>
 
-        <div className="order-3 flex flex-col gap-6">
-          <Block title="What stops them" Icon={HeartCrack} body={active.blockers} quote={stopsVoice} connect="left" />
-          <Block title="What works on them" Icon={Zap} body={active.triggers} quote={worksVoice} connect="left" />
+        <div className="order-3 flex flex-col gap-6 lg:h-full lg:justify-between">
+          <Block title="What stops them" Icon={HeartCrack} body={active.blockers} quote={stopsVoice} />
+          <Block title="What works on them" Icon={Zap} body={active.triggers} quote={worksVoice} />
         </div>
       </div>
 
@@ -301,28 +302,21 @@ export default async function ConsumerProfilePage({
 /** A written read, not a list. Same register as the dashboard's executive
  *  brief: the reader is here to understand a person, not to scan attributes —
  *  with one real voice under it, because otherwise the read is a claim the
- *  reader has to take on trust.
- *
- *  `connect` draws a line from the block toward the figure. It is anchored to
- *  the block's own vertical midpoint rather than to a fixed position on the
- *  page, so it stays aimed at the middle whatever length the analysis runs to. */
+ *  reader has to take on trust. */
 function Block({
   title,
   Icon,
   body,
   quote,
-  connect,
 }: {
   title: string
   Icon: typeof Compass
   body: string
   quote?: string
-  connect?: 'left' | 'right'
 }) {
   if (!body.trim()) return null
   return (
     <div className="relative">
-      {connect && <Connector side={connect} />}
       <Card className="rounded-3xl ring-1 ring-primary/25">
         <CardHeader className="pb-2">
           <CardTitle className="flex items-center gap-2 text-base font-semibold">
@@ -339,18 +333,54 @@ function Block({
   )
 }
 
-/** The line from a block to the figure. Decorative, so it is hidden from
- *  assistive tech and only drawn where there is a gutter to draw it in. */
-function Connector({ side }: { side: 'left' | 'right' }) {
-  const anchor = side === 'right' ? 'left-full ml-0' : 'right-full mr-0'
-  const dot = side === 'right' ? 'right-0' : 'left-0'
+/** The four lines from the blocks to the figure.
+ *
+ *  One overlay rather than a line per block, because a diagonal needs BOTH
+ *  endpoints and a per-block element only knows where it starts. Drawn in a
+ *  0–100 box with preserveAspectRatio="none", so the geometry is expressed as
+ *  fractions of the grid and holds at any window size.
+ *
+ *  Every line aims at the same point — the middle of the figure's body — and is
+ *  drawn UNDER it (this is z-0, the figure's column is z-10). The figure is
+ *  filled opaque cream, so it clips each line exactly where the silhouette
+ *  begins. That is what makes them meet the body precisely without measuring
+ *  anything: the drawing does the trimming.
+ *
+ *  Starts sit just inside the cards so a line emerges from under the card edge
+ *  rather than floating in the gutter with a visible gap.
+ */
+function Connectors() {
+  const target = { x: 50, y: 70 }
+  const starts = [
+    { x: 29, y: 24 },
+    { x: 29, y: 79 },
+    { x: 71, y: 24 },
+    { x: 71, y: 79 },
+  ]
   return (
-    <div
+    <svg
       aria-hidden
-      className={`pointer-events-none absolute top-1/2 hidden h-px w-[clamp(1.5rem,5vw,6rem)] -translate-y-1/2 bg-primary/30 lg:block ${anchor}`}
+      viewBox="0 0 100 100"
+      preserveAspectRatio="none"
+      className="pointer-events-none absolute inset-0 z-0 hidden size-full lg:block"
     >
-      <span className={`absolute top-1/2 size-1.5 -translate-y-1/2 rounded-full bg-primary/40 ${dot}`} />
-    </div>
+      {/* Lines only — no end caps. non-scaling-stroke keeps a stroke honest
+          under preserveAspectRatio="none", but a FILLED shape has no such
+          escape: a circle in this box renders as a stretched oval. */}
+      {starts.map((s, i) => (
+        <line
+          key={i}
+          x1={s.x}
+          y1={s.y}
+          x2={target.x}
+          y2={target.y}
+          stroke="var(--primary)"
+          strokeOpacity={0.7}
+          strokeWidth={1.25}
+          vectorEffect="non-scaling-stroke"
+        />
+      ))}
+    </svg>
   )
 }
 
