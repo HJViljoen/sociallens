@@ -12,6 +12,23 @@
 // facts, and the operator tuning the floors needs to tell them apart.
 
 import { PREVALENCE_LABEL, prevalenceTier } from '../calibration'
+import { normForMatch } from './quote-match'
+
+/** Keep only phrases that really were said.
+ *
+ *  The model is shown validated language samples and asked to reuse them, but
+ *  "asked to" is not a guarantee: a paraphrase rendered under a quote icon is
+ *  an invented verbatim, which is the one thing this feature must never do.
+ *  Matching is normalised (case, curly quotes, emoji, whitespace) exactly as
+ *  Pass A validates evidence. */
+export function filterToRealPhrases(phrases: string[], valid: Set<string> | undefined): string[] {
+  if (!valid?.size) return []
+  const index = [...valid].map((v) => normForMatch(v)).filter(Boolean)
+  return phrases.filter((p) => {
+    const n = normForMatch(p)
+    return n.length > 0 && index.some((v) => v.includes(n) || n.includes(v))
+  })
+}
 
 /** Bracket refs come back in whatever surface form the model felt like:
  *  `T12`, `[T12]`, `t12 `. Every other pass normalises the same way
@@ -94,7 +111,7 @@ export interface GroundedPersona {
 
 export interface DroppedPersona {
   name: string
-  reason: 'no-themes' | 'below-insight-floor' | 'below-video-floor' | 'over-cap'
+  reason: 'no-themes' | 'no-content' | 'below-insight-floor' | 'below-video-floor' | 'over-cap'
   evidenceCount: number
   sourceVideoCount: number
 }
@@ -106,6 +123,13 @@ export interface GroundOptions {
   /** insight id -> its demographic_signal theme slug, for the counted `who`
    *  block. Only demographic_signal insights belong in here. */
   demographicsByInsightId?: Map<string, string>
+  /** Ids of insights that still exist. Cited evidence is intersected with this
+   *  so a persona can never be counted on rows a later run pruned. */
+  livePopulationIds?: Set<string>
+  /** Phrases Pass A already validated as exact copies of real comments. A
+   *  `how_they_talk` entry that is not one of these is model prose, and the
+   *  page presents that block as things people said. */
+  validPhrases?: Set<string>
 }
 
 /** Floor for a demographic signal to be shown at all.
@@ -244,6 +268,15 @@ function normaliseScope(scope: string): PersonaScope {
   return SCOPES.includes(scope as PersonaScope) ? (scope as PersonaScope) : 'category'
 }
 
+/** The key is a URL selector and a React key. The model supplies it, so it can
+ *  be empty or repeated; either breaks the switcher silently. */
+function safeKey(key: string, name: string, index: number): string {
+  const base = String(key ?? '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '')
+  if (base) return base
+  const fromName = String(name ?? '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '')
+  return fromName || `persona-${index + 1}`
+}
+
 function uniq(values: string[]): string[] {
   return [...new Set(values.filter((v) => typeof v === 'string' && v.length > 0))]
 }
@@ -268,24 +301,45 @@ export function groundPersonas(
   const kept: GroundedPersona[] = []
   const dropped: DroppedPersona[] = []
 
-  const grounded = raw.map((p) => {
+  const grounded = raw.map((p, index) => {
+    // Dedupe AFTER normalising: "T1", "[T1]" and "t1" are three strings for one
+    // theme, and counting them three times inflated bucketMix and themeIds.
     const refs = uniq(p.theme_refs ?? [])
-    const hits = refs.map((r) => byRef.get(normaliseRef(r))).filter((r): r is ThemeDigestRow => Boolean(r))
+    const seenRefs = new Set<string>()
+    const hits: ThemeDigestRow[] = []
+    for (const r of refs) {
+      const norm = normaliseRef(r)
+      if (seenRefs.has(norm)) continue
+      const hit = byRef.get(norm)
+      if (!hit) continue
+      seenRefs.add(norm)
+      hits.push(hit)
+    }
     const unknownRefs = refs.filter((r) => !byRef.has(normaliseRef(r)))
-    const insightIds = uniq(hits.flatMap((h) => h.insightIds))
+    // Intersect with the population that still EXISTS. themes rows outlive the
+    // insights they cite — prune-stale-analysis deletes superseded
+    // audience_insights after each run — so profiling an older run (the
+    // documented offline mode) would otherwise count evidence that is gone.
+    const live = opts.livePopulationIds
+    const cited = uniq(hits.flatMap((h) => h.insightIds))
+    const insightIds = live ? cited.filter((id) => live.has(id)) : cited
     const videoIds = uniq(hits.flatMap((h) => h.videoIds))
+    const kept = new Set(insightIds)
     const bucketMix: Record<string, number> = {}
-    for (const h of hits) bucketMix[h.bucket] = (bucketMix[h.bucket] ?? 0) + h.insightIds.length
+    for (const h of hits) {
+      const n = h.insightIds.filter((id) => kept.has(id)).length
+      if (n > 0) bucketMix[h.bucket] = (bucketMix[h.bucket] ?? 0) + n
+    }
     const evidenceCount = insightIds.length
     const persona: GroundedPersona = {
-      key: p.key,
+      key: safeKey(p.key, p.name, index),
       name: p.name,
       oneLiner: p.one_liner,
       scope: normaliseScope(p.scope),
       wants: p.wants ?? [],
       blockers: p.blockers ?? [],
       triggers: p.triggers ?? [],
-      howTheyTalk: p.how_they_talk ?? [],
+      howTheyTalk: filterToRealPhrases(p.how_they_talk ?? [], opts.validPhrases),
       who: countDemographics(insightIds, opts.demographicsByInsightId),
       themeIds: hits.map((h) => h.themeId),
       registryIds: hits.map((h) => h.registryId).filter((v): v is string => Boolean(v)),
@@ -302,9 +356,18 @@ export function groundPersonas(
   })
 
   const survivors: GroundedPersona[] = []
+  const usedKeys = new Set<string>()
   for (const { persona, hitCount } of grounded) {
+    if (usedKeys.has(persona.key)) persona.key = `${persona.key}-${usedKeys.size + 1}`
+    usedKeys.add(persona.key)
     if (hitCount === 0) {
       dropped.push({ name: persona.name, reason: 'no-themes', evidenceCount: 0, sourceVideoCount: 0 })
+      continue
+    }
+    // A persona with nothing to say is a drawing with a name on it. The floors
+    // below check evidence; this checks that the evidence produced content.
+    if (!persona.wants.length && !persona.blockers.length && !persona.triggers.length) {
+      dropped.push({ name: persona.name, reason: 'no-content', evidenceCount: persona.evidenceCount, sourceVideoCount: persona.sourceVideoCount })
       continue
     }
     if (persona.evidenceCount < opts.minInsights) {

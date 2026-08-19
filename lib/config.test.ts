@@ -1,5 +1,5 @@
 import { describe, expect, it, afterEach } from 'vitest'
-import { passAMinComments, PASS_A_MIN_COMMENTS_DEFAULT, captureRunFlags, transcriptsEnabled } from './config'
+import { passAMinComments, PASS_A_MIN_COMMENTS_DEFAULT, captureRunFlags, transcriptsEnabled, PERSONA_MAX, PERSONA_MIN_INSIGHTS, PERSONA_MIN_VIDEOS, PERSONA_DIGEST_THEMES, EVIDENCE_FLOOR } from './config'
 
 // Pass A's comment floor is per-platform (Wave 3). One global 5 was tuned for
 // TikTok/Instagram; Reddit threads run 3-8 comments but are far denser per
@@ -66,5 +66,25 @@ describe('captureRunFlags — a run must not change flags underneath itself (Tie
     // point — a deploy or an env edit mid-run used to split a run in two.
     expect(transcriptsEnabled()).toBe(false)
     expect(captured.transcripts).toBe(true)
+  })
+})
+
+describe('persona evidence floors (Pass E) — the numbers that decide what a client sees', () => {
+  it('keeps the floors above the single-source line the rest of the pipeline uses', () => {
+    // EVIDENCE_FLOOR=2 is what makes a THEME real. A persona is a claim about
+    // a kind of person, so it must rest on more than a theme does — otherwise
+    // one loud thread becomes a segment.
+    expect(PERSONA_MIN_VIDEOS).toBeGreaterThan(EVIDENCE_FLOOR)
+    expect(PERSONA_MIN_INSIGHTS).toBeGreaterThan(PERSONA_MIN_VIDEOS)
+  })
+
+  it('caps personas at a number a switcher can still read as a set of people', () => {
+    expect(PERSONA_MAX).toBeGreaterThanOrEqual(3)
+    expect(PERSONA_MAX).toBeLessThanOrEqual(6)
+  })
+
+  it('sends enough theme lines to cover a normal run whole', () => {
+    // Ossur run 2 produced 120 themes for the entire corpus.
+    expect(PERSONA_DIGEST_THEMES).toBeGreaterThanOrEqual(120)
   })
 })

@@ -28,8 +28,12 @@ create table if not exists public.consumer_profiles (
   headline text,
   -- GroundedPersona[] — see lib/pipeline/persona-assembly.ts for the shape.
   -- Each entry carries scope ('category' | 'client'), the calibrated prevalence
-  -- word, its theme/registry/insight ids, evidence + source-video counts, the
-  -- bucket mix it was drawn from, and up to 3 exact-copy validated hero quotes.
+  -- word, its theme/registry/insight ids, evidence + source-video counts and
+  -- the bucket mix it was drawn from. Deliberately NO quote text: a verbatim
+  -- copy here would outlive the comment it came from and would have to be
+  -- chased by the erasure script and the YouTube retention refresh, the way
+  -- four hero_quote columns already are. The page resolves voices live from
+  -- insight_evidence through the stored insight ids.
   personas jsonb not null default '[]'::jsonb,
   -- Size of the population the profile was synthesised from. Kept so a thin run
   -- is legible after the fact ("one persona because there were 40 insights").

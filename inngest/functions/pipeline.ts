@@ -740,17 +740,28 @@ export const runPipeline = inngest.createFunction(
           const { data: client } = await admin
             .from('clients')
             .select('company_name').eq('id', clientId).maybeSingle()
+          const { data: run } = await admin
+            .from('pipeline_runs')
+            .select('started_at').eq('id', runId).maybeSingle()
+          // The run's own date, not today's: a run that crosses UTC midnight
+          // would otherwise be stamped a day late, and the drift layer orders
+          // profiles on this column.
+          const stamp = (run?.started_at as string | null) ?? new Date().toISOString()
           const r = await runPassE(admin, {
             clientId,
             runId,
-            runDate: new Date().toISOString().slice(0, 10),
+            runDate: stamp.slice(0, 10),
             companyName: client?.company_name ?? 'the client',
           })
           return { kept: r.personas.length, dropped: r.dropped.length, costUsd: r.costUsd }
         })
         .catch((e) => {
+          // Logged, NOT noteError'd. Every other non-fatal step is pipeline
+          // essential, so downgrading the run to 'partial' and paging the
+          // operator is right for them. The profile is additive: a run whose
+          // report is complete must not read 'partial' — and must not burn the
+          // clean-run gate — because a new pass had a bad day.
           console.error(`[consumer-profile] out of retries: ${e instanceof Error ? e.message : String(e)}`)
-          noteError('consumer-profile', e)
           return null
         })
     }

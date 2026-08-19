@@ -1,6 +1,7 @@
 import Link from 'next/link'
 import { HeartCrack, Compass, Sparkles, Users, Layers, Quote as QuoteIcon, Zap } from 'lucide-react'
 import { getSessionContext } from '@/lib/auth'
+import { createQuotePicker, fetchQuotesByAudience } from '@/lib/quotes'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Quotes } from '@/components/quotes'
 import { CrowdFigure } from '@/components/crowd-figure'
@@ -42,17 +43,42 @@ interface Persona {
   triggers: string[]
   howTheyTalk: string[]
   who: { signal: string; count: number }[]
+  insightIds: string[]
   evidenceCount: number
   sourceVideoCount: number
   prevalence: string
-  quotes?: string[]
+}
+
+/** The row is jsonb written by a pass whose shape will change. Read it
+ *  defensively so a v2 profile, or a hand-written row, degrades instead of
+ *  500-ing the route. */
+function normalisePersona(p: Partial<Persona> | null): Persona | null {
+  if (!p || typeof p.name !== 'string' || !p.name) return null
+  const arr = (v: unknown): string[] => (Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : [])
+  return {
+    key: typeof p.key === 'string' && p.key ? p.key : p.name,
+    name: p.name,
+    oneLiner: typeof p.oneLiner === 'string' ? p.oneLiner : '',
+    scope: p.scope === 'client' ? 'client' : 'category',
+    wants: arr(p.wants),
+    blockers: arr(p.blockers),
+    triggers: arr(p.triggers),
+    howTheyTalk: arr(p.howTheyTalk),
+    who: Array.isArray(p.who)
+      ? p.who.filter((w) => w && typeof w.signal === 'string' && Number.isFinite(w.count))
+      : [],
+    insightIds: arr(p.insightIds),
+    evidenceCount: Number.isFinite(p.evidenceCount) ? (p.evidenceCount as number) : 0,
+    sourceVideoCount: Number.isFinite(p.sourceVideoCount) ? (p.sourceVideoCount as number) : 0,
+    prevalence: typeof p.prevalence === 'string' ? p.prevalence : '',
+  }
 }
 
 interface ProfileRow {
   headline: string | null
-  personas: Persona[]
-  insight_population: number
+  personas: Partial<Persona>[]
   run_date: string
+  run_id: string
 }
 
 export default async function ConsumerProfilePage({
@@ -79,15 +105,24 @@ export default async function ConsumerProfilePage({
     )
   }
 
+  // Newest stored profile, not "the newest run's profile". Pass E is
+  // flag-gated and profiles can be written offline, so pinning to the latest
+  // run would blank this page the moment a run completes without one — and the
+  // empty state would claim there is too little conversation, which would be a
+  // false statement about the data rather than about the pass.
   const { data: profileRow } = await supabase
     .from('consumer_profiles')
-    .select('headline, personas, insight_population, run_date')
+    .select('headline, personas, run_date, run_id')
     .eq('client_id', clientId)
-    .eq('run_id', latestRun.id as string)
+    .order('run_date', { ascending: false })
+    .limit(1)
     .maybeSingle()
 
   const profile = profileRow as ProfileRow | null
-  const personas = (profile?.personas ?? []).filter((p) => p && p.name)
+  const personas = (profile?.personas ?? [])
+    .map((p) => normalisePersona(p as Partial<Persona>))
+    .filter((p): p is Persona => Boolean(p))
+  const isStale = Boolean(profile) && profile?.run_id !== (latestRun.id as string)
 
   if (!personas.length) {
     return (
@@ -111,10 +146,25 @@ export default async function ConsumerProfilePage({
     .from('recommendations')
     .select('id, type, title, reasoning, hero_quote')
     .eq('client_id', clientId)
+    .eq('run_id', latestRun.id as string)
     .in('type', ['audience_targeting', 'positioning_messaging', 'customer_experience', 'product'])
     .order('created_at', { ascending: false })
     .limit(3)
   const recs = (recRows ?? []) as { id: string; type: string; title: string; reasoning: string; hero_quote: string | null }[]
+
+  // Voices resolved live from insight_evidence rather than read from the stored
+  // profile: a quote copied into this table would outlive the comment it came
+  // from, and the privacy page promises that deleting a comment removes every
+  // quote of it in the product.
+  const quoteIds = active.insightIds.slice(0, 150)
+  const quotesByAudience = quoteIds.length ? await fetchQuotesByAudience(supabase, quoteIds) : new Map()
+  const quotes = quoteIds.length
+    ? createQuotePicker(quotesByAudience, new Map())(
+        quoteIds,
+        3,
+        [active.name, active.oneLiner, ...active.wants, ...active.blockers].join('. '),
+      )
+    : []
 
   const scopeLabel =
     active.scope === 'client'
@@ -129,6 +179,13 @@ export default async function ConsumerProfilePage({
         <Card>
           <CardContent className="py-5 text-[15px] leading-relaxed text-foreground/90">
             {profile.headline}
+            {isStale && (
+              // Say which update this is from rather than presenting an older
+              // profile as current — the profile can lag the latest run.
+              <span className="mt-2 block text-xs text-muted-foreground">
+                From your update of {profile.run_date}. The next one refreshes this.
+              </span>
+            )}
           </CardContent>
         </Card>
       )}
@@ -178,7 +235,7 @@ export default async function ConsumerProfilePage({
                 <scopeLabel.Icon className="size-3.5" aria-hidden />
                 {scopeLabel.text}
               </span>
-              {active.prevalence && PREVALENCE_GLOSSARY[active.prevalence] && (
+              {personas.length > 1 && active.prevalence && PREVALENCE_GLOSSARY[active.prevalence] && (
                 <span
                   className="inline-flex items-center rounded-full bg-muted px-2.5 py-1 text-xs font-medium text-muted-foreground"
                   title={glossaryRule(PREVALENCE_GLOSSARY[active.prevalence])}
@@ -188,7 +245,8 @@ export default async function ConsumerProfilePage({
               )}
             </div>
             <p className="mt-2 text-xs text-muted-foreground" title={glossaryRule('conversations')}>
-              {active.evidenceCount} conversations across {active.sourceVideoCount} videos
+              Heard across {active.sourceVideoCount}{' '}
+              {active.sourceVideoCount === 1 ? 'conversation' : 'conversations'}
             </p>
           </div>
         </div>
@@ -226,7 +284,7 @@ export default async function ConsumerProfilePage({
         </div>
       </div>
 
-      {(active.howTheyTalk.length > 0 || (active.quotes?.length ?? 0) > 0) && (
+      {(active.howTheyTalk.length > 0 || quotes.length > 0) && (
         <Card>
           <CardHeader className="pb-2">
             <CardTitle className="flex items-center gap-2 text-sm font-semibold">
@@ -244,13 +302,13 @@ export default async function ConsumerProfilePage({
                 ))}
               </div>
             )}
-            {(active.quotes?.length ?? 0) > 0 && (
+            {quotes.length > 0 && (
               <details className="group">
                 <summary className="cursor-pointer text-xs font-medium text-muted-foreground hover:text-foreground">
                   See the voices
                 </summary>
                 <div className="pt-3">
-                  <Quotes items={active.quotes ?? []} />
+                  <Quotes items={quotes} />
                 </div>
               </details>
             )}
@@ -310,7 +368,9 @@ function PersonaChip({ persona, active }: { persona: Persona; active: boolean })
       }`}
     >
       {persona.name}
-      <span className={active ? 'opacity-70' : 'text-muted-foreground'}>· {persona.evidenceCount}</span>
+      <span className={active ? 'opacity-70' : 'text-muted-foreground'}>
+        · {persona.sourceVideoCount}
+      </span>
     </Link>
   )
 }

@@ -262,6 +262,8 @@ export async function runPassE(
     minVideos: PERSONA_MIN_VIDEOS,
     maxPersonas: PERSONA_MAX,
     demographicsByInsightId,
+    livePopulationIds: new Set(insights.map((i) => i.id)),
+    validPhrases: new Set(phrases),
   })
 
   if (persist) {
@@ -270,8 +272,11 @@ export async function runPassE(
 
   // 5. Evidence. The picker de-duplicates across personas, so no two personas
   // lead with the same voice; redacted (demographic) evidence never reaches it.
+  // The picker's theme bonus splits on '_', so it needs Pass A's snake_case
+  // slug (audience_insights.theme) — feeding it the Pass B prose label made the
+  // bonus silently always zero and picked quotes on readability alone.
   const themeSlugById = new Map<string, string>()
-  for (const d of digest) for (const id of d.insightIds) themeSlugById.set(id, d.label)
+  for (const i of insights) if (i.theme) themeSlugById.set(i.id, i.theme)
   const poolIds = [...new Set(kept.flatMap((p) => p.insightIds.slice(0, QUOTE_POOL_PER_PERSONA)))]
   const quotesByAudience = poolIds.length ? await fetchQuotesByAudience(admin, poolIds) : new Map()
   // A pool that resolves to nothing is a schema/permission problem, not an
@@ -288,6 +293,7 @@ export async function runPassE(
     wants: p.wants.map(stripThemeRefs),
     blockers: p.blockers.map(stripThemeRefs),
     triggers: p.triggers.map(stripThemeRefs),
+    howTheyTalk: p.howTheyTalk.map(stripThemeRefs),
     quotes: pick(
       p.insightIds.slice(0, QUOTE_POOL_PER_PERSONA),
       PERSONA_QUOTES,
@@ -302,20 +308,40 @@ export async function runPassE(
 
   // 6. One profile per run: replace rather than accumulate, so a re-run of the
   // same run overwrites instead of doubling (the pattern themes/run_summary use).
-  await admin.from('consumer_profiles').delete().eq('client_id', clientId).eq('run_id', runId)
+  // Nothing to store is not a reason to destroy what is stored. A replay of
+  // this step that grounds nothing would otherwise blank a good profile — and
+  // under the offline operating mode that is the likely case, not the rare one.
+  if (!withQuotes.length) {
+    return { profileId: null, costUsd, headline, personas: [], dropped }
+  }
+
+  // Quote TEXT is deliberately not persisted. A verbatim copy in a new table is
+  // a copy that erasure and the YouTube retention refresh do not know about —
+  // exactly the class of leak scripts/erase-commenter.ts already has to chase
+  // across four hero_quote columns. The persona carries insight ids; the page
+  // resolves the voices live from insight_evidence, so a deleted comment is
+  // gone everywhere at once.
+  const personasToStore = withQuotes.map((p) => {
+    const stored: Record<string, unknown> = { ...p }
+    delete stored.quotes
+    return stored
+  })
   const { data, error } = await admin
     .from('consumer_profiles')
-    .insert({
-      client_id: clientId,
-      run_id: runId,
-      run_date: runDate,
-      headline,
-      personas: withQuotes,
-      insight_population: counts.total,
-      theme_population: themes.length,
-      dropped,
-      prompt_version: PROMPT_VERSION,
-    })
+    .upsert(
+      {
+        client_id: clientId,
+        run_id: runId,
+        run_date: runDate,
+        headline,
+        personas: personasToStore,
+        insight_population: counts.total,
+        theme_population: themes.length,
+        dropped,
+        prompt_version: PROMPT_VERSION,
+      },
+      { onConflict: 'client_id,run_id' },
+    )
     .select('id')
     .single()
   if (error) throw new Error(`Pass E write failed: ${(error as { message?: string }).message ?? String(error)}`)

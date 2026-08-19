@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   assignPrevalence,
+  filterToRealPhrases,
   buildPopulationCounts,
   buildThemeDigest,
   countDemographics,
@@ -287,5 +288,95 @@ describe('assignPrevalence', () => {
 
   it('never divides by zero on an empty profile', () => {
     expect(assignPrevalence([])).toEqual([])
+  })
+})
+
+describe('duplicate refs (M8) — one theme cited three ways is still one theme', () => {
+  it('does not inflate bucketMix or themeIds when refs repeat after normalisation', () => {
+    const ids = Array.from({ length: 12 }, (_, i) => `i${i}`)
+    const { byRef } = buildThemeDigest(
+      [theme('a', { supporting_insight_ids: ids, supporting_video_ids: ['v1', 'v2', 'v3'] })],
+      { maxThemes: 10 },
+    )
+    const { kept } = groundPersonas([persona({ theme_refs: ['T1', '[T1]', 't1'] })], byRef, opts)
+    expect(kept[0].evidenceCount).toBe(12)
+    expect(kept[0].themeIds).toEqual(['a'])
+    expect(kept[0].bucketMix).toEqual({ 'industry-other': 12 })
+  })
+})
+
+describe('live-population intersection (H3) — evidence that no longer exists is not evidence', () => {
+  // themes rows outlive the insights they cite: prune-stale-analysis deletes
+  // superseded audience_insights after a run closes. Profiling an older run —
+  // the documented offline mode — must not count the pruned rows.
+  const ids = Array.from({ length: 20 }, (_, i) => `i${i}`)
+  const digest = () =>
+    buildThemeDigest([theme('a', { supporting_insight_ids: ids, supporting_video_ids: ['v1', 'v2', 'v3'] })], {
+      maxThemes: 10,
+    })
+
+  it('counts only insights that still exist', () => {
+    const live = new Set(ids.slice(0, 14))
+    const { kept } = groundPersonas([persona()], digest().byRef, { ...opts, livePopulationIds: live })
+    expect(kept[0].evidenceCount).toBe(14)
+    expect(kept[0].bucketMix).toEqual({ 'industry-other': 14 })
+  })
+
+  it('drops a persona whose evidence has been pruned below the floor', () => {
+    const live = new Set(ids.slice(0, 4))
+    const { kept, dropped } = groundPersonas([persona()], digest().byRef, { ...opts, livePopulationIds: live })
+    expect(kept).toEqual([])
+    expect(dropped[0]).toMatchObject({ reason: 'below-insight-floor', evidenceCount: 4 })
+  })
+
+  it('counts everything when no population is supplied', () => {
+    const { kept } = groundPersonas([persona()], digest().byRef, opts)
+    expect(kept[0].evidenceCount).toBe(20)
+  })
+})
+
+describe('filterToRealPhrases (H2) — "how they talk" must be things people said', () => {
+  const valid = new Set(['it just will not stay on my leg', 'the socket rubs after an hour'])
+
+  it('keeps a phrase that appears in a validated language sample', () => {
+    expect(filterToRealPhrases(['the socket rubs after an hour'], valid)).toEqual(['the socket rubs after an hour'])
+  })
+
+  it('keeps a phrase that differs only by case, curly quotes or emoji', () => {
+    // Same normalisation Pass A validates evidence with.
+    expect(filterToRealPhrases(['It Just Will Not Stay On My Leg 😩'], valid)).toHaveLength(1)
+  })
+
+  it('drops a paraphrase the model wrote itself', () => {
+    // The defect: a paraphrase rendered under a quote icon is an invented
+    // verbatim, which is the one thing this feature must never produce.
+    expect(filterToRealPhrases(['it tends to slip off during the day'], valid)).toEqual([])
+  })
+
+  it('drops everything when there are no validated samples to check against', () => {
+    expect(filterToRealPhrases(['anything at all'], undefined)).toEqual([])
+    expect(filterToRealPhrases(['anything at all'], new Set())).toEqual([])
+  })
+})
+
+describe('persona keys — the switcher selector must survive whatever the model returns', () => {
+  const ids = Array.from({ length: 12 }, (_, i) => `i${i}`)
+  const digest = () =>
+    buildThemeDigest([theme('a', { supporting_insight_ids: ids, supporting_video_ids: ['v1', 'v2', 'v3'] })], {
+      maxThemes: 10,
+    })
+
+  it('falls back to the name when the model returns an empty key', () => {
+    const { kept } = groundPersonas([persona({ key: '' })], digest().byRef, opts)
+    expect(kept[0].key).toBe('the-first-time-researcher')
+  })
+
+  it('makes repeated keys unique so no persona becomes unreachable', () => {
+    const { kept } = groundPersonas(
+      [persona({ key: 'same' }), persona({ key: 'same', name: 'another' })],
+      digest().byRef,
+      opts,
+    )
+    expect(new Set(kept.map((p) => p.key)).size).toBe(kept.length)
   })
 })
