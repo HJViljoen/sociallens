@@ -63,7 +63,7 @@ export function CrowdFigure({
       // the crowd, which is what makes it read as standing in front of it.
       fill="var(--popover)"
       stroke="currentColor"
-      strokeWidth={3}
+      strokeWidth={4.5}
       strokeLinecap="round"
       strokeLinejoin="round"
       role={title ? 'img' : 'presentation'}
