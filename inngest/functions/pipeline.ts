@@ -18,6 +18,7 @@ import { discoverSubreddits } from '@/lib/gather/subreddit-discovery'
 import { activeSubreddits } from '@/lib/gather/subreddits'
 import { runStep2c } from '@/lib/pipeline/owned-events'
 import { runPassE } from '@/lib/pipeline/pass-e'
+import { reevaluatePlanChecks } from '@/lib/ask/reevaluate'
 import { summariseRunErrors, partialRunAlert, passADegradation, RUN_ERROR_CAP } from '@/lib/pipeline/run-errors'
 import { writeRunCosts, runSpendSoFar } from '@/lib/pipeline/run-costs'
 import { decideOpenRun, runIdForEvent, RUN_STALE_AFTER_HOURS, PG_UNIQUE_VIOLATION, type RunningRow } from '@/lib/pipeline/run-guard'
@@ -762,6 +763,32 @@ export const runPipeline = inngest.createFunction(
           // report is complete must not read 'partial' — and must not burn the
           // clean-run gate — because a new pass had a bad day.
           console.error(`[consumer-profile] out of retries: ${e instanceof Error ? e.message : String(e)}`)
+          return null
+        })
+    }
+
+    // Re-test stored plan checks against this run's conversation. Same
+    // non-fatal shape as the profile: additive, and a client's report must not
+    // depend on it. Rides the same flag — the Ask surface and its weekly
+    // re-read are one feature.
+    if (flags.consumerProfile) {
+      await step
+        .run('ask-reevaluate', async () => {
+          const admin = createAdminClient()
+          const [{ data: client }, { data: run }] = await Promise.all([
+            admin.from('clients').select('company_name').eq('id', clientId).maybeSingle(),
+            admin.from('pipeline_runs').select('started_at').eq('id', runId).maybeSingle(),
+          ])
+          const results = await reevaluatePlanChecks(admin, {
+            clientId,
+            runId,
+            runDate: ((run?.started_at as string | null) ?? new Date().toISOString()).slice(0, 10),
+            companyName: (client?.company_name as string) ?? 'the client',
+          })
+          return { checks: results.length, moved: results.reduce((n, r) => n + r.moved.length, 0) }
+        })
+        .catch((e) => {
+          console.error(`[ask-reevaluate] out of retries: ${e instanceof Error ? e.message : String(e)}`)
           return null
         })
     }

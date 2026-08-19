@@ -5,7 +5,7 @@ import {
   SidebarHeader, SidebarMenu, SidebarMenuButton, SidebarMenuItem,
   useSidebar,
 } from "@/components/ui/sidebar"
-import { LayoutDashboard, Target, MessageCircle, Swords, Play, TrendingUp, FileText, Users, UserRound, CreditCard, Settings, LogOut } from "lucide-react"
+import { LayoutDashboard, Target, MessageCircle, Swords, Play, TrendingUp, FileText, Users, UserRound, MessageSquareQuote, CreditCard, Settings, LogOut } from "lucide-react"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { signOut } from "@/app/login/actions"
@@ -18,6 +18,7 @@ const baseNav = [
   { href: "/dashboard/market",    label: "Market Intelligence",icon: Target },
   { href: "/dashboard/voice",     label: "Voice of Customer",  icon: MessageCircle },
   { href: "/dashboard/profile",   label: "Consumer Profile",   icon: UserRound },
+  { href: "/dashboard/ask",       label: "Ask",                icon: MessageSquareQuote },
   { href: "/dashboard/competitive",label: "Competitive Intel", icon: Swords },
   { href: "/dashboard/videos",    label: "Content",            icon: Play },
   { href: "/dashboard/reports",   label: "Reports",            icon: FileText },

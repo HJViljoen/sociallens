@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs'
 import { createAdminClient } from '../lib/supabase-admin'
 import { runAsk } from '../lib/ask/engine'
+import { reevaluatePlanChecks } from '../lib/ask/reevaluate'
 
 // Ask-engine operator lever (2026-08-19).
 //
@@ -22,10 +23,11 @@ interface Args {
   text: string | null
   kind: 'idea' | 'plan' | null
   write: boolean
+  reevaluate: boolean
 }
 
 function parseArgs(argv: string[]): Args {
-  const args: Args = { clientId: null, runId: null, file: null, text: null, kind: null, write: false }
+  const args: Args = { clientId: null, runId: null, file: null, text: null, kind: null, write: false, reevaluate: false }
   for (let i = 0; i < argv.length; i++) {
     const next = () => argv[++i]
     if (argv[i] === '--client') args.clientId = next()
@@ -34,6 +36,7 @@ function parseArgs(argv: string[]): Args {
     else if (argv[i] === '--text') args.text = next()
     else if (argv[i] === '--kind') args.kind = next() as 'idea' | 'plan'
     else if (argv[i] === '--write') args.write = true
+    else if (argv[i] === '--reevaluate') args.reevaluate = true
   }
   return args
 }
@@ -46,7 +49,7 @@ const VERDICT_MARK: Record<string, string> = {
 
 async function main() {
   const args = parseArgs(process.argv.slice(2))
-  if (!args.clientId || (!args.file && !args.text)) {
+  if (!args.clientId || (!args.file && !args.text && !args.reevaluate)) {
     console.error('usage: --client <uuid> (--file <path> | --text "...") [--kind idea|plan] [--run <uuid>] [--write]')
     process.exit(1)
   }
@@ -74,6 +77,26 @@ async function main() {
       process.exit(1)
     }
     runId = (run as { id: string }).id
+  }
+
+  if (args.reevaluate) {
+    // Re-test every stored check against this run — what the pipeline does
+    // each week, run by hand so the diff can be seen.
+    const results = await reevaluatePlanChecks(admin, {
+      clientId: args.clientId,
+      runId,
+      runDate: new Date().toISOString().slice(0, 10),
+      companyName,
+    })
+    console.log(`\nre-evaluated ${results.length} check(s) against run ${runId}\n`)
+    for (const r of results) {
+      console.log(`— ${r.title ?? r.planCheckId}`)
+      console.log(`  now: ${r.summary.supported} supported · ${r.summary.contradicted} contradicted · ${r.summary.untested} untested  ($${r.costUsd.toFixed(4)})`)
+      if (!r.moved.length) console.log('  nothing moved since the last reading')
+      for (const m of r.moved) console.log(`  MOVED [${m.ref}] ${m.from} -> ${m.to} — ${m.claim}`)
+      console.log('')
+    }
+    return
   }
 
   const text = args.file ? readFileSync(args.file, 'utf8') : (args.text as string)

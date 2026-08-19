@@ -8,7 +8,7 @@ import { CALIBRATED_PROSE_RULE, stripThemeRefs } from '../pipeline/prose-rules'
 import { embedTexts } from '../pipeline/cluster'
 import { fetchQuotesByAudience } from '../quotes'
 import { shortlistThemes, summarise, validateJudgement, validateVerdicts, type AskTheme, type RawVerdict } from './verdicts'
-import type { AskResult, ExtractedClaim } from './types'
+import type { AskResult, ClaimResult, ExtractedClaim } from './types'
 
 // The Ask engine — one pipeline, three faces (test an idea, check a plan,
 // later: talk to the consumer). All three reduce to the same question:
@@ -158,51 +158,23 @@ export function clipInput(text: string, max = ASK_INPUT_CHARS): { text: string; 
   return { text: chars.slice(0, max).join(''), clipped: true }
 }
 
-export async function runAsk(
+/**
+ * The verdict half: shortlist themes for each claim, show the model the real
+ * voices behind them, judge, then enforce the contract in code.
+ *
+ * Exported because re-evaluation runs exactly this against a LATER run's
+ * themes, reusing the claims already extracted — re-extracting from the stored
+ * document would let claim refs shift, and then "assumption 4 moved" would be
+ * comparing two different assumption 4s.
+ */
+export async function verdictPass(
   admin: ReturnType<typeof import('../supabase-admin').createAdminClient>,
-  input: AskInput,
-): Promise<AskResult & { title: string; clipped: boolean }> {
-  const { clientId, runId, kind, companyName } = input
-  const persist = input.persist !== false
+  args: { clientId: string; runId: string; companyName: string; claims: ExtractedClaim[]; persist?: boolean },
+): Promise<{ claims: ClaimResult[]; costUsd: number }> {
+  const { clientId, runId, companyName, claims } = args
+  const persist = args.persist !== false
   let costUsd = 0
-
-  const { text, clipped } = clipInput(input.text)
-
-  // 1. Extract the claims. Cheap model: this is indexing, not judgement.
-  const extractSystem = buildExtractPrompt(kind)
-  const extractUser = text
-  const startedExtract = Date.now()
-  let extracted: z.infer<typeof ExtractSchema> | null = null
   let usage = { prompt_tokens: 0, completion_tokens: 0 }
-  try {
-    const completion = await openai.chat.completions.parse({
-      model: ANALYSIS_MODEL,
-      messages: [
-        { role: 'system', content: extractSystem },
-        { role: 'user', content: extractUser },
-      ],
-      response_format: zodResponseFormat(ExtractSchema, 'ask_extract'),
-    })
-    extracted = completion.choices[0]?.message?.parsed ?? null
-    if (completion.usage) usage = { prompt_tokens: completion.usage.prompt_tokens, completion_tokens: completion.usage.completion_tokens }
-  } catch (e) {
-    const error = e instanceof Error ? e.message : String(e)
-    if (persist) await logAiCall(admin, { clientId, runId, pass: 'ask_extract', callIndex: 1, model: ANALYSIS_MODEL, promptVersion: PROMPT_VERSION_EXTRACT, systemPrompt: extractSystem, userPrompt: extractUser, response: null, error, usage, durationMs: Date.now() - startedExtract, validationStatus: 'parse_error' })
-    throw new Error(`Ask claim extraction failed: ${error}`)
-  }
-  costUsd += estimateCost(ANALYSIS_MODEL, usage.prompt_tokens, usage.completion_tokens)
-  if (persist) await logAiCall(admin, { clientId, runId, pass: 'ask_extract', callIndex: 1, model: ANALYSIS_MODEL, promptVersion: PROMPT_VERSION_EXTRACT, systemPrompt: extractSystem, userPrompt: extractUser, response: extracted, error: null, usage, durationMs: Date.now() - startedExtract, validationStatus: extracted ? 'ok' : 'parse_error' })
-
-  const claims: ExtractedClaim[] = (extracted?.claims ?? [])
-    .map((c) => c.claim?.trim())
-    .filter((c): c is string => Boolean(c))
-    .slice(0, ASK_MAX_CLAIMS)
-    .map((claim, i) => ({ ref: `C${i + 1}`, claim }))
-
-  const title = stripThemeRefs(extracted?.title?.trim() ?? '')
-  if (!claims.length) {
-    return { claims: [], summary: { supported: 0, contradicted: 0, untested: 0 }, judgement: [], costUsd, title, clipped }
-  }
 
   // 2. Shortlist themes per claim by embedding. Reproducible relevance, and it
   // fixes the under-recall of showing a reasoning model theme labels alone.
@@ -260,6 +232,58 @@ export async function runAsk(
 
   const validated = validateVerdicts((verdicts?.verdicts ?? []) as RawVerdict[], claims, themesByClaimRef)
     .map((c) => ({ ...c, theySay: c.theySay ? stripThemeRefs(c.theySay) : null }))
+  return { claims: validated, costUsd }
+}
+
+export async function runAsk(
+  admin: ReturnType<typeof import('../supabase-admin').createAdminClient>,
+  input: AskInput,
+): Promise<AskResult & { title: string; clipped: boolean }> {
+  const { clientId, runId, kind, companyName } = input
+  const persist = input.persist !== false
+  let costUsd = 0
+
+  const { text, clipped } = clipInput(input.text)
+
+  // 1. Extract the claims. Cheap model: this is indexing, not judgement.
+  const extractSystem = buildExtractPrompt(kind)
+  const extractUser = text
+  const startedExtract = Date.now()
+  let extracted: z.infer<typeof ExtractSchema> | null = null
+  let usage = { prompt_tokens: 0, completion_tokens: 0 }
+  try {
+    const completion = await openai.chat.completions.parse({
+      model: ANALYSIS_MODEL,
+      messages: [
+        { role: 'system', content: extractSystem },
+        { role: 'user', content: extractUser },
+      ],
+      response_format: zodResponseFormat(ExtractSchema, 'ask_extract'),
+    })
+    extracted = completion.choices[0]?.message?.parsed ?? null
+    if (completion.usage) usage = { prompt_tokens: completion.usage.prompt_tokens, completion_tokens: completion.usage.completion_tokens }
+  } catch (e) {
+    const error = e instanceof Error ? e.message : String(e)
+    if (persist) await logAiCall(admin, { clientId, runId, pass: 'ask_extract', callIndex: 1, model: ANALYSIS_MODEL, promptVersion: PROMPT_VERSION_EXTRACT, systemPrompt: extractSystem, userPrompt: extractUser, response: null, error, usage, durationMs: Date.now() - startedExtract, validationStatus: 'parse_error' })
+    throw new Error(`Ask claim extraction failed: ${error}`)
+  }
+  costUsd += estimateCost(ANALYSIS_MODEL, usage.prompt_tokens, usage.completion_tokens)
+  if (persist) await logAiCall(admin, { clientId, runId, pass: 'ask_extract', callIndex: 1, model: ANALYSIS_MODEL, promptVersion: PROMPT_VERSION_EXTRACT, systemPrompt: extractSystem, userPrompt: extractUser, response: extracted, error: null, usage, durationMs: Date.now() - startedExtract, validationStatus: extracted ? 'ok' : 'parse_error' })
+
+  const claims: ExtractedClaim[] = (extracted?.claims ?? [])
+    .map((c) => c.claim?.trim())
+    .filter((c): c is string => Boolean(c))
+    .slice(0, ASK_MAX_CLAIMS)
+    .map((claim, i) => ({ ref: `C${i + 1}`, claim }))
+
+  const title = stripThemeRefs(extracted?.title?.trim() ?? '')
+  if (!claims.length) {
+    return { claims: [], summary: { supported: 0, contradicted: 0, untested: 0 }, judgement: [], costUsd, title, clipped }
+  }
+
+  const verdictOut = await verdictPass(admin, { clientId, runId, companyName, claims, persist })
+  costUsd += verdictOut.costUsd
+  const validated = verdictOut.claims
   const summary = summarise(validated)
 
   // 4. Judgement — a separate call, so a proposal cannot leak into the evidence

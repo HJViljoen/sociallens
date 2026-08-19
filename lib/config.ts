@@ -591,6 +591,27 @@ export const ASK_THEMES_PER_CLAIM = 8
  *  under-recall in say_vs_hear, which sees labels only. */
 export const ASK_QUOTES_PER_THEME = 3
 
+/** Upload ceiling. Vercel caps a serverless request body at 4.5 MB, so a
+ *  bigger file cannot arrive whole however generous we are here; 4 MB fails
+ *  with a message we wrote instead of a platform error. Real text-heavy plans
+ *  sit far below it — an image-heavy 60-page deck will not, and that is a
+ *  known limit, not a surprise. */
+export const ASK_PDF_MAX_BYTES = 4 * 1024 * 1024
+
+/** Pages past which the reader is told the document is only partly read. */
+export const ASK_PDF_MAX_PAGES = 60
+
+/** Below this many extracted characters per page a PDF is treated as scanned
+ *  or image-only. There is no OCR here, so the honest move is to say so rather
+ *  than return "no claims found" for a document full of claims. */
+export const ASK_PDF_MIN_CHARS_PER_PAGE = 200
+
+/** Stored checks re-tested per run. Each is one synthesis call, so a tenant
+ *  with fifty saved plans must not quietly add fifty calls to every run.
+ *  Newest first: a plan nobody has revisited in months is not the one they are
+ *  steering by. */
+export const ASK_REEVALUATE_MAX_CHECKS = 10
+
 /** Characters of submitted document read (~15k tokens). A 60-page deck past
  *  this is clipped and the reader is told, rather than silently half-read. */
 export const ASK_INPUT_CHARS = 60000
