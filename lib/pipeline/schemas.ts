@@ -366,9 +366,11 @@ const rawPersonaSchema = z.object({
   triggers: z.array(z.string()),
   /** Real phrasings, taken from the language samples shown in the prompt. */
   how_they_talk: z.array(z.string()),
-  /** Demographic signals as COUNTS ONLY (counts-not-quotes, 2026-08-22). */
-  who: z.array(z.object({ signal: z.string(), count: z.number().int() })),
 })
+// NOTE: there is deliberately no `who` field. Demographic signals are counted
+// in code from the persona's own demographic_signal insights — asking the model
+// for them produced a count of 1 for every signal on the first real run, which
+// is what "let the model supply a number" looks like. Counts are counted.
 export const PassESchema = z.object({
   headline: z.string(),
   personas: z.array(rawPersonaSchema),

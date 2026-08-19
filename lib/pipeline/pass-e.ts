@@ -67,6 +67,7 @@ interface InsightRow {
   category: string | null
   journey_stage: string | null
   emotion: string | null
+  theme: string | null
 }
 
 export function buildSystemPrompt(companyName: string): string {
@@ -165,7 +166,7 @@ export async function runPassE(
   const insights = await selectAll<InsightRow>(() =>
     admin
       .from('audience_insights_current')
-      .select('id, category, journey_stage, emotion')
+      .select('id, category, journey_stage, emotion, theme')
       .eq('client_id', clientId)
       .order('id', { ascending: true }),
   )
@@ -190,6 +191,16 @@ export async function runPassE(
     insights,
     insights.map((i) => bucketById.get(i.id) ?? null),
   )
+
+  // Demographic signals, counted from the data rather than asked of the model.
+  // Pass A already isolates them as their own category, and the retention rule
+  // strips their quotes — so a count is all they can honestly be.
+  const demographicsByInsightId = new Map<string, string>()
+  for (const i of insights) {
+    if (i.category === 'demographic_signal' && i.theme?.trim()) {
+      demographicsByInsightId.set(i.id, i.theme.trim().replace(/_/g, ' '))
+    }
+  }
 
   const { rows: digest, byRef } = buildThemeDigest(themes, { maxThemes: PERSONA_DIGEST_THEMES })
   if (!digest.length) return empty
@@ -250,7 +261,7 @@ export async function runPassE(
     minInsights: PERSONA_MIN_INSIGHTS,
     minVideos: PERSONA_MIN_VIDEOS,
     maxPersonas: PERSONA_MAX,
-    populationInsights: counts.total,
+    demographicsByInsightId,
   })
 
   if (persist) {
@@ -263,6 +274,12 @@ export async function runPassE(
   for (const d of digest) for (const id of d.insightIds) themeSlugById.set(id, d.label)
   const poolIds = [...new Set(kept.flatMap((p) => p.insightIds.slice(0, QUOTE_POOL_PER_PERSONA)))]
   const quotesByAudience = poolIds.length ? await fetchQuotesByAudience(admin, poolIds) : new Map()
+  // A pool that resolves to nothing is a schema/permission problem, not an
+  // absence of good voices — fetchQuotesByAudience swallows its query error and
+  // returns an empty map, so without this the personas would just look quiet.
+  if (poolIds.length && quotesByAudience.size === 0) {
+    console.warn(`[pass-e] ${poolIds.length} insight ids resolved 0 evidence rows — check insight_evidence reachability`)
+  }
   const pick = createQuotePicker(quotesByAudience, themeSlugById)
   const withQuotes = kept.map((p) => ({
     ...p,

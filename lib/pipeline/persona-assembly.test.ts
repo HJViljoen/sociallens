@@ -1,8 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import {
+  assignPrevalence,
   buildPopulationCounts,
   buildThemeDigest,
+  countDemographics,
   groundPersonas,
+  type GroundedPersona,
   type RawPersona,
   type ThemeInput,
 } from './persona-assembly'
@@ -33,11 +36,10 @@ const persona = (over: Partial<RawPersona> = {}): RawPersona => ({
   blockers: ['cost'],
   triggers: ['a new diagnosis'],
   how_they_talk: ['"does it actually stay put"'],
-  who: [{ signal: 'new to the category', count: 12 }],
   ...over,
 })
 
-const opts = { minInsights: 12, minVideos: 3, maxPersonas: 5, populationInsights: 400 }
+const opts = { minInsights: 12, minVideos: 3, maxPersonas: 5 }
 
 describe('buildThemeDigest', () => {
   it('orders by evidence so a large run loses its tail, not its spine', () => {
@@ -118,6 +120,20 @@ describe('groundPersonas — the evidence floors', () => {
     expect(dropped[0].reason).toBe('no-themes')
   })
 
+  it('resolves refs whatever punctuation the model wraps them in', () => {
+    // Second real Ossur run: five well-formed personas resolved to nothing
+    // because the model wrote "[T12]" where the digest key was "T12". A ref
+    // that fails on a bracket un-grounds the whole persona silently.
+    const { byRef } = buildThemeDigest(
+      [theme('a', { supporting_insight_ids: Array.from({ length: 12 }, (_, i) => `i${i}`), supporting_video_ids: ['v1', 'v2', 'v3'] })],
+      { maxThemes: 10 },
+    )
+    for (const form of ['T1', '[T1]', 't1', ' T1 ']) {
+      const { kept } = groundPersonas([persona({ theme_refs: [form] })], byRef, opts)
+      expect(kept, `ref form ${form}`).toHaveLength(1)
+    }
+  })
+
   it('records unknown refs instead of throwing on them', () => {
     // Same lenient contract as every other bracket-ref pass: resolve what
     // matches, count what does not.
@@ -187,9 +203,11 @@ describe('groundPersonas — the evidence floors', () => {
       [theme('a', { supporting_insight_ids: Array.from({ length: 50 }, (_, i) => `i${i}`), supporting_video_ids: ['v1', 'v2', 'v3'] })],
       { maxThemes: 10 },
     )
-    const { kept } = groundPersonas([persona()], byRef, { ...opts, populationInsights: 100 })
-    expect(['Dominant', 'Widespread', 'Recurring', 'Early signal']).toContain(kept[0].prevalence)
+    const { kept } = groundPersonas([persona()], byRef, opts)
+    // One persona holds all of the profiled population, so the ladder's top
+    // rung is the honest word — and it is a WORD, never the number.
     expect(kept[0].prevalence).toBe('Dominant')
+    expect(kept[0].prevalence).not.toMatch(/\d/)
   })
 
   it('treats an unknown scope as the category, never inventing a client persona', () => {
@@ -203,21 +221,71 @@ describe('groundPersonas — the evidence floors', () => {
     expect(kept[0].scope).toBe('category')
   })
 
-  it('drops zero and negative demographic counts rather than showing an empty signal', () => {
+  it('counts demographics from the persona’s own evidence, not from the model', () => {
+    // The model has no `who` field at all: on the first real run it returned
+    // count:1 for every signal it named. These counts come from the persona's
+    // own demographic_signal insights or they do not exist.
+    const ids = Array.from({ length: 12 }, (_, i) => `i${i}`)
     const { byRef } = buildThemeDigest(
-      [theme('a', { supporting_insight_ids: Array.from({ length: 12 }, (_, i) => `i${i}`), supporting_video_ids: ['v1', 'v2', 'v3'] })],
+      [theme('a', { supporting_insight_ids: ids, supporting_video_ids: ['v1', 'v2', 'v3'] })],
       { maxThemes: 10 },
     )
-    const { kept } = groundPersonas(
-      [persona({ who: [{ signal: 'clinicians', count: 0 }, { signal: 'parents', count: 4 }] })],
-      byRef,
-      opts,
-    )
-    expect(kept[0].who).toEqual([{ signal: 'parents', count: 4 }])
+    const demographicsByInsightId = new Map([
+      ['i0', 'caregivers'], ['i1', 'caregivers'], ['i2', 'new amputees'],
+      ['i99', 'not this persona'],
+    ])
+    const { kept } = groundPersonas([persona()], byRef, { ...opts, demographicsByInsightId })
+    // 'new amputees' is seen once and does not survive WHO_MIN_COUNT: on real
+    // data the slugs are near-duplicates, so a count of 1 is noise dressed as
+    // a statistic.
+    expect(kept[0].who).toEqual([{ signal: 'caregivers', count: 2 }])
   })
 
   it('returns empty rather than throwing when the model proposes nothing', () => {
     const { byRef } = buildThemeDigest([theme('a')], { maxThemes: 10 })
     expect(groundPersonas([], byRef, opts)).toEqual({ kept: [], dropped: [] })
+  })
+})
+
+describe('countDemographics', () => {
+  it('returns nothing when no demographic signals were extracted', () => {
+    // Silence is honest: a category whose conversation never states who is
+    // speaking must show no `who` block rather than an inferred one.
+    expect(countDemographics(['i1', 'i2'], undefined)).toEqual([])
+    expect(countDemographics(['i1'], new Map())).toEqual([])
+  })
+
+  it('ignores signals belonging to other personas', () => {
+    const map = new Map([['mine', 'parents'], ['mine2', 'parents'], ['theirs', 'clinicians']])
+    expect(countDemographics(['mine', 'mine2'], map)).toEqual([{ signal: 'parents', count: 2 }])
+  })
+
+  it('suppresses one-off signals rather than presenting them as findings', () => {
+    const map = new Map([['a', 'swimmers'], ['b', 'beach users'], ['c', 'water users']])
+    expect(countDemographics(['a', 'b', 'c'], map)).toEqual([])
+  })
+})
+
+describe('assignPrevalence', () => {
+  const p = (evidenceCount: number, insightIds: string[]): GroundedPersona => ({
+    key: 'k', name: 'n', oneLiner: '', scope: 'category', wants: [], blockers: [], triggers: [],
+    howTheyTalk: [], who: [], themeIds: [], registryIds: [], insightIds,
+    evidenceCount, sourceVideoCount: 5, bucketMix: {}, prevalence: '', unknownRefs: [],
+  })
+
+  it('discriminates between personas instead of labelling them all the same', () => {
+    // The defect this exists to fix: measured against the WHOLE corpus, all
+    // five personas of the first real Ossur profile read "Recurring". A word
+    // that cannot separate them is decoration, so the denominator is the
+    // profiled population — the people the profile actually describes.
+    const big = p(60, Array.from({ length: 60 }, (_, i) => `b${i}`))
+    const small = p(4, Array.from({ length: 4 }, (_, i) => `s${i}`))
+    const [a, b] = assignPrevalence([big, small])
+    expect(a.prevalence).toBe('Dominant')
+    expect(b.prevalence).not.toBe('Dominant')
+  })
+
+  it('never divides by zero on an empty profile', () => {
+    expect(assignPrevalence([])).toEqual([])
   })
 })

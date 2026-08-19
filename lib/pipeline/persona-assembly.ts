@@ -13,6 +13,15 @@
 
 import { PREVALENCE_LABEL, prevalenceTier } from '../calibration'
 
+/** Bracket refs come back in whatever surface form the model felt like:
+ *  `T12`, `[T12]`, `t12 `. Every other pass normalises the same way
+ *  (pass-d.ts:80 does it for [S#]), because a ref that fails to resolve on
+ *  punctuation silently un-grounds a whole finding — which is exactly what it
+ *  did here on the second real Ossur run: five good personas, zero resolved. */
+export function normaliseRef(ref: string): string {
+  return String(ref ?? '').toLowerCase().replace(/[^a-z0-9]/g, '')
+}
+
 /** One theme as the synthesis prompt sees it: a bracket ref the model can cite,
  *  plus the grounding that ref resolves back to. */
 export interface ThemeDigestRow {
@@ -56,7 +65,6 @@ export interface RawPersona {
   blockers: string[]
   triggers: string[]
   how_they_talk: string[]
-  who: { signal: string; count: number }[]
 }
 
 export type PersonaScope = 'category' | 'client'
@@ -70,6 +78,8 @@ export interface GroundedPersona {
   blockers: string[]
   triggers: string[]
   howTheyTalk: string[]
+  /** Demographic signals COUNTED from this persona's own demographic_signal
+   *  insights — never model-supplied, never quoted (counts-not-quotes). */
   who: { signal: string; count: number }[]
   themeIds: string[]
   registryIds: string[]
@@ -93,9 +103,56 @@ export interface GroundOptions {
   minInsights: number
   minVideos: number
   maxPersonas: number
-  /** Denominator for the calibrated prevalence word — the size of the
-   *  population the personas were drawn from. */
-  populationInsights: number
+  /** insight id -> its demographic_signal theme slug, for the counted `who`
+   *  block. Only demographic_signal insights belong in here. */
+  demographicsByInsightId?: Map<string, string>
+}
+
+/** Floor for a demographic signal to be shown at all.
+ *
+ *  Pass A writes demographic_signal insights with free-text slugs, and on real
+ *  Ossur data those slugs are near-duplicates at slug level — "amputee swimming
+ *  experience", "amputee water users", "amputee beach users" are three slugs
+ *  for one fact, so counting by slug produces a long tail of 1s. Until those
+ *  are clustered, a signal seen once is noise dressed as a statistic. Showing
+ *  nothing is the honest state, and the page renders it as such. */
+export const WHO_MIN_COUNT = 2
+
+/** Count the demographic signals a persona's own evidence actually reveals.
+ *
+ *  This is code, not prompt, on purpose: the first real run had the model
+ *  return `count: 1` for every signal it named. A count the model chose is a
+ *  guess wearing a number, and the page renders these as facts. */
+export function countDemographics(
+  insightIds: string[],
+  byInsightId: Map<string, string> | undefined,
+  minCount = WHO_MIN_COUNT,
+): { signal: string; count: number }[] {
+  if (!byInsightId?.size) return []
+  const tally = new Map<string, number>()
+  for (const id of insightIds) {
+    const signal = byInsightId.get(id)
+    if (!signal) continue
+    tally.set(signal, (tally.get(signal) ?? 0) + 1)
+  }
+  return [...tally.entries()]
+    .filter(([, count]) => count >= minCount)
+    .map(([signal, count]) => ({ signal, count }))
+    .sort((a, b) => b.count - a.count || a.signal.localeCompare(b.signal))
+}
+
+/** Calibrated prevalence, assigned AFTER the floors so the denominator is the
+ *  profiled population rather than the whole corpus.
+ *
+ *  Against the corpus every persona read "Recurring" on the first real run —
+ *  a word that cannot discriminate is decoration. Relative to the people the
+ *  profile actually describes, the ladder separates them. */
+export function assignPrevalence(kept: GroundedPersona[]): GroundedPersona[] {
+  const denom = new Set(kept.flatMap((p) => p.insightIds)).size
+  return kept.map((p) => ({
+    ...p,
+    prevalence: PREVALENCE_LABEL[prevalenceTier(p.evidenceCount, Math.max(1, denom))],
+  }))
 }
 
 /**
@@ -129,7 +186,7 @@ export function buildThemeDigest(
     insightIds: t.supporting_insight_ids ?? [],
     videoIds: t.supporting_video_ids ?? [],
   }))
-  const byRef = new Map(rows.map((r) => [r.ref, r]))
+  const byRef = new Map(rows.map((r) => [normaliseRef(r.ref), r]))
   return { rows, byRef }
 }
 
@@ -213,8 +270,8 @@ export function groundPersonas(
 
   const grounded = raw.map((p) => {
     const refs = uniq(p.theme_refs ?? [])
-    const hits = refs.map((r) => byRef.get(r)).filter((r): r is ThemeDigestRow => Boolean(r))
-    const unknownRefs = refs.filter((r) => !byRef.has(r))
+    const hits = refs.map((r) => byRef.get(normaliseRef(r))).filter((r): r is ThemeDigestRow => Boolean(r))
+    const unknownRefs = refs.filter((r) => !byRef.has(normaliseRef(r)))
     const insightIds = uniq(hits.flatMap((h) => h.insightIds))
     const videoIds = uniq(hits.flatMap((h) => h.videoIds))
     const bucketMix: Record<string, number> = {}
@@ -229,14 +286,16 @@ export function groundPersonas(
       blockers: p.blockers ?? [],
       triggers: p.triggers ?? [],
       howTheyTalk: p.how_they_talk ?? [],
-      who: (p.who ?? []).filter((w) => Number.isFinite(w?.count) && w.count > 0),
+      who: countDemographics(insightIds, opts.demographicsByInsightId),
       themeIds: hits.map((h) => h.themeId),
       registryIds: hits.map((h) => h.registryId).filter((v): v is string => Boolean(v)),
       insightIds,
       evidenceCount,
       sourceVideoCount: videoIds.length,
       bucketMix,
-      prevalence: PREVALENCE_LABEL[prevalenceTier(evidenceCount, Math.max(1, opts.populationInsights))],
+      // Placeholder — assignPrevalence sets the real word once the floors have
+      // decided who is in the profile (the denominator depends on that).
+      prevalence: '',
       unknownRefs,
     }
     return { persona, hitCount: hits.length }
@@ -284,5 +343,5 @@ export function groundPersonas(
     }
   }
 
-  return { kept, dropped }
+  return { kept: assignPrevalence(kept), dropped }
 }
