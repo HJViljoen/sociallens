@@ -43,6 +43,7 @@ describe('captureRunFlags — a run must not change flags underneath itself (Tie
     process.env.INCREMENTAL_PASS_A = saved.INCREMENTAL_PASS_A
     process.env.THEME_REGISTRY = saved.THEME_REGISTRY
     process.env.REDDIT_DISCOVERY_ENABLED = saved.REDDIT_DISCOVERY_ENABLED
+    process.env.CONSUMER_PROFILE = saved.CONSUMER_PROFILE
   })
 
   it('reads every flag the run branches on', () => {
@@ -50,8 +51,10 @@ describe('captureRunFlags — a run must not change flags underneath itself (Tie
     process.env.INCREMENTAL_PASS_A = '1'
     process.env.THEME_REGISTRY = '0'
     process.env.REDDIT_DISCOVERY_ENABLED = '1'
+    process.env.CONSUMER_PROFILE = '1'
     expect(captureRunFlags()).toEqual({
       transcripts: true, incrementalPassA: true, themeRegistry: false, redditDiscovery: true,
+      consumerProfile: true,
     })
   })
 

@@ -457,6 +457,7 @@ export interface RunFlags {
   incrementalPassA: boolean
   themeRegistry: boolean
   redditDiscovery: boolean
+  consumerProfile: boolean
 }
 
 export function captureRunFlags(): RunFlags {
@@ -465,6 +466,7 @@ export function captureRunFlags(): RunFlags {
     incrementalPassA: incrementalPassAEnabled(),
     themeRegistry: themeRegistryEnabled(),
     redditDiscovery: redditDiscoveryEnabled(),
+    consumerProfile: consumerProfileEnabled(),
   }
 }
 
@@ -536,6 +538,43 @@ export function themeRegistryEnabled(): boolean {
   const v = process.env.THEME_REGISTRY
   return v === '1' || v === 'true'
 }
+
+// --- Consumer profile (Pass E, 2026-08-19) -----------------------------------
+// The profile answers "who is talking" from the insight population a run
+// already produced. It is a synthesis over existing data — no new gather — and
+// its own Inngest step, so it can never fail a client's report.
+
+/** Master switch for Pass E. OFF unless set: the pass, the step and the table
+ *  are inert without it, so merging this branch changes no run. Deliberately
+ *  left off for the first scheduled run after merge — the profile for that run
+ *  is produced offline by scripts/consumer-profile.ts instead, which keeps a
+ *  brand-new GPT call off the run the clean-run gate depends on. */
+export function consumerProfileEnabled(): boolean {
+  const v = process.env.CONSUMER_PROFILE
+  return v === '1' || v === 'true'
+}
+
+/** Hard cap on personas kept per scope. Five is the point where a switcher
+ *  still reads as a set of people rather than a list; beyond it the marginal
+ *  persona is a re-cut of one already kept. */
+export const PERSONA_MAX = 5
+
+/** Evidence floors. A persona below EITHER floor is dropped with a reason
+ *  rather than shown thin — the product contract bans invented personas, and a
+ *  persona resting on 4 comments from one video is invention with a citation.
+ *  Provisional: tuned against real Össur output before the page ships. */
+export const PERSONA_MIN_INSIGHTS = 12
+export const PERSONA_MIN_VIDEOS = 3
+
+/** Theme lines sent to the synthesis call. Össur run 2 produced 120 themes for
+ *  the whole corpus, so 140 covers a normal run whole; larger runs lose the
+ *  weakest themes first (they are ordered by evidence). Keeps the prompt near
+ *  ~20k input tokens, ~$0.05 a run. */
+export const PERSONA_DIGEST_THEMES = 140
+
+/** Hero quotes attached per persona. Three is what the page shows behind one
+ *  "see the voices" click; more is stored weight nobody reads. */
+export const PERSONA_QUOTES = 3
 
 /**
  * Theme identity is matched on MEMBERSHIP (which insights are in the theme),
