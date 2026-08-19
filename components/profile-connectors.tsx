@@ -63,7 +63,13 @@ export function ProfileConnectors({ bodyCentre }: { bodyCentre: number }) {
   // jumping into place on load.
   if (!lines.length) return null
 
-  const target = { x: 50, y: 100 - (1 - bodyCentre) * 100 * 0.55 }
+  // Each side aims at its OWN flank, not at the centre line. Converging on the
+  // middle sent every line through the gap between head and shoulders — the
+  // body occludes and the head occludes, but the neck between them is empty,
+  // so that was the one stretch where a line stayed visible inside the figure.
+  // Offset outward, each line meets the shoulder slope and stops there.
+  const targetY = 100 - (1 - bodyCentre) * 100 * 0.55
+  const targetX = (side: 'left' | 'right') => (side === 'left' ? 43 : 57)
 
   return (
     <svg
@@ -77,8 +83,8 @@ export function ProfileConnectors({ bodyCentre }: { bodyCentre: number }) {
           key={i}
           x1={l.x1}
           y1={l.y1}
-          x2={target.x}
-          y2={target.y}
+          x2={targetX(l.side)}
+          y2={targetY}
           stroke="var(--primary)"
           strokeOpacity={0.7}
           strokeWidth={1.25}
