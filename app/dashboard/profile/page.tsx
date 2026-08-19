@@ -437,14 +437,17 @@ function SharePill({ percent }: { percent: number }) {
       // centred as though it were not there and left it stranded at the bottom.
       // In the flow it is spaced with them and takes the column's width for
       // free.
-      className="profile-in-left profile-delay-3 hidden w-full items-center gap-3 rounded-full border border-primary/25 bg-card px-5 py-2.5 backdrop-blur-xl lg:flex"
+      // Back to its earlier weight, but short of the column width: at full
+      // width it read as a fifth block; a little inset it reads as a footnote
+      // belonging to the two above it.
+      className="profile-in-left profile-delay-3 hidden w-[92%] items-center gap-4 rounded-full border border-primary/25 bg-card px-6 py-4 backdrop-blur-xl lg:flex"
       title="This persona's share of the conversations the profile covers. A conversation that speaks to two of these people counts toward both."
     >
-      <span className="shrink-0 text-xs font-medium text-muted-foreground">Share of this profile</span>
-      <span className="h-1.5 min-w-[4rem] flex-1 overflow-hidden rounded-full bg-primary/15">
+      <span className="shrink-0 text-sm font-medium text-muted-foreground">Share of profile</span>
+      <span className="h-2 flex-1 overflow-hidden rounded-full bg-primary/15">
         <span className="block h-full rounded-full bg-primary/70" style={{ width: `${percent}%` }} />
       </span>
-      <span className="shrink-0 text-base font-semibold tabular-nums">{percent}%</span>
+      <span className="shrink-0 text-lg font-semibold tabular-nums">{percent}%</span>
     </div>
   )
 }
