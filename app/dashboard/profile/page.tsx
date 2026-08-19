@@ -193,10 +193,10 @@ export default async function ConsumerProfilePage({
           caption under the figure, so nothing follows the figure down. */}
       <div className="grid gap-5 lg:min-h-[calc(100dvh-10rem)] lg:grid-cols-[1fr_1.55fr_1fr]">
         <div className="order-2 flex flex-col gap-5 lg:order-1">
-          <Card>
+          <Card className="rounded-3xl">
             <CardHeader className="pb-2">
-              <CardTitle className="flex items-center gap-2 text-sm font-semibold">
-                <UserRound className="size-4 text-muted-foreground" aria-hidden />
+              <CardTitle className="flex items-center gap-2 text-base font-semibold">
+                <UserRound className="size-[1.15rem] text-muted-foreground" aria-hidden />
                 Who this is
               </CardTitle>
             </CardHeader>
@@ -287,10 +287,10 @@ export default async function ConsumerProfilePage({
 function Block({ title, Icon, body }: { title: string; Icon: typeof Compass; body: string }) {
   if (!body.trim()) return null
   return (
-    <Card>
+    <Card className="rounded-3xl">
       <CardHeader className="pb-2">
-        <CardTitle className="flex items-center gap-2 text-sm font-semibold">
-          <Icon className="size-4 text-muted-foreground" aria-hidden />
+        <CardTitle className="flex items-center gap-2 text-base font-semibold">
+          <Icon className="size-[1.15rem] text-muted-foreground" aria-hidden />
           {title}
         </CardTitle>
       </CardHeader>
