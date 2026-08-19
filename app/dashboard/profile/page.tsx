@@ -171,7 +171,20 @@ export default async function ConsumerProfilePage({
       )
     : []
   const insightMeta = new Map(insightRows.map((r) => [r.id, r]))
-  const platformTotals = new Map<string, number>()
+  // Profile-wide totals, counted in DISTINCT conversations per platform. Not
+  // the sum of the rows below: a conversation where two kinds of person both
+  // speak belongs to both of them, and adding the rows up would count it twice
+  // — the one number on this card a client might quote in a meeting is the one
+  // that must not be inflated.
+  const videosByPlatform = new Map<string, Set<string>>()
+  for (const r of insightRows) {
+    if (!r.platform || !r.source_video_id) continue
+    const set = videosByPlatform.get(r.platform) ?? new Set<string>()
+    set.add(r.source_video_id)
+    videosByPlatform.set(r.platform, set)
+  }
+  const platformTotals = new Map([...videosByPlatform].map(([p, v]) => [p, v.size] as const))
+  const grandTotal = [...platformTotals.values()].reduce((n, v) => n + v, 0)
   const platformRows: PlatformRow[] = personas.map((p) => {
     // Counted in conversations, the same unit the rest of the page uses: a
     // video with ten insights from one persona is one conversation, not ten.
@@ -188,7 +201,6 @@ export default async function ConsumerProfilePage({
     for (const [platform, videos] of seen) {
       counts[platform] = videos.size
       total += videos.size
-      platformTotals.set(platform, (platformTotals.get(platform) ?? 0) + videos.size)
     }
     return { key: p.key, name: p.name, total, counts }
   })
@@ -336,7 +348,7 @@ export default async function ConsumerProfilePage({
               variant={figures.get(active.key)}
               title={active.name}
               lean={1}
-              className="profile-figure-in h-full w-auto max-w-full text-primary"
+              className="profile-figure-in profile-figure-fade h-full w-auto max-w-full text-primary"
             />
           </div>
         </div>
@@ -347,7 +359,7 @@ export default async function ConsumerProfilePage({
         </div>
       </div>
 
-      <PlatformMix rows={platformRows} platforms={platforms} />
+      <PlatformMix rows={platformRows} platforms={platforms} totals={Object.fromEntries(platformTotals)} grandTotal={grandTotal} />
       <ShareOverTime dates={shareDates} series={shareSeries} />
 
     </div>
