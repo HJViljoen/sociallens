@@ -33,9 +33,9 @@ const persona = (over: Partial<RawPersona> = {}): RawPersona => ({
   one_liner: 'weighing options before committing',
   scope: 'category',
   theme_refs: ['T1'],
-  wants: ['a straight answer on fit'],
-  blockers: ['cost'],
-  triggers: ['a new diagnosis'],
+  wants: 'They are trying to work out whether this can fit their life.',
+  blockers: 'Cost sits between them and a decision they have already made.',
+  triggers: 'Seeing someone in their situation get there first.',
   how_they_talk: ['"does it actually stay put"'],
   ...over,
 })
@@ -269,7 +269,7 @@ describe('countDemographics', () => {
 
 describe('assignPrevalence', () => {
   const p = (evidenceCount: number, insightIds: string[]): GroundedPersona => ({
-    key: 'k', name: 'n', oneLiner: '', scope: 'category', wants: [], blockers: [], triggers: [],
+    key: 'k', name: 'n', oneLiner: '', scope: 'category', wants: '', blockers: '', triggers: '',
     howTheyTalk: [], who: [], themeIds: [], registryIds: [], insightIds,
     evidenceCount, sourceVideoCount: 5, bucketMix: {}, prevalence: '', unknownRefs: [],
   })

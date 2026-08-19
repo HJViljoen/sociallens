@@ -24,13 +24,24 @@ describe('buildSystemPrompt', () => {
     expect(prompt).toContain('Cut it back to the noun')
   })
 
-  it('asks for a character sketch, not a list of requests', () => {
+  it('asks for written analysis, not lists', () => {
+    // The page is a read, not a dataset: same register as the dashboard's
+    // executive brief. A bullet is a data point wearing a sentence's clothes.
+    expect(prompt).toContain('THE BLOCKS ARE ANALYSIS, NOT LISTS')
+    expect(prompt).toContain('busy decision-maker')
+    expect(prompt).toContain('Never write lists, fragments, or labels')
+  })
+
+  it('asks what the person is like, not what they asked for', () => {
     // "Pricing, contact details, and coverage guidance" is Voice-of-Customer
-    // output. This page answers what the person is LIKE; the specifics are one
-    // click away elsewhere in the product.
-    expect(prompt).toContain('DESCRIBE THE PERSON, NOT THEIR REQUESTS')
+    // output; the specifics live one click away elsewhere in the product.
     expect(prompt).toContain('never "what did they ask for?"')
-    expect(prompt).toContain('short phrase, not a sentence')
+    expect(prompt).toContain('belongs on another page, not here')
+  })
+
+  it('asks each block for the WHY, which is what makes it analysis', () => {
+    expect(prompt).toContain('Explain the why, not just the what')
+    expect(prompt).toContain('Name the tension, not the obstacle list')
   })
 
   it('requires every persona to cite the themes it rests on', () => {

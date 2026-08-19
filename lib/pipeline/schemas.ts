@@ -361,9 +361,11 @@ const rawPersonaSchema = z.object({
   scope: z.enum(['category', 'client']),
   /** T# refs into the theme digest — the persona's whole claim to existence. */
   theme_refs: z.array(z.string()),
-  wants: z.array(z.string()),
-  blockers: z.array(z.string()),
-  triggers: z.array(z.string()),
+  // Prose, not lists. This page is an analysis, and a bullet is a data point
+  // wearing a sentence's clothes — the executive brief's register is the bar.
+  wants: z.string(),
+  blockers: z.string(),
+  triggers: z.string(),
   /** Real phrasings, taken from the language samples shown in the prompt. */
   how_they_talk: z.array(z.string()),
 })

@@ -195,7 +195,9 @@
   z-index: 0;
   pointer-events: none;
   background: url("/crowd.svg") center bottom / cover no-repeat;
-  opacity: 0.16;
+  /* Fainter (was 0.16): the Consumer Profile puts a large figure in front of
+     this layer, and at the old weight the backdrop competed with its subject. */
+  opacity: 0.1;
   -webkit-mask-image: linear-gradient(to bottom, transparent 0%, rgba(0, 0, 0, 0.35) 8%, #000 34%, #000 100%);
   mask-image: linear-gradient(to bottom, transparent 0%, rgba(0, 0, 0, 0.35) 8%, #000 34%, #000 100%);
 }

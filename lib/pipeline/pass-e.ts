@@ -48,7 +48,9 @@ import {
 // v3 (2026-08-19): continuity. The cast persists across runs — shown to the
 // model as the default answer, and carried by evidence overlap afterwards so it
 // holds whether or not the model cooperates.
-const PROMPT_VERSION = 'pass_e_v3'
+// v4 (2026-08-19): the blocks are written analysis, not bullets. This page is a
+// read, not a dataset — same register as the dashboard's executive brief.
+const PROMPT_VERSION = 'pass_e_v4'
 
 /** Language samples shown to the model — enough to hear the register without
  *  crowding out the theme digest. */
@@ -92,11 +94,12 @@ export function buildSystemPrompt(companyName: string): string {
     '  Wrong shape: "The identity-led wearer seeking confidence" (a description, not a name) · "Value-conscious Val" (a persona-deck cliché) · "Cost and access barriers" (a theme label, not a person) · "The evaluator checking fit and commitment" (a sentence).',
     '  If the name needs a verb or a clause to make sense, you have written a description. Cut it back to the noun.',
     '',
-    'THE BLOCKS DESCRIBE THE PERSON, NOT THEIR REQUESTS. This is a character sketch. The specifics live elsewhere in the product and are one click away, so here you are answering "what is this kind of person like?" — never "what did they ask for?".',
-    '  wants: what drives them, in a few words each. "To get moving again" — not "Pricing, contact details, and coverage guidance that make the brand feel reachable."',
-    '  blockers: what holds this kind of person back. "Cost feels out of reach" — not "Coverage rules and public-system delays make access feel uncertain."',
-    '  triggers: what moves them to act. "Seeing someone like them succeed" — not "Step-by-step explanations of the access journey."',
-    '  Each item is a short phrase, not a sentence. Three or four per block. If an item names a product feature, a channel, or a piece of information, it belongs on another page, not here.',
+    'THE BLOCKS ARE ANALYSIS, NOT LISTS. Each one is a short written read — two or three plain sentences, the way a good analyst briefs a busy decision-maker. A bullet list is a data point wearing a sentence\'s clothes; the reader wants to understand this person, not scan them. Never write lists, fragments, or labels — write prose.',
+    '  one_liner: who this person is and where they are in their story. Two or three sentences.',
+    '  wants: what DRIVES them — the underlying motivation, and what they are really trying to get. Explain the why, not just the what.',
+    '  blockers: what STOPS them — what holds this kind of person back, and why it bites. Name the tension, not the obstacle list.',
+    '  triggers: what WORKS on them — what actually moves this person, and why it lands where other things do not.',
+    '  Answer "what is this kind of person like?" — never "what did they ask for?". If a sentence names a product feature, a channel, or a piece of information, it belongs on another page, not here.',
     '',
     'CONTINUITY. If a standing cast is shown below, those people are already in this client\'s profile and are the default answer. Return them again — same names — when the conversation still contains them, even if this run\'s themes are worded differently. Introduce a new persona only when a genuinely different kind of person has appeared, and leave one out only when the conversation no longer contains them at all. A profile that renames its people every week is unreadable; the point is that what they want moves while they stay the same.',
     '',
@@ -335,14 +338,14 @@ export async function runPassE(
     ...p,
     name: stripThemeRefs(p.name),
     oneLiner: stripThemeRefs(p.oneLiner),
-    wants: p.wants.map(stripThemeRefs),
-    blockers: p.blockers.map(stripThemeRefs),
-    triggers: p.triggers.map(stripThemeRefs),
+    wants: stripThemeRefs(p.wants),
+    blockers: stripThemeRefs(p.blockers),
+    triggers: stripThemeRefs(p.triggers),
     howTheyTalk: p.howTheyTalk.map(stripThemeRefs),
     quotes: pick(
       p.insightIds.slice(0, QUOTE_POOL_PER_PERSONA),
       PERSONA_QUOTES,
-      [p.name, p.oneLiner, ...p.wants, ...p.blockers].join('. '),
+      [p.name, p.oneLiner, p.wants, p.blockers].join('. '),
     ),
   }))
 

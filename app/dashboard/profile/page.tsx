@@ -37,9 +37,9 @@ interface Persona {
   name: string
   oneLiner: string
   scope: 'category' | 'client'
-  wants: string[]
-  blockers: string[]
-  triggers: string[]
+  wants: string
+  blockers: string
+  triggers: string
   howTheyTalk: string[]
   who: { signal: string; count: number }[]
   insightIds: string[]
@@ -54,14 +54,18 @@ interface Persona {
 function normalisePersona(p: Partial<Persona> | null): Persona | null {
   if (!p || typeof p.name !== 'string' || !p.name) return null
   const arr = (v: unknown): string[] => (Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : [])
+  const text = (v: unknown): string =>
+    typeof v === 'string' ? v : Array.isArray(v) ? arr(v).join('. ') : ''
   return {
     key: typeof p.key === 'string' && p.key ? p.key : p.name,
     name: p.name,
     oneLiner: typeof p.oneLiner === 'string' ? p.oneLiner : '',
     scope: p.scope === 'client' ? 'client' : 'category',
-    wants: arr(p.wants),
-    blockers: arr(p.blockers),
-    triggers: arr(p.triggers),
+    // Legacy rows stored these as bullet arrays; join rather than drop so a
+    // profile written before the prose change still reads.
+    wants: text(p.wants),
+    blockers: text(p.blockers),
+    triggers: text(p.triggers),
     howTheyTalk: arr(p.howTheyTalk),
     who: Array.isArray(p.who)
       ? p.who.filter((w) => w && typeof w.signal === 'string' && Number.isFinite(w.count))
@@ -188,8 +192,8 @@ export default async function ConsumerProfilePage({
           page. The persona's description is one of the blocks rather than a
           caption under the figure, so nothing follows the figure down. */}
       <div className="grid gap-5 lg:min-h-[calc(100dvh-10rem)] lg:grid-cols-[1fr_1.55fr_1fr]">
-        <div className="order-2 grid gap-5 lg:order-1 lg:grid-rows-[1fr_1.9fr]">
-          <Card className="h-full">
+        <div className="order-2 flex flex-col gap-5 lg:order-1">
+          <Card>
             <CardHeader className="pb-2">
               <CardTitle className="flex items-center gap-2 text-sm font-semibold">
                 <UserRound className="size-4 text-muted-foreground" aria-hidden />
@@ -225,7 +229,7 @@ export default async function ConsumerProfilePage({
               )}
             </CardContent>
           </Card>
-          <Block title="What they want" Icon={Compass} items={active.wants} className="h-full" />
+          <Block title="What drives them" Icon={Compass} body={active.wants} />
         </div>
 
         <div className="order-1 flex h-full min-w-0 flex-col items-center lg:order-2">
@@ -243,9 +247,9 @@ export default async function ConsumerProfilePage({
           </div>
         </div>
 
-        <div className="order-3 grid gap-5 lg:grid-rows-[2.4fr_1fr]">
-          <Block title="What stops them" Icon={HeartCrack} items={active.blockers} className="h-full" />
-          <Block title="What moves them" Icon={Zap} items={active.triggers} className="h-full" />
+        <div className="order-3 flex flex-col gap-5">
+          <Block title="What stops them" Icon={HeartCrack} body={active.blockers} />
+          <Block title="What works on them" Icon={Zap} body={active.triggers} />
         </div>
       </div>
 
@@ -278,20 +282,12 @@ export default async function ConsumerProfilePage({
   )
 }
 
-function Block({
-  title,
-  Icon,
-  items,
-  className = '',
-}: {
-  title: string
-  Icon: typeof Compass
-  items: string[]
-  className?: string
-}) {
-  if (!items.length) return null
+/** A written read, not a list. Same register as the dashboard's executive
+ *  brief: the reader is here to understand a person, not to scan attributes. */
+function Block({ title, Icon, body }: { title: string; Icon: typeof Compass; body: string }) {
+  if (!body.trim()) return null
   return (
-    <Card className={className}>
+    <Card>
       <CardHeader className="pb-2">
         <CardTitle className="flex items-center gap-2 text-sm font-semibold">
           <Icon className="size-4 text-muted-foreground" aria-hidden />
@@ -299,14 +295,7 @@ function Block({
         </CardTitle>
       </CardHeader>
       <CardContent>
-        <ul className="space-y-1.5 text-sm leading-snug text-foreground/85">
-          {items.map((it, i) => (
-            <li key={i} className="flex gap-2">
-              <span className="mt-1.5 size-1 shrink-0 rounded-full bg-primary/50" aria-hidden />
-              {it}
-            </li>
-          ))}
-        </ul>
+        <p className="text-[15px] leading-relaxed text-foreground/85">{body}</p>
       </CardContent>
     </Card>
   )

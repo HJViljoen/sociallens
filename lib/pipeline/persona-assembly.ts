@@ -78,9 +78,9 @@ export interface RawPersona {
   one_liner: string
   scope: string
   theme_refs: string[]
-  wants: string[]
-  blockers: string[]
-  triggers: string[]
+  wants: string
+  blockers: string
+  triggers: string
   how_they_talk: string[]
 }
 
@@ -91,9 +91,9 @@ export interface GroundedPersona {
   name: string
   oneLiner: string
   scope: PersonaScope
-  wants: string[]
-  blockers: string[]
-  triggers: string[]
+  wants: string
+  blockers: string
+  triggers: string
   howTheyTalk: string[]
   /** Demographic signals COUNTED from this persona's own demographic_signal
    *  insights — never model-supplied, never quoted (counts-not-quotes). */
@@ -336,9 +336,9 @@ export function groundPersonas(
       name: p.name,
       oneLiner: p.one_liner,
       scope: normaliseScope(p.scope),
-      wants: p.wants ?? [],
-      blockers: p.blockers ?? [],
-      triggers: p.triggers ?? [],
+      wants: p.wants ?? '',
+      blockers: p.blockers ?? '',
+      triggers: p.triggers ?? '',
       howTheyTalk: filterToRealPhrases(p.how_they_talk ?? [], opts.validPhrases),
       who: countDemographics(insightIds, opts.demographicsByInsightId),
       themeIds: hits.map((h) => h.themeId),
