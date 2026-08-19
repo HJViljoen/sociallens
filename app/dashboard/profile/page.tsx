@@ -171,11 +171,9 @@ export default async function ConsumerProfilePage({
       )
     : []
   const insightMeta = new Map(insightRows.map((r) => [r.id, r]))
-  // Profile-wide totals, counted in DISTINCT conversations per platform. Not
-  // the sum of the rows below: a conversation where two kinds of person both
-  // speak belongs to both of them, and adding the rows up would count it twice
-  // — the one number on this card a client might quote in a meeting is the one
-  // that must not be inflated.
+  // Which platforms the card draws, biggest first. Counted in DISTINCT
+  // conversations so the ordering is by real reach rather than by how many
+  // personas happen to mention a platform.
   const videosByPlatform = new Map<string, Set<string>>()
   for (const r of insightRows) {
     if (!r.platform || !r.source_video_id) continue
@@ -184,7 +182,6 @@ export default async function ConsumerProfilePage({
     videosByPlatform.set(r.platform, set)
   }
   const platformTotals = new Map([...videosByPlatform].map(([p, v]) => [p, v.size] as const))
-  const grandTotal = [...platformTotals.values()].reduce((n, v) => n + v, 0)
   const platformRows: PlatformRow[] = personas.map((p) => {
     // Counted in conversations, the same unit the rest of the page uses: a
     // video with ten insights from one persona is one conversation, not ten.
@@ -359,7 +356,7 @@ export default async function ConsumerProfilePage({
         </div>
       </div>
 
-      <PlatformMix rows={platformRows} platforms={platforms} totals={Object.fromEntries(platformTotals)} grandTotal={grandTotal} />
+      <PlatformMix rows={platformRows} platforms={platforms} />
       <ShareOverTime dates={shareDates} series={shareSeries} />
 
     </div>
