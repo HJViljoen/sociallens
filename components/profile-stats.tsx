@@ -159,13 +159,13 @@ export function ShareOverTime({ dates, series }: { dates: string[]; series: Shar
         </p>
       </CardHeader>
       <CardContent>
-        <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-center sm:gap-8">
           <LineChart dates={dates} series={series} />
           <ul className="flex flex-row flex-wrap gap-x-4 gap-y-2 sm:w-40 sm:shrink-0 sm:flex-col">
             {series.map((s, i) => (
               <li key={s.key} className="flex items-center gap-2 text-xs">
                 <span
-                  className="h-0.5 w-4 shrink-0 rounded-full"
+                  className="h-1 w-5 shrink-0 rounded-full"
                   style={{ background: personaColour(i) }}
                   aria-hidden
                 />
@@ -204,8 +204,28 @@ function LineChart({ dates, series }: { dates: string[]; series: ShareSeries[] }
   const x = (i: number) => pad.left + (dates.length === 1 ? innerW / 2 : (i / (dates.length - 1)) * innerW)
   const y = (v: number) => pad.top + innerH - (v / max) * innerH
 
+  // With a single update every dot shares an x, and two shares a couple of
+  // points apart land almost on top of each other — Össur's third and fourth
+  // are 17% and 15%. So that column gets its values written beside it, pushed
+  // apart to a legible spacing. The LABEL moves; the dot never does.
+  const single = dates.length === 1
+  const labels = single
+    ? (() => {
+        const items = series
+          .map((s, si) => ({ si, v: s.points[0] }))
+          .filter((it): it is { si: number; v: number } => it.v != null)
+          .sort((a, b) => b.v - a.v)
+        let last = -Infinity
+        return items.map((it) => {
+          const wanted = Math.max(y(it.v), last + 9)
+          last = wanted
+          return { ...it, ly: wanted }
+        })
+      })()
+    : []
+
   return (
-    <svg viewBox={`0 0 ${W} ${H}`} className="h-40 w-full" role="img" aria-label="Share of the profile per update">
+    <svg viewBox={`0 0 ${W} ${H}`} className="h-48 w-full max-w-[32rem]" role="img" aria-label="Share of the profile per update">
       {/* Two rules and two labels: the scale a dot is read against. Without
           them a lone column of points is decoration. */}
       <line
@@ -261,6 +281,22 @@ function LineChart({ dates, series }: { dates: string[]; series: ShareSeries[] }
                 vectorEffect="non-scaling-stroke"
               />
             ))}
+            {/* With one update there is no line to draw, and five specks in the
+                middle of an empty box read as noise. Each persona gets a short
+                stub instead — the same mark the legend shows, which is what
+                makes it read as a line that has not been continued yet. */}
+            {single && s.points[0] != null ? (
+              <line
+                x1={x(0) - 11}
+                y1={y(s.points[0])}
+                x2={x(0) + 11}
+                y2={y(s.points[0])}
+                stroke={personaColour(si)}
+                strokeWidth={1.75}
+                strokeLinecap="round"
+                vectorEffect="non-scaling-stroke"
+              />
+            ) : null}
             {s.points.map((p, i) =>
               p == null ? null : (
                 // Ringed in the page's own colour: with one update every dot
@@ -280,6 +316,17 @@ function LineChart({ dates, series }: { dates: string[]; series: ShareSeries[] }
           </g>
         )
       })}
+      {labels.map(({ si, v, ly }) => (
+        <text
+          key={si}
+          x={x(0) + 15}
+          y={ly + 3}
+          className="fill-muted-foreground"
+          style={{ fontSize: 8 }}
+        >
+          {v}%
+        </text>
+      ))}
       {dates.map((d, i) => (
         <text
           key={d + i}
