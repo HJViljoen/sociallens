@@ -1,6 +1,7 @@
 import Link from 'next/link'
 import { HeartCrack, Compass, Sparkles, Users, UserRound, Layers, Zap } from 'lucide-react'
 import { getSessionContext } from '@/lib/auth'
+import { createQuotePicker, fetchQuotesByAudience } from '@/lib/quotes'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Quotes } from '@/components/quotes'
 import { CrowdFigure } from '@/components/crowd-figure'
@@ -153,6 +154,18 @@ export default async function ConsumerProfilePage({
     .limit(3)
   const recs = (recRows ?? []) as { id: string; type: string; title: string; reasoning: string; hero_quote: string | null }[]
 
+  // One real voice per block. The page describes people; without their words
+  // the description is a claim the reader has to take on trust — and the
+  // product is called Verbatim. The picker de-duplicates across calls, so each
+  // block gets a different person rather than the same quote three times.
+  const voiceIds = active.insightIds.slice(0, 60)
+  const quotesByAudience = voiceIds.length ? await fetchQuotesByAudience(supabase, voiceIds) : new Map()
+  const pickVoice = createQuotePicker(quotesByAudience, new Map())
+  const voiceFor = (text: string) => (voiceIds.length ? pickVoice(voiceIds, 1, text)[0] : undefined)
+  const drivesVoice = voiceFor(active.wants)
+  const stopsVoice = voiceFor(active.blockers)
+  const worksVoice = voiceFor(active.triggers)
+
   const scopeLabel =
     active.scope === 'client'
       ? { text: 'Your audience', Icon: Users, fg: 'text-primary', bg: 'bg-primary/10' }
@@ -191,9 +204,11 @@ export default async function ConsumerProfilePage({
           off the bottom edge, the way it stands in the crowd behind every other
           page. The persona's description is one of the blocks rather than a
           caption under the figure, so nothing follows the figure down. */}
-      <div className="grid gap-5 lg:min-h-[calc(100dvh-10rem)] lg:grid-cols-[1fr_1.55fr_1fr]">
-        <div className="order-2 flex flex-col gap-5 lg:order-1">
-          <Card className="rounded-3xl">
+      <div className="grid gap-6 lg:min-h-[calc(100dvh-10rem)] lg:grid-cols-[1fr_1.5fr_1fr] lg:gap-10">
+        <div className="order-2 flex flex-col gap-6 lg:order-1">
+          <div className="relative">
+          <Connector side="right" />
+          <Card className="rounded-3xl ring-1 ring-primary/25">
             <CardHeader className="pb-2">
               <CardTitle className="flex items-center gap-2 text-base font-semibold">
                 <UserRound className="size-[1.15rem] text-muted-foreground" aria-hidden />
@@ -229,7 +244,8 @@ export default async function ConsumerProfilePage({
               )}
             </CardContent>
           </Card>
-          <Block title="What drives them" Icon={Compass} body={active.wants} />
+          </div>
+          <Block title="What drives them" Icon={Compass} body={active.wants} quote={drivesVoice} connect="right" />
         </div>
 
         <div className="order-1 flex h-full min-w-0 flex-col items-center lg:order-2">
@@ -247,9 +263,9 @@ export default async function ConsumerProfilePage({
           </div>
         </div>
 
-        <div className="order-3 flex flex-col gap-5">
-          <Block title="What stops them" Icon={HeartCrack} body={active.blockers} />
-          <Block title="What works on them" Icon={Zap} body={active.triggers} />
+        <div className="order-3 flex flex-col gap-6">
+          <Block title="What stops them" Icon={HeartCrack} body={active.blockers} quote={stopsVoice} connect="left" />
+          <Block title="What works on them" Icon={Zap} body={active.triggers} quote={worksVoice} connect="left" />
         </div>
       </div>
 
@@ -283,21 +299,58 @@ export default async function ConsumerProfilePage({
 }
 
 /** A written read, not a list. Same register as the dashboard's executive
- *  brief: the reader is here to understand a person, not to scan attributes. */
-function Block({ title, Icon, body }: { title: string; Icon: typeof Compass; body: string }) {
+ *  brief: the reader is here to understand a person, not to scan attributes —
+ *  with one real voice under it, because otherwise the read is a claim the
+ *  reader has to take on trust.
+ *
+ *  `connect` draws a line from the block toward the figure. It is anchored to
+ *  the block's own vertical midpoint rather than to a fixed position on the
+ *  page, so it stays aimed at the middle whatever length the analysis runs to. */
+function Block({
+  title,
+  Icon,
+  body,
+  quote,
+  connect,
+}: {
+  title: string
+  Icon: typeof Compass
+  body: string
+  quote?: string
+  connect?: 'left' | 'right'
+}) {
   if (!body.trim()) return null
   return (
-    <Card className="rounded-3xl">
-      <CardHeader className="pb-2">
-        <CardTitle className="flex items-center gap-2 text-base font-semibold">
-          <Icon className="size-[1.15rem] text-muted-foreground" aria-hidden />
-          {title}
-        </CardTitle>
-      </CardHeader>
-      <CardContent>
-        <p className="text-[15px] leading-relaxed text-foreground/85">{body}</p>
-      </CardContent>
-    </Card>
+    <div className="relative">
+      {connect && <Connector side={connect} />}
+      <Card className="rounded-3xl ring-1 ring-primary/25">
+        <CardHeader className="pb-2">
+          <CardTitle className="flex items-center gap-2 text-base font-semibold">
+            <Icon className="size-[1.15rem] text-muted-foreground" aria-hidden />
+            {title}
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <p className="text-[15px] leading-relaxed text-foreground/85">{body}</p>
+          {quote && <Quotes items={[quote]} />}
+        </CardContent>
+      </Card>
+    </div>
+  )
+}
+
+/** The line from a block to the figure. Decorative, so it is hidden from
+ *  assistive tech and only drawn where there is a gutter to draw it in. */
+function Connector({ side }: { side: 'left' | 'right' }) {
+  const anchor = side === 'right' ? 'left-full ml-0' : 'right-full mr-0'
+  const dot = side === 'right' ? 'right-0' : 'left-0'
+  return (
+    <div
+      aria-hidden
+      className={`pointer-events-none absolute top-1/2 hidden h-px w-[clamp(1.5rem,5vw,6rem)] -translate-y-1/2 bg-primary/30 lg:block ${anchor}`}
+    >
+      <span className={`absolute top-1/2 size-1.5 -translate-y-1/2 rounded-full bg-primary/40 ${dot}`} />
+    </div>
   )
 }
 
