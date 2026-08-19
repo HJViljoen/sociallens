@@ -335,4 +335,5 @@
      than a single slab. */
   .profile-delay-1 { animation-delay: 0.06s; }
   .profile-delay-2 { animation-delay: 0.12s; }
+  .profile-delay-3 { animation-delay: 0.18s; }
 }

@@ -389,6 +389,8 @@ function Connectors({ bodyCentre }: { bodyCentre: number }) {
     { x: 29, y: 71, side: 'left' as const },
     { x: 71, y: 35, side: 'right' as const },
     { x: 71, y: 71, side: 'right' as const },
+    // The share bar, tethered like everything else that describes this person.
+    { x: 30, y: 96, side: 'left' as const },
   ]
   return (
     <svg
@@ -413,7 +415,7 @@ function Connectors({ bodyCentre }: { bodyCentre: number }) {
           vectorEffect="non-scaling-stroke"
           // Each line travels with the block it belongs to; the end that meets
           // the figure moves underneath it, where the opaque body hides it.
-          className={`${s.side === 'left' ? 'profile-line-left' : 'profile-line-right'} ${i % 2 ? 'profile-delay-2' : ''}`}
+          className={`${s.side === 'left' ? 'profile-line-left' : 'profile-line-right'} ${i === 4 ? 'profile-delay-3' : i % 2 ? 'profile-delay-2' : ''}`}
         />
       ))}
     </svg>
@@ -429,14 +431,17 @@ function SharePill({ percent }: { percent: number }) {
   if (!percent) return null
   return (
     <div
-      className="profile-in-left pointer-events-none absolute bottom-0 left-0 z-10 hidden items-center gap-3 rounded-full border border-primary/25 bg-card px-4 py-2 backdrop-blur-xl lg:inline-flex"
+      // Width derived from the track itself rather than guessed: the grid is
+      // 1fr / 1.15fr / 1fr with two gaps, so one side column is exactly this.
+      // It stays aligned with the blocks above it when the window changes.
+      className="profile-in-left profile-delay-3 absolute bottom-0 left-0 z-10 hidden w-[calc((100%-3.5rem)/3.15)] items-center gap-4 rounded-full border border-primary/25 bg-card px-6 py-4 backdrop-blur-xl lg:flex"
       title="This persona's share of the conversations the profile covers. A conversation that speaks to two of these people counts toward both."
     >
-      <span className="text-xs font-medium text-muted-foreground">Share of this profile</span>
-      <span className="h-1.5 w-20 overflow-hidden rounded-full bg-primary/15">
+      <span className="shrink-0 text-sm font-medium text-muted-foreground">Share of this profile</span>
+      <span className="h-2 min-w-[5rem] flex-1 overflow-hidden rounded-full bg-primary/15">
         <span className="block h-full rounded-full bg-primary/70" style={{ width: `${percent}%` }} />
       </span>
-      <span className="text-sm font-semibold tabular-nums">{percent}%</span>
+      <span className="shrink-0 text-lg font-semibold tabular-nums">{percent}%</span>
     </div>
   )
 }
