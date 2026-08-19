@@ -1,5 +1,5 @@
 import Link from 'next/link'
-import { HeartCrack, Compass, Sparkles, Users, Layers, Quote as QuoteIcon, Zap, ChevronLeft, ChevronRight } from 'lucide-react'
+import { HeartCrack, Compass, Sparkles, Users, UserRound, Layers, Quote as QuoteIcon, Zap, ChevronLeft, ChevronRight } from 'lucide-react'
 import { getSessionContext } from '@/lib/auth'
 import { createQuotePicker, fetchQuotesByAudience } from '@/lib/quotes'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -177,7 +177,9 @@ export default async function ConsumerProfilePage({
       : { text: 'Wider category', Icon: Layers, fg: 'text-slate', bg: 'bg-slate/10' }
 
   return (
-    <div className="space-y-6">
+    // min-h-full + flex: the grid must be able to claim the remaining height,
+    // which is what lets the figure reach the bottom of the pane.
+    <div className="flex min-h-full flex-col gap-6">
       <PageHeader />
 
       {profile?.headline && (
@@ -199,31 +201,22 @@ export default async function ConsumerProfilePage({
           around it, and the stepper sits above it because paging personas is a
           change to the figure, not a filter on the page. On mobile the figure
           leads and the blocks stack under it. */}
-      <div className="grid items-start gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(18rem,22rem)_minmax(0,1fr)]">
-        {/* Left: what drives them, then what holds them back. */}
-        <div className="order-2 flex flex-col gap-4 lg:order-1 lg:pt-16">
-          <Block title="What they want" Icon={Compass} items={active.wants} />
-          <Block title="What stops them" Icon={HeartCrack} items={active.blockers} />
-        </div>
-
-        {/* The figure lives in a block like everything else, and runs to that
-            block's bottom edge — it is the subject of the card, not a picture
-            floating on the page. Text sits at the top so nothing follows the
-            figure down. */}
-        <div className="order-1 flex flex-col items-center lg:order-2">
-          {showSwitcher && (
-            <div className="mb-4 flex items-center gap-1 rounded-full border border-border bg-card px-1 py-1">
-              <StepLink href={`/dashboard/profile?persona=${encodeURIComponent(prev.key)}`} label="Previous persona" Icon={ChevronLeft} />
-              <span className="min-w-[9rem] px-2 text-center text-sm font-medium">{active.name}</span>
-              <StepLink href={`/dashboard/profile?persona=${encodeURIComponent(next.key)}`} label="Next persona" Icon={ChevronRight} />
-            </div>
-          )}
-
-          <Card className="flex w-full flex-col overflow-hidden pb-0">
-            <CardContent className="pb-0 text-center">
-              {!showSwitcher && <h2 className="mb-1 text-lg font-semibold leading-tight">{active.name}</h2>}
-              <p className="text-sm leading-snug text-muted-foreground">{active.oneLiner}</p>
-              <div className="mt-3 flex flex-wrap items-center justify-center gap-1.5">
+      {/* Four blocks around a figure that stands on its own — no card, running
+          off the bottom edge, the way it stands in the crowd behind every other
+          page. The persona's description is one of the blocks rather than a
+          caption under the figure, so nothing follows the figure down. */}
+      <div className="grid min-h-0 flex-1 items-start gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(16rem,20rem)_minmax(0,1fr)]">
+        <div className="order-2 flex flex-col gap-4 lg:order-1">
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="flex items-center gap-2 text-sm font-semibold">
+                <UserRound className="size-4 text-muted-foreground" aria-hidden />
+                Who this is
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <p className="text-sm leading-relaxed text-foreground/85">{active.oneLiner}</p>
+              <div className="flex flex-wrap items-center gap-1.5">
                 <span
                   className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium ${scopeLabel.bg} ${scopeLabel.fg}`}
                 >
@@ -239,44 +232,42 @@ export default async function ConsumerProfilePage({
                   </span>
                 )}
               </div>
-              <p className="mt-2 text-xs text-muted-foreground" title={glossaryRule('conversations')}>
+              <p className="text-xs text-muted-foreground" title={glossaryRule('conversations')}>
                 Heard across {active.sourceVideoCount}{' '}
                 {active.sourceVideoCount === 1 ? 'conversation' : 'conversations'}
               </p>
             </CardContent>
-            {/* -mb keeps the silhouette bleeding into the card's bottom edge
-                rather than sitting on a cushion of padding. */}
+          </Card>
+          <Block title="What they want" Icon={Compass} items={active.wants} />
+        </div>
+
+        <div className="order-1 flex h-full min-w-0 flex-col items-center lg:order-2">
+          {showSwitcher && (
+            <div className="mb-6 flex items-center gap-1 rounded-full border border-border bg-card px-1 py-1">
+              <StepLink href={`/dashboard/profile?persona=${encodeURIComponent(prev.key)}`} label="Previous persona" Icon={ChevronLeft} />
+              <span className="min-w-[9rem] px-2 text-center text-sm font-medium">{active.name}</span>
+              <StepLink href={`/dashboard/profile?persona=${encodeURIComponent(next.key)}`} label="Next persona" Icon={ChevronRight} />
+            </div>
+          )}
+          {!showSwitcher && <h2 className="mb-6 text-lg font-semibold leading-tight">{active.name}</h2>}
+
+          {/* The figure takes whatever height is left and stands ON the bottom
+              edge: -mb-6 eats the pane's own padding so the hem lands on the
+              edge itself rather than floating above it. h-full + w-auto keeps
+              the silhouette's proportions whatever the window does. */}
+          <div className="-mb-6 flex min-h-[22rem] w-full flex-1 items-end justify-center overflow-hidden">
             <CrowdFigure
               personaKey={active.key}
               title={active.name}
               lean={1}
-              className="mt-6 h-56 w-full text-primary sm:h-72 lg:h-80"
+              className="h-full w-auto max-w-full text-primary"
             />
-          </Card>
+          </div>
         </div>
 
-        {/* Right: what moves them, then how they sound. */}
-        <div className="order-3 flex flex-col gap-4 lg:pt-8">
+        <div className="order-3 flex flex-col gap-4">
+          <Block title="What stops them" Icon={HeartCrack} items={active.blockers} />
           <Block title="What moves them" Icon={Zap} items={active.triggers} />
-          {active.howTheyTalk.length > 0 && (
-            <Card>
-              <CardHeader className="pb-2">
-                <CardTitle className="flex items-center gap-2 text-sm font-semibold">
-                  <QuoteIcon className="size-4 text-muted-foreground" aria-hidden />
-                  How they sound
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="flex flex-wrap gap-1.5">
-                  {active.howTheyTalk.map((phrase, i) => (
-                    <span key={i} className="rounded-md bg-muted px-2 py-1 text-xs text-foreground/80">
-                      {phrase}
-                    </span>
-                  ))}
-                </div>
-              </CardContent>
-            </Card>
-          )}
         </div>
       </div>
 

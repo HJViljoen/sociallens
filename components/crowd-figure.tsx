@@ -60,6 +60,8 @@ export function CrowdFigure({
       stroke="none"
       role={title ? 'img' : 'presentation'}
       aria-hidden={title ? undefined : true}
+      // Bottom-anchored: the figure stands ON the bottom of whatever box it is
+      // given, the way it stands in the crowd.
       preserveAspectRatio="xMidYMax meet"
     >
       {title && <title>{title}</title>}
