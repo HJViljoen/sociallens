@@ -17,6 +17,7 @@ import { ingestOwnedPosts, supportsOwnedProfile } from '@/lib/gather/owned'
 import { discoverSubreddits } from '@/lib/gather/subreddit-discovery'
 import { activeSubreddits } from '@/lib/gather/subreddits'
 import { runStep2c } from '@/lib/pipeline/owned-events'
+import { runPassE } from '@/lib/pipeline/pass-e'
 import { summariseRunErrors, partialRunAlert, passADegradation, RUN_ERROR_CAP } from '@/lib/pipeline/run-errors'
 import { writeRunCosts, runSpendSoFar } from '@/lib/pipeline/run-costs'
 import { decideOpenRun, runIdForEvent, RUN_STALE_AFTER_HOURS, PG_UNIQUE_VIOLATION, type RunningRow } from '@/lib/pipeline/run-guard'
@@ -727,6 +728,32 @@ export const runPipeline = inngest.createFunction(
         noteError('keyword-attribution', e)
         return null
       })
+
+    // Pass E — the consumer profile (who is talking), from the insight
+    // population this run leaves behind. Its own step, after synthesis, reading
+    // from the DB like owned-events: a brand-new GPT call must never be able to
+    // fail a client's report, and .catch() gives that for free.
+    if (flags.consumerProfile) {
+      await step
+        .run('consumer-profile', async () => {
+          const admin = createAdminClient()
+          const { data: client } = await admin
+            .from('clients')
+            .select('company_name').eq('id', clientId).maybeSingle()
+          const r = await runPassE(admin, {
+            clientId,
+            runId,
+            runDate: new Date().toISOString().slice(0, 10),
+            companyName: client?.company_name ?? 'the client',
+          })
+          return { kept: r.personas.length, dropped: r.dropped.length, costUsd: r.costUsd }
+        })
+        .catch((e) => {
+          console.error(`[consumer-profile] out of retries: ${e instanceof Error ? e.message : String(e)}`)
+          noteError('consumer-profile', e)
+          return null
+        })
+    }
 
     // 7. Close the run.
     await step.run('close-run', async () => {

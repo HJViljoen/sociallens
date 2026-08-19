@@ -346,3 +346,31 @@ const subredditProposalSchema = z.object({
 export const SubredditProposalSchema = z.object({ subreddits: z.array(subredditProposalSchema) })
 export type SubredditProposal = z.infer<typeof subredditProposalSchema>
 export type SubredditProposalOutput = z.infer<typeof SubredditProposalSchema>
+
+// Pass E — the consumer profile (2026-08-19). Personas are proposed here and
+// GROUNDED in code (lib/pipeline/persona-assembly.ts): the model cites the
+// themes each persona rests on, code resolves those to real insight/video ids
+// and drops anything under the evidence floors. The schema deliberately has no
+// field for a number the model chose — every count on the page is counted.
+const rawPersonaSchema = z.object({
+  /** Stable slug within the run; the page's ?persona= value. */
+  key: z.string(),
+  /** Descriptive, not cute: "the first-time researcher". */
+  name: z.string(),
+  one_liner: z.string(),
+  scope: z.enum(['category', 'client']),
+  /** T# refs into the theme digest — the persona's whole claim to existence. */
+  theme_refs: z.array(z.string()),
+  wants: z.array(z.string()),
+  blockers: z.array(z.string()),
+  triggers: z.array(z.string()),
+  /** Real phrasings, taken from the language samples shown in the prompt. */
+  how_they_talk: z.array(z.string()),
+  /** Demographic signals as COUNTS ONLY (counts-not-quotes, 2026-08-22). */
+  who: z.array(z.object({ signal: z.string(), count: z.number().int() })),
+})
+export const PassESchema = z.object({
+  headline: z.string(),
+  personas: z.array(rawPersonaSchema),
+})
+export type PassEOutput = z.infer<typeof PassESchema>
