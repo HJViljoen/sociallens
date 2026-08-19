@@ -331,6 +331,15 @@
   .profile-line-left  { animation: profile-line-in-left  0.62s cubic-bezier(0.22, 1.45, 0.36, 1) 0.05s both; }
   .profile-line-right { animation: profile-line-in-right 0.62s cubic-bezier(0.22, 1.45, 0.36, 1) 0.05s both; }
   .profile-figure-in  { animation: profile-figure-in 0.5s cubic-bezier(0.22, 1, 0.36, 1) both; }
+
+  /* The figure dissolves into the page at the hem instead of being cut off by
+     the pane edge. A mask only — the geometry is untouched, so the connectors
+     still measure the same silhouette they always did. The fade starts low
+     enough that the lines from the bottom blocks still land on solid ink. */
+  .profile-figure-fade {
+    -webkit-mask-image: linear-gradient(to bottom, #000 76%, rgba(0, 0, 0, 0.45) 90%, transparent 100%);
+    mask-image: linear-gradient(to bottom, #000 76%, rgba(0, 0, 0, 0.45) 90%, transparent 100%);
+  }
   /* Lower blocks trail the upper ones so the set arrives as a group rather
      than a single slab. */
   .profile-delay-1 { animation-delay: 0.06s; }

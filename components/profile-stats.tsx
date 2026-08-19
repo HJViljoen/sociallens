@@ -19,9 +19,22 @@ const PLATFORM_LABEL: Record<string, string> = {
   instagram: 'Instagram',
   reddit: 'Reddit',
 }
-// Platforms get their own scale, deliberately not the persona hues: two colour
-// systems on one page must not look like the same axis.
-const PLATFORM_SHADE = ['bg-primary/75', 'bg-primary/50', 'bg-primary/30', 'bg-primary/15'] as const
+
+// Platforms are named by HUE, not by depth. Four tints of one green read as a
+// gradient — the eye sorts them into an order that doesn't exist, and two
+// adjacent segments of a bar become impossible to tell apart. These are the
+// accent hues, deliberately outside the green scale the personas use, so the
+// two colour systems on this page can never be mistaken for one axis.
+// Fixed per platform rather than by index: a platform keeps its colour even
+// when another one drops out of the data.
+const PLATFORM_STYLE: Record<string, { bg: string; fg: string }> = {
+  tiktok: { bg: 'var(--accent-slate)', fg: '#FFFFFF' },
+  youtube: { bg: 'var(--accent-clay)', fg: '#FFFFFF' },
+  instagram: { bg: 'var(--accent-plum)', fg: '#FFFFFF' },
+  reddit: { bg: 'var(--accent-ochre)', fg: '#3B2C10' },
+}
+const FALLBACK_STYLE = { bg: 'var(--accent-pine)', fg: '#FFFFFF' }
+export const platformStyle = (p: string) => PLATFORM_STYLE[p] ?? FALLBACK_STYLE
 
 export interface PlatformRow {
   key: string
@@ -30,7 +43,21 @@ export interface PlatformRow {
   counts: Record<string, number>
 }
 
-export function PlatformMix({ rows, platforms }: { rows: PlatformRow[]; platforms: string[] }) {
+export function PlatformMix({
+  rows,
+  platforms,
+  totals,
+  grandTotal,
+}: {
+  rows: PlatformRow[]
+  platforms: string[]
+  /** Distinct conversations per platform across the whole profile. */
+  totals: Record<string, number>
+  /** Distinct conversations behind the profile. Not the sum of the rows —
+   *  a conversation where two kinds of person both speak counts once here and
+   *  once in each of their rows. */
+  grandTotal: number
+}) {
   const usable = rows.filter((r) => r.total > 0)
   if (!usable.length || !platforms.length) return null
 
@@ -42,37 +69,65 @@ export function PlatformMix({ rows, platforms }: { rows: PlatformRow[]; platform
           Where each one turns up
         </CardTitle>
         <p className="text-xs text-muted-foreground">
-          Share of each group&rsquo;s conversations by platform. Where you find this person, not where they came from.
+          Conversations by platform, for each kind of person. Where you find them, not where they came from.
         </p>
       </CardHeader>
       <CardContent className="space-y-4">
-        <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
-          {platforms.map((p, i) => (
-            <span key={p} className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
-              <span className={`size-2.5 rounded-sm ${PLATFORM_SHADE[i % PLATFORM_SHADE.length]}`} aria-hidden />
+        {/* The measurable line: the size of the whole thing, and how it splits.
+            A bar shows proportion; only a number answers "out of how many". */}
+        <div className="flex flex-wrap items-center gap-x-5 gap-y-2 text-xs">
+          <span className="font-semibold tabular-nums">
+            {grandTotal.toLocaleString()} conversations
+          </span>
+          {platforms.map((p) => (
+            <span key={p} className="inline-flex items-center gap-1.5 text-muted-foreground">
+              <span
+                className="size-2.5 rounded-sm"
+                style={{ background: platformStyle(p).bg }}
+                aria-hidden
+              />
               {PLATFORM_LABEL[p] ?? p}
+              <span className="font-medium tabular-nums text-foreground">
+                {(totals[p] ?? 0).toLocaleString()}
+              </span>
             </span>
           ))}
         </div>
 
-        <div className="space-y-3">
+        <div className="space-y-2.5">
+          <div className="grid grid-cols-[8.5rem_1fr_4rem] gap-3 text-[0.65rem] uppercase tracking-wide text-muted-foreground">
+            <span />
+            <span />
+            <span className="text-right">Total</span>
+          </div>
           {usable.map((row) => (
-            <div key={row.key} className="grid grid-cols-[9rem_1fr] items-center gap-3">
+            <div key={row.key} className="grid grid-cols-[8.5rem_1fr_4rem] items-center gap-3">
               <span className="truncate text-sm font-medium">{row.name}</span>
-              <span className="flex h-3 overflow-hidden rounded-full bg-muted">
-                {platforms.map((p, i) => {
-                  const pct = ((row.counts[p] ?? 0) / row.total) * 100
-                  if (pct <= 0) return null
+              <span className="flex h-7 overflow-hidden rounded-md bg-muted">
+                {platforms.map((p) => {
+                  const count = row.counts[p] ?? 0
+                  if (count <= 0) return null
+                  const pct = (count / row.total) * 100
+                  const style = platformStyle(p)
                   return (
                     <span
                       key={p}
-                      className={PLATFORM_SHADE[i % PLATFORM_SHADE.length]}
-                      style={{ width: `${pct}%` }}
-                      title={`${row.name} · ${PLATFORM_LABEL[p] ?? p} · ${Math.round(pct)}%`}
-                    />
+                      className="flex items-center justify-center overflow-hidden"
+                      style={{ width: `${pct}%`, background: style.bg }}
+                      title={`${row.name} · ${PLATFORM_LABEL[p] ?? p} · ${count.toLocaleString()} conversations (${Math.round(pct)}%)`}
+                    >
+                      {/* Only where it fits. A number clipped in half is worse
+                          than no number — the tooltip still carries every one. */}
+                      {pct >= 11 ? (
+                        <span className="text-[0.7rem] font-medium tabular-nums" style={{ color: style.fg }}>
+                          {count.toLocaleString()}
+                        </span>
+                      ) : null}
+                    </span>
                   )
                 })}
               </span>
+              <span className="text-right text-sm font-medium tabular-nums">{row.total.toLocaleString()}</span>
             </div>
           ))}
         </div>
@@ -90,6 +145,8 @@ export interface ShareSeries {
 }
 
 export function ShareOverTime({ dates, series }: { dates: string[]; series: ShareSeries[] }) {
+  if (!dates.length || !series.length) return null
+
   return (
     <Card className="rounded-3xl ring-1 ring-primary/25">
       <CardHeader className="pb-2">
@@ -102,29 +159,29 @@ export function ShareOverTime({ dates, series }: { dates: string[]; series: Shar
         </p>
       </CardHeader>
       <CardContent>
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
+          <LineChart dates={dates} series={series} />
+          <ul className="flex flex-row flex-wrap gap-x-4 gap-y-2 sm:w-40 sm:shrink-0 sm:flex-col">
+            {series.map((s, i) => (
+              <li key={s.key} className="flex items-center gap-2 text-xs">
+                <span
+                  className="h-0.5 w-4 shrink-0 rounded-full"
+                  style={{ background: personaColour(i) }}
+                  aria-hidden
+                />
+                <span className="truncate">{s.name}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
         {dates.length < 2 ? (
-          // One reading is a dot, not a trend. Saying so beats drawing a chart
-          // that implies a line where there is no second point.
-          <p className="py-6 text-center text-sm text-muted-foreground">
-            This chart needs two updates to draw a line. It appears after your next one.
+          // The points are real and plotted. What isn't there yet is the
+          // movement — say that, rather than let a single column read as a
+          // trend that happens to be flat.
+          <p className="pt-2 text-xs text-muted-foreground">
+            One update so far. These are today&rsquo;s shares; the lines join them from your next one.
           </p>
-        ) : (
-          <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
-            <LineChart dates={dates} series={series} />
-            <ul className="flex flex-row flex-wrap gap-x-4 gap-y-2 sm:w-40 sm:shrink-0 sm:flex-col">
-              {series.map((s, i) => (
-                <li key={s.key} className="flex items-center gap-2 text-xs">
-                  <span
-                    className="h-0.5 w-4 shrink-0 rounded-full"
-                    style={{ background: personaColour(i) }}
-                    aria-hidden
-                  />
-                  <span className="truncate">{s.name}</span>
-                </li>
-              ))}
-            </ul>
-          </div>
-        )}
+        ) : null}
       </CardContent>
     </Card>
   )
@@ -135,21 +192,32 @@ export function ShareOverTime({ dates, series }: { dates: string[]; series: Shar
 function LineChart({ dates, series }: { dates: string[]; series: ShareSeries[] }) {
   const W = 320
   const H = 120
-  const pad = { top: 8, right: 6, bottom: 18, left: 6 }
+  const pad = { top: 10, right: 8, bottom: 18, left: 24 }
   const innerW = W - pad.left - pad.right
   const innerH = H - pad.top - pad.bottom
 
-  const max = Math.max(
-    10,
-    ...series.flatMap((s) => s.points.filter((p): p is number => p != null)),
-  )
+  // Round the ceiling up to a whole ten so the top label is a number a reader
+  // can hold, and a single plotted point still lands somewhere meaningful on
+  // the axis rather than pinned to the top of the box.
+  const peak = Math.max(10, ...series.flatMap((s) => s.points.filter((p): p is number => p != null)))
+  const max = Math.ceil(peak / 10) * 10
   const x = (i: number) => pad.left + (dates.length === 1 ? innerW / 2 : (i / (dates.length - 1)) * innerW)
   const y = (v: number) => pad.top + innerH - (v / max) * innerH
 
   return (
     <svg viewBox={`0 0 ${W} ${H}`} className="h-40 w-full" role="img" aria-label="Share of the profile per update">
-      {/* Baseline only. Gridlines would add ink without adding a reading at
-          this size — the legend and the shape carry it. */}
+      {/* Two rules and two labels: the scale a dot is read against. Without
+          them a lone column of points is decoration. */}
+      <line
+        x1={pad.left}
+        y1={pad.top}
+        x2={W - pad.right}
+        y2={pad.top}
+        stroke="var(--border)"
+        strokeWidth={1}
+        strokeDasharray="2 3"
+        vectorEffect="non-scaling-stroke"
+      />
       <line
         x1={pad.left}
         y1={pad.top + innerH}
@@ -159,6 +227,12 @@ function LineChart({ dates, series }: { dates: string[]; series: ShareSeries[] }
         strokeWidth={1}
         vectorEffect="non-scaling-stroke"
       />
+      <text x={pad.left - 5} y={pad.top + 3} textAnchor="end" className="fill-muted-foreground" style={{ fontSize: 8 }}>
+        {max}%
+      </text>
+      <text x={pad.left - 5} y={pad.top + innerH + 3} textAnchor="end" className="fill-muted-foreground" style={{ fontSize: 8 }}>
+        0
+      </text>
       {series.map((s, si) => {
         // Break the path where a persona was absent, so a gap reads as a gap
         // rather than a straight line through data that does not exist.
@@ -188,7 +262,20 @@ function LineChart({ dates, series }: { dates: string[]; series: ShareSeries[] }
               />
             ))}
             {s.points.map((p, i) =>
-              p == null ? null : <circle key={i} cx={x(i)} cy={y(p)} r={2} fill={personaColour(si)} />,
+              p == null ? null : (
+                // Ringed in the page's own colour: with one update every dot
+                // shares an x, and two close shares would otherwise merge into
+                // a single blob.
+                <circle
+                  key={i}
+                  cx={x(i)}
+                  cy={y(p)}
+                  r={2.6}
+                  fill={personaColour(si)}
+                  stroke="var(--background)"
+                  strokeWidth={0.9}
+                />
+              ),
             )}
           </g>
         )
@@ -198,7 +285,7 @@ function LineChart({ dates, series }: { dates: string[]; series: ShareSeries[] }
           key={d + i}
           x={x(i)}
           y={H - 4}
-          textAnchor={i === 0 ? 'start' : i === dates.length - 1 ? 'end' : 'middle'}
+          textAnchor={dates.length === 1 ? 'middle' : i === 0 ? 'start' : i === dates.length - 1 ? 'end' : 'middle'}
           className="fill-muted-foreground"
           style={{ fontSize: 8 }}
         >
