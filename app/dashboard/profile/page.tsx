@@ -171,9 +171,9 @@ export default async function ConsumerProfilePage({
           off the bottom edge, the way it stands in the crowd behind every other
           page. The persona's description is one of the blocks rather than a
           caption under the figure, so nothing follows the figure down. */}
-      <div className="grid min-h-0 flex-1 items-start gap-4 lg:grid-cols-[minmax(13rem,17rem)_minmax(0,1fr)_minmax(13rem,17rem)]">
-        <div className="order-2 flex flex-col gap-4 lg:order-1">
-          <Card>
+      <div className="grid gap-5 lg:min-h-[calc(100dvh-13rem)] lg:grid-cols-[1fr_1.55fr_1fr]">
+        <div className="order-2 grid gap-5 lg:order-1 lg:grid-rows-[1fr_1.9fr]">
+          <Card className="h-full">
             <CardHeader className="pb-2">
               <CardTitle className="flex items-center gap-2 text-sm font-semibold">
                 <UserRound className="size-4 text-muted-foreground" aria-hidden />
@@ -209,7 +209,7 @@ export default async function ConsumerProfilePage({
               )}
             </CardContent>
           </Card>
-          <Block title="What they want" Icon={Compass} items={active.wants} />
+          <Block title="What they want" Icon={Compass} items={active.wants} className="h-full" />
         </div>
 
         <div className="order-1 flex h-full min-w-0 flex-col items-center lg:order-2">
@@ -226,7 +226,7 @@ export default async function ConsumerProfilePage({
               edge: -mb-6 eats the pane's own padding so the hem lands on the
               edge itself rather than floating above it. h-full + w-auto keeps
               the silhouette's proportions whatever the window does. */}
-          <div className="-mb-6 flex min-h-[26rem] w-full flex-1 items-end justify-center overflow-hidden">
+          <div className="flex min-h-[26rem] w-full flex-1 items-end justify-center overflow-hidden">
             <CrowdFigure
               personaKey={active.key}
               title={active.name}
@@ -236,9 +236,9 @@ export default async function ConsumerProfilePage({
           </div>
         </div>
 
-        <div className="order-3 flex flex-col gap-4">
-          <Block title="What stops them" Icon={HeartCrack} items={active.blockers} />
-          <Block title="What moves them" Icon={Zap} items={active.triggers} />
+        <div className="order-3 grid gap-5 lg:grid-rows-[2.4fr_1fr]">
+          <Block title="What stops them" Icon={HeartCrack} items={active.blockers} className="h-full" />
+          <Block title="What moves them" Icon={Zap} items={active.triggers} className="h-full" />
         </div>
       </div>
 
@@ -298,10 +298,20 @@ function StepLink({ href, label, Icon }: { href: string; label: string; Icon: ty
   )
 }
 
-function Block({ title, Icon, items }: { title: string; Icon: typeof Compass; items: string[] }) {
+function Block({
+  title,
+  Icon,
+  items,
+  className = '',
+}: {
+  title: string
+  Icon: typeof Compass
+  items: string[]
+  className?: string
+}) {
   if (!items.length) return null
   return (
-    <Card>
+    <Card className={className}>
       <CardHeader className="pb-2">
         <CardTitle className="flex items-center gap-2 text-sm font-semibold">
           <Icon className="size-4 text-muted-foreground" aria-hidden />
