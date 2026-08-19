@@ -283,3 +283,49 @@
   from { background-size: 0% 0.55em; }
   to { background-size: 100% 0.55em; }
 }
+/* ── Consumer Profile motion ─────────────────────────────────────────────────
+   Switching persona remounts the composition (the grid is keyed on the persona
+   id), so these run on every switch without any client-side JavaScript.
+
+   The blocks come OUT from nearer the figure and settle with an overshoot, as
+   if the connector line were a tether that stretches and springs back. The
+   lines carry the same movement: their outer end tracks its block, and their
+   inner end moves underneath the figure, which is opaque, so that end is never
+   seen leaving its anchor. */
+
+@keyframes profile-block-in-left {
+  from { opacity: 0; transform: translate3d(4.5rem, 0.75rem, 0) scale(0.97); }
+  to   { opacity: 1; transform: none; }
+}
+@keyframes profile-block-in-right {
+  from { opacity: 0; transform: translate3d(-4.5rem, 0.75rem, 0) scale(0.97); }
+  to   { opacity: 1; transform: none; }
+}
+/* SVG children transform in user units, and this overlay's box is 0–100, so
+   these numbers are percentages of the grid rather than pixels. */
+@keyframes profile-line-in-left {
+  from { opacity: 0; transform: translate(6px, 1px); }
+  to   { opacity: 0.7; transform: none; }
+}
+@keyframes profile-line-in-right {
+  from { opacity: 0; transform: translate(-6px, 1px); }
+  to   { opacity: 0.7; transform: none; }
+}
+@keyframes profile-figure-in {
+  from { opacity: 0; transform: translate3d(0, 1.25rem, 0); }
+  to   { opacity: 1; transform: none; }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  /* The overshoot lives in the easing, not in extra keyframes — one spring
+     curve keeps every element settling on the same beat. */
+  .profile-in-left  { animation: profile-block-in-left  0.62s cubic-bezier(0.22, 1.45, 0.36, 1) both; }
+  .profile-in-right { animation: profile-block-in-right 0.62s cubic-bezier(0.22, 1.45, 0.36, 1) both; }
+  .profile-line-left  { animation: profile-line-in-left  0.62s cubic-bezier(0.22, 1.45, 0.36, 1) both; }
+  .profile-line-right { animation: profile-line-in-right 0.62s cubic-bezier(0.22, 1.45, 0.36, 1) both; }
+  .profile-figure-in  { animation: profile-figure-in 0.5s cubic-bezier(0.22, 1, 0.36, 1) both; }
+  /* Lower blocks trail the upper ones so the set arrives as a group rather
+     than a single slab. */
+  .profile-delay-1 { animation-delay: 0.06s; }
+  .profile-delay-2 { animation-delay: 0.12s; }
+}

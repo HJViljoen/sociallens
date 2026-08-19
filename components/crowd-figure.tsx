@@ -17,11 +17,13 @@
 // in FRONT of the crowd — solid enough to occlude it — not as one more outline
 // lost in it.
 
+// Figure d (front #13) is deliberately absent: it is the narrow, short,
+// asymmetric one, and next to these four it reads as a different species
+// rather than a different person. The set has to look like one crowd.
 const FIGURES = {
   a: { d: 'M-27.3,116.6 Q-34.4,42.9 0.0,44.4 Q34.8,42.9 27.2,116.6', r: 18.6, w: 34.8, h: 116.6 },
   b: { d: 'M-34.4,105.6 Q-24.3,37.4 0.0,38.7 Q28.8,37.4 34.5,105.6', r: 17.8, w: 34.5, h: 105.6 },
   c: { d: 'M-31.8,104.0 Q-26.8,37.7 0.0,39.0 Q33.4,37.7 31.9,104.0', r: 16.4, w: 33.4, h: 104.0 },
-  d: { d: 'M-17.3,91.9 Q-8.8,28.3 0.0,29.6 Q17.3,28.3 17.2,91.9', r: 14.1, w: 17.3, h: 91.9 },
   e: { d: 'M-30.3,96.0 Q-26.4,26.7 0.0,28.1 Q34.2,26.7 30.3,96.0', r: 13.4, w: 34.2, h: 96.0 },
 } as const
 
@@ -39,17 +41,20 @@ export function figureForKey(key: string): FigureKey {
 
 export function CrowdFigure({
   personaKey,
+  variant,
   className = '',
   lean = 0,
   title,
 }: {
   personaKey: string
+  /** Explicit silhouette. Omit to fall back to the per-key hash. */
+  variant?: FigureKey
   className?: string
   /** Degrees, about the hem — the asset's own figures lean −3.93…+3.95°. */
   lean?: number
   title?: string
 }) {
-  const f = FIGURES[figureForKey(personaKey)]
+  const f = FIGURES[variant ?? figureForKey(personaKey)]
   // Padding keeps the round line caps and the stroke off the viewBox edge.
   const pad = 8
   const width = 2 * (f.w + pad)
@@ -88,4 +93,40 @@ export function CrowdFigure({
       </g>
     </svg>
   )
+}
+
+/** Give every persona in a profile its own silhouette.
+ *
+ *  A bare hash is stable per persona but collides: on the real Össur cast it
+ *  put five people on three bodies and never used the fourth. This keeps the
+ *  hash as the preference, then walks to the next free figure when one is
+ *  taken — deterministic for a given cast, and it uses the whole set before it
+ *  repeats. Order is the caller's, so it does not shuffle between renders. */
+export function assignFigures(keys: string[]): Map<string, FigureKey> {
+  const out = new Map<string, FigureKey>()
+  const taken = new Set<FigureKey>()
+  for (const key of keys) {
+    const preferred = figureForKey(key)
+    let pick = preferred
+    if (taken.has(pick)) {
+      const from = KEYS.indexOf(preferred)
+      const free = KEYS.slice(from).concat(KEYS.slice(0, from)).find((k) => !taken.has(k))
+      pick = free ?? preferred
+    }
+    taken.add(pick)
+    out.set(key, pick)
+    if (taken.size === KEYS.length) taken.clear()
+  }
+  return out
+}
+
+/** Where this figure's body centre sits, as a fraction of its own height.
+ *
+ *  The connector lines converge here. Each silhouette carries its head and
+ *  shoulders at a different height, so a single hard-coded target would meet
+ *  one of them well and the rest by luck. */
+export function figureBodyCentre(key: FigureKey): number {
+  const f = FIGURES[key]
+  const shoulders = f.r * 2
+  return (shoulders + f.h) / (2 * f.h)
 }

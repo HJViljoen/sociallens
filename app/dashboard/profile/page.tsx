@@ -4,7 +4,7 @@ import { getSessionContext } from '@/lib/auth'
 import { createQuotePicker, fetchQuotesByAudience } from '@/lib/quotes'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Quotes } from '@/components/quotes'
-import { CrowdFigure } from '@/components/crowd-figure'
+import { CrowdFigure, assignFigures, figureBodyCentre } from '@/components/crowd-figure'
 import { glossaryRule, priorityWord, type GlossaryKey } from '@/lib/calibration'
 
 // Consumer Profile — "who is actually talking?" (Pass E).
@@ -138,6 +138,10 @@ export default async function ConsumerProfilePage({
     )
   }
 
+  // One silhouette per persona, decided across the whole cast so no two share
+  // a body while another goes unused.
+  const figures = assignFigures(personas.map((p) => p.key))
+
   const activeIndex = Math.max(0, personas.findIndex((p) => p.key === sp.persona))
   const active = personas[activeIndex]
   const showSwitcher = personas.length > 1
@@ -207,11 +211,16 @@ export default async function ConsumerProfilePage({
       {/* relative: the connector overlay positions against this box. */}
       {/* Capped and centred: on a wide monitor an edge-to-edge grid pushed the
           blocks away from the figure and left the composition stretched. The
-          margin outside is what pulls everything back around the subject. */}
-      <div className="relative mx-auto grid w-full max-w-[78rem] gap-6 lg:min-h-[calc(100dvh-10rem)] lg:grid-cols-[1fr_0.9fr_1fr] lg:gap-7">
-        <Connectors />
+          margin outside is what pulls everything back around the subject.
+          key: remounts the composition when the persona changes, which is what
+          replays the entrance animation — no client component needed. */}
+      <div
+        key={active.key}
+        className="relative mx-auto grid w-full max-w-[78rem] gap-6 lg:min-h-[calc(100dvh-10rem)] lg:grid-cols-[1fr_0.9fr_1fr] lg:gap-7"
+      >
+        <Connectors bodyCentre={figureBodyCentre(figures.get(active.key) ?? 'a')} />
         <div className="order-2 flex flex-col gap-6 lg:order-1 lg:h-full lg:justify-center lg:gap-16">
-          <div className="relative">
+          <div className="profile-in-left relative">
           <Card className="rounded-3xl ring-1 ring-primary/25">
             <CardHeader className="pb-2">
               <CardTitle className="flex items-center gap-2 text-base font-semibold">
@@ -249,7 +258,7 @@ export default async function ConsumerProfilePage({
             </CardContent>
           </Card>
           </div>
-          <Block title="What drives them" Icon={Compass} body={active.wants} quote={drivesVoice} />
+          <Block title="What drives them" Icon={Compass} body={active.wants} quote={drivesVoice} className="profile-in-left profile-delay-2" />
         </div>
 
         <div className="relative z-10 order-1 flex h-full min-w-0 flex-col items-center lg:order-2">
@@ -260,16 +269,17 @@ export default async function ConsumerProfilePage({
           <div className="flex min-h-[26rem] w-full flex-1 items-end justify-center overflow-hidden">
             <CrowdFigure
               personaKey={active.key}
+              variant={figures.get(active.key)}
               title={active.name}
               lean={1}
-              className="h-full w-auto max-w-full text-primary"
+              className="profile-figure-in h-full w-auto max-w-full text-primary"
             />
           </div>
         </div>
 
         <div className="order-3 flex flex-col gap-6 lg:h-full lg:justify-center lg:gap-16">
-          <Block title="What stops them" Icon={HeartCrack} body={active.blockers} quote={stopsVoice} />
-          <Block title="What works on them" Icon={Zap} body={active.triggers} quote={worksVoice} />
+          <Block title="What stops them" Icon={HeartCrack} body={active.blockers} quote={stopsVoice} className="profile-in-right" />
+          <Block title="What works on them" Icon={Zap} body={active.triggers} quote={worksVoice} className="profile-in-right profile-delay-2" />
         </div>
       </div>
 
@@ -311,15 +321,17 @@ function Block({
   Icon,
   body,
   quote,
+  className = '',
 }: {
   title: string
   Icon: typeof Compass
   body: string
   quote?: string
+  className?: string
 }) {
   if (!body.trim()) return null
   return (
-    <div className="relative">
+    <div className={`relative ${className}`}>
       <Card className="rounded-3xl ring-1 ring-primary/25">
         <CardHeader className="pb-2">
           <CardTitle className="flex items-center gap-2 text-base font-semibold">
@@ -352,13 +364,16 @@ function Block({
  *  Starts sit just inside the cards so a line emerges from under the card edge
  *  rather than floating in the gutter with a visible gap.
  */
-function Connectors() {
-  const target = { x: 50, y: 80 }
+function Connectors({ bodyCentre }: { bodyCentre: number }) {
+  // The figure is bottom-anchored and fills the column, so its body centre maps
+  // onto the grid at the same fraction of the height. Each silhouette carries
+  // its shoulders differently, which is why this is passed in rather than fixed.
+  const target = { x: 50, y: 100 - (1 - bodyCentre) * 100 * 0.55 }
   const starts = [
-    { x: 29, y: 35 },
-    { x: 29, y: 71 },
-    { x: 71, y: 35 },
-    { x: 71, y: 71 },
+    { x: 29, y: 35, side: 'left' as const },
+    { x: 29, y: 71, side: 'left' as const },
+    { x: 71, y: 35, side: 'right' as const },
+    { x: 71, y: 71, side: 'right' as const },
   ]
   return (
     <svg
@@ -381,6 +396,9 @@ function Connectors() {
           strokeOpacity={0.7}
           strokeWidth={1.25}
           vectorEffect="non-scaling-stroke"
+          // Each line travels with the block it belongs to; the end that meets
+          // the figure moves underneath it, where the opaque body hides it.
+          className={`${s.side === 'left' ? 'profile-line-left' : 'profile-line-right'} ${i % 2 ? 'profile-delay-2' : ''}`}
         />
       ))}
     </svg>
