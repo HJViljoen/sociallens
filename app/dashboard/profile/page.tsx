@@ -216,7 +216,10 @@ export default async function ConsumerProfilePage({
           replays the entrance animation — no client component needed. */}
       <div
         key={active.key}
-        className="relative mx-auto grid w-full max-w-[78rem] gap-6 lg:min-h-[calc(100dvh-10rem)] lg:grid-cols-[1fr_0.9fr_1fr] lg:gap-7"
+        // The centre column, not the row height, is what caps the figure: at 0.9fr its
+        // width bound the silhouette to well under the height available. Wider centre
+        // + a wider cap gives the figure real scale while keeping margin outside.
+        className="relative mx-auto grid w-full max-w-[84rem] gap-6 lg:min-h-[calc(100dvh-10rem)] lg:grid-cols-[1fr_1.15fr_1fr] lg:gap-7"
       >
         <Connectors bodyCentre={figureBodyCentre(figures.get(active.key) ?? 'a')} />
         <div className="order-2 flex flex-col gap-6 lg:order-1 lg:h-full lg:justify-center lg:gap-16">

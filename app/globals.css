@@ -311,9 +311,14 @@
   from { opacity: 0; transform: translate(-6px, 1px); }
   to   { opacity: 0.7; transform: none; }
 }
+/* Deliberately NO opacity here. The figure is what occludes the connector
+   lines, and a figure fading up from transparent cannot occlude anything — the
+   lines showed straight through it for the length of the fade. Moving it
+   without fading keeps it opaque from the first frame, so the lines are
+   trimmed correctly the whole way in. */
 @keyframes profile-figure-in {
-  from { opacity: 0; transform: translate3d(0, 1.25rem, 0); }
-  to   { opacity: 1; transform: none; }
+  from { transform: translate3d(0, 1.25rem, 0); }
+  to   { transform: none; }
 }
 
 @media (prefers-reduced-motion: no-preference) {
@@ -321,8 +326,10 @@
      curve keeps every element settling on the same beat. */
   .profile-in-left  { animation: profile-block-in-left  0.62s cubic-bezier(0.22, 1.45, 0.36, 1) both; }
   .profile-in-right { animation: profile-block-in-right 0.62s cubic-bezier(0.22, 1.45, 0.36, 1) both; }
-  .profile-line-left  { animation: profile-line-in-left  0.62s cubic-bezier(0.22, 1.45, 0.36, 1) both; }
-  .profile-line-right { animation: profile-line-in-right 0.62s cubic-bezier(0.22, 1.45, 0.36, 1) both; }
+  /* A beat behind the figure: by the time a line is visible, the body it
+     terminates against is already where it belongs. */
+  .profile-line-left  { animation: profile-line-in-left  0.62s cubic-bezier(0.22, 1.45, 0.36, 1) 0.05s both; }
+  .profile-line-right { animation: profile-line-in-right 0.62s cubic-bezier(0.22, 1.45, 0.36, 1) 0.05s both; }
   .profile-figure-in  { animation: profile-figure-in 0.5s cubic-bezier(0.22, 1, 0.36, 1) both; }
   /* Lower blocks trail the upper ones so the set arrives as a group rather
      than a single slab. */
