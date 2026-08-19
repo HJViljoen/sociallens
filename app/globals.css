@@ -337,8 +337,31 @@
      still measure the same silhouette they always did. The fade starts low
      enough that the lines from the bottom blocks still land on solid ink. */
   .profile-figure-fade {
-    -webkit-mask-image: linear-gradient(to bottom, #000 76%, rgba(0, 0, 0, 0.45) 90%, transparent 100%);
-    mask-image: linear-gradient(to bottom, #000 76%, rgba(0, 0, 0, 0.45) 90%, transparent 100%);
+    /* Many stops, not three: a two-segment ramp has a visible kink where the
+       slope changes, which read as a band across the legs. These approximate a
+       curve, so the silhouette dissolves without an edge anywhere in it. */
+    -webkit-mask-image: linear-gradient(
+      to bottom,
+      #000 52%,
+      rgba(0, 0, 0, 0.94) 63%,
+      rgba(0, 0, 0, 0.84) 71%,
+      rgba(0, 0, 0, 0.7) 78%,
+      rgba(0, 0, 0, 0.52) 85%,
+      rgba(0, 0, 0, 0.32) 91%,
+      rgba(0, 0, 0, 0.14) 96%,
+      transparent 100%
+    );
+    mask-image: linear-gradient(
+      to bottom,
+      #000 52%,
+      rgba(0, 0, 0, 0.94) 63%,
+      rgba(0, 0, 0, 0.84) 71%,
+      rgba(0, 0, 0, 0.7) 78%,
+      rgba(0, 0, 0, 0.52) 85%,
+      rgba(0, 0, 0, 0.32) 91%,
+      rgba(0, 0, 0, 0.14) 96%,
+      transparent 100%
+    );
   }
   /* Lower blocks trail the upper ones so the set arrives as a group rather
      than a single slab. */

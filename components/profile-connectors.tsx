@@ -21,6 +21,11 @@ import { useEffect, useState } from 'react'
 // the shoulder, the flank or the head depending on where its block genuinely
 // is, instead of every line aiming at one spot.
 
+/** How far down the figure a connector may terminate, as a share of its
+ *  height. Below this the silhouette is fading into the page and a line would
+ *  run flat along the bottom of the composition. */
+const OUTLINE_FLOOR = 0.62
+
 interface Line {
   x1: number
   y1: number
@@ -55,9 +60,20 @@ export function ProfileConnectors() {
       const figure = grid.querySelector<SVGSVGElement>('[data-figure]')
       if (!g.width || !g.height || !figure) return
 
-      const outline = [...figure.querySelectorAll<SVGGeometryElement>('path, circle')].flatMap((el) =>
+      const all = [...figure.querySelectorAll<SVGGeometryElement>('path, circle')].flatMap((el) =>
         sampleOutline(el, 160),
       )
+      if (!all.length) return
+
+      // A floor on how low a line may meet the figure. Nearest-point alone sent
+      // the share bar — which sits at the bottom of its column — down to the
+      // hem, where the line ran nearly flat along the pane and the silhouette
+      // is already fading out. Cutting the bottom of the outline out of the
+      // running makes that line climb to the flank instead, so every connector
+      // lands on the body proper.
+      const box = figure.getBoundingClientRect()
+      const floor = box.top + box.height * OUTLINE_FLOOR
+      const outline = all.filter((p) => p.y <= floor)
       if (!outline.length) return
 
       const next: Line[] = []
