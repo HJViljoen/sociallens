@@ -5,6 +5,7 @@ import { createQuotePicker, fetchQuotesByAudience } from '@/lib/quotes'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Quotes } from '@/components/quotes'
 import { CrowdFigure, assignFigures, figureBodyCentre } from '@/components/crowd-figure'
+import { ProfileConnectors } from '@/components/profile-connectors'
 import { glossaryRule, priorityWord, type GlossaryKey } from '@/lib/calibration'
 
 // Consumer Profile — "who is actually talking?" (Pass E).
@@ -222,18 +223,19 @@ export default async function ConsumerProfilePage({
       {/* Capped and centred: on a wide monitor an edge-to-edge grid pushed the
           blocks away from the figure and left the composition stretched. The
           margin outside is what pulls everything back around the subject.
-          key: remounts the composition when the persona changes, which is what
-          replays the entrance animation — no client component needed. */}
+          key: remounts the composition when the persona changes, which replays
+          the entrance animations and re-measures the connectors. */}
       <div
         key={active.key}
+        data-connector-root
         // The centre column, not the row height, is what caps the figure: at 0.9fr its
         // width bound the silhouette to well under the height available. Wider centre
         // + a wider cap gives the figure real scale while keeping margin outside.
         className="relative mx-auto grid w-full max-w-[84rem] gap-6 lg:min-h-[calc(100dvh-10rem)] lg:grid-cols-[1fr_1.15fr_1fr] lg:gap-7"
       >
-        <Connectors bodyCentre={figureBodyCentre(figures.get(active.key) ?? 'a')} />
+        <ProfileConnectors bodyCentre={figureBodyCentre(figures.get(active.key) ?? 'a')} />
         <div className="order-2 flex flex-col gap-6 lg:order-1 lg:h-full lg:justify-center lg:gap-16">
-          <div className="profile-in-left relative">
+          <div data-connector="left" className="profile-in-left relative">
           <Card className="rounded-3xl ring-1 ring-primary/25">
             <CardHeader className="pb-2">
               <CardTitle className="flex items-center gap-2 text-base font-semibold">
@@ -271,7 +273,7 @@ export default async function ConsumerProfilePage({
             </CardContent>
           </Card>
           </div>
-          <Block title="What drives them" Icon={Compass} body={active.wants} quote={drivesVoice} className="profile-in-left profile-delay-2" />
+          <Block title="What drives them" Icon={Compass} body={active.wants} quote={drivesVoice} className="profile-in-left profile-delay-2" connector="left" />
           <SharePill percent={shareOf(active)} />
         </div>
 
@@ -292,8 +294,8 @@ export default async function ConsumerProfilePage({
         </div>
 
         <div className="order-3 flex flex-col gap-6 lg:h-full lg:justify-center lg:gap-16">
-          <Block title="What stops them" Icon={HeartCrack} body={active.blockers} quote={stopsVoice} className="profile-in-right" />
-          <Block title="What works on them" Icon={Zap} body={active.triggers} quote={worksVoice} className="profile-in-right profile-delay-2" />
+          <Block title="What stops them" Icon={HeartCrack} body={active.blockers} quote={stopsVoice} className="profile-in-right" connector="right" />
+          <Block title="What works on them" Icon={Zap} body={active.triggers} quote={worksVoice} className="profile-in-right profile-delay-2" connector="right" />
         </div>
       </div>
 
@@ -336,16 +338,18 @@ function Block({
   body,
   quote,
   className = '',
+  connector,
 }: {
   title: string
   Icon: typeof Compass
   body: string
   quote?: string
   className?: string
+  connector?: 'left' | 'right'
 }) {
   if (!body.trim()) return null
   return (
-    <div className={`relative ${className}`}>
+    <div data-connector={connector} className={`relative ${className}`}>
       <Card className="rounded-3xl ring-1 ring-primary/25">
         <CardHeader className="pb-2">
           <CardTitle className="flex items-center gap-2 text-base font-semibold">
@@ -359,67 +363,6 @@ function Block({
         </CardContent>
       </Card>
     </div>
-  )
-}
-
-/** The four lines from the blocks to the figure.
- *
- *  One overlay rather than a line per block, because a diagonal needs BOTH
- *  endpoints and a per-block element only knows where it starts. Drawn in a
- *  0–100 box with preserveAspectRatio="none", so the geometry is expressed as
- *  fractions of the grid and holds at any window size.
- *
- *  Every line aims at the same point — the middle of the figure's body — and is
- *  drawn UNDER it (this is z-0, the figure's column is z-10). The figure is
- *  filled opaque cream, so it clips each line exactly where the silhouette
- *  begins. That is what makes them meet the body precisely without measuring
- *  anything: the drawing does the trimming.
- *
- *  Starts sit just inside the cards so a line emerges from under the card edge
- *  rather than floating in the gutter with a visible gap.
- */
-function Connectors({ bodyCentre }: { bodyCentre: number }) {
-  // The figure is bottom-anchored and fills the column, so its body centre maps
-  // onto the grid at the same fraction of the height. Each silhouette carries
-  // its shoulders differently, which is why this is passed in rather than fixed.
-  const target = { x: 50, y: 100 - (1 - bodyCentre) * 100 * 0.55 }
-  // Left column now carries three items and the right two, so the two sides no
-  // longer sit at the same heights.
-  const starts = [
-    { x: 29, y: 28, side: 'left' as const },
-    { x: 29, y: 60, side: 'left' as const },
-    { x: 71, y: 31, side: 'right' as const },
-    { x: 71, y: 70, side: 'right' as const },
-    // The share bar, tethered like everything else that describes this person.
-    { x: 29, y: 83, side: 'left' as const },
-  ]
-  return (
-    <svg
-      aria-hidden
-      viewBox="0 0 100 100"
-      preserveAspectRatio="none"
-      className="pointer-events-none absolute inset-0 z-0 hidden size-full lg:block"
-    >
-      {/* Lines only — no end caps. non-scaling-stroke keeps a stroke honest
-          under preserveAspectRatio="none", but a FILLED shape has no such
-          escape: a circle in this box renders as a stretched oval. */}
-      {starts.map((s, i) => (
-        <line
-          key={i}
-          x1={s.x}
-          y1={s.y}
-          x2={target.x}
-          y2={target.y}
-          stroke="var(--primary)"
-          strokeOpacity={0.7}
-          strokeWidth={1.25}
-          vectorEffect="non-scaling-stroke"
-          // Each line travels with the block it belongs to; the end that meets
-          // the figure moves underneath it, where the opaque body hides it.
-          className={`${s.side === 'left' ? 'profile-line-left' : 'profile-line-right'} ${i === 4 ? 'profile-delay-3' : i % 2 ? 'profile-delay-2' : ''}`}
-        />
-      ))}
-    </svg>
   )
 }
 
@@ -440,6 +383,7 @@ function SharePill({ percent }: { percent: number }) {
       // Back to its earlier weight, but short of the column width: at full
       // width it read as a fifth block; a little inset it reads as a footnote
       // belonging to the two above it.
+      data-connector="left"
       className="profile-in-left profile-delay-3 hidden w-[92%] items-center gap-4 rounded-full border border-primary/25 bg-card px-6 py-4 backdrop-blur-xl lg:flex"
       title="This persona's share of the conversations the profile covers. A conversation that speaks to two of these people counts toward both."
     >
