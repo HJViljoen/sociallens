@@ -199,55 +199,60 @@ export default async function ConsumerProfilePage({
           around it, and the stepper sits above it because paging personas is a
           change to the figure, not a filter on the page. On mobile the figure
           leads and the blocks stack under it. */}
-      <div className="grid items-start gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(260px,auto)_minmax(0,1fr)]">
+      <div className="grid items-start gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(18rem,22rem)_minmax(0,1fr)]">
         {/* Left: what drives them, then what holds them back. */}
         <div className="order-2 flex flex-col gap-4 lg:order-1 lg:pt-16">
           <Block title="What they want" Icon={Compass} items={active.wants} />
           <Block title="What stops them" Icon={HeartCrack} items={active.blockers} />
         </div>
 
+        {/* The figure lives in a block like everything else, and runs to that
+            block's bottom edge — it is the subject of the card, not a picture
+            floating on the page. Text sits at the top so nothing follows the
+            figure down. */}
         <div className="order-1 flex flex-col items-center lg:order-2">
           {showSwitcher && (
             <div className="mb-4 flex items-center gap-1 rounded-full border border-border bg-card px-1 py-1">
-              <StepLink href={`/dashboard/profile?persona=${encodeURIComponent(prev.key)}`} label="Previous" Icon={ChevronLeft} />
+              <StepLink href={`/dashboard/profile?persona=${encodeURIComponent(prev.key)}`} label="Previous persona" Icon={ChevronLeft} />
               <span className="min-w-[9rem] px-2 text-center text-sm font-medium">{active.name}</span>
-              <StepLink href={`/dashboard/profile?persona=${encodeURIComponent(next.key)}`} label="Next" Icon={ChevronRight} />
+              <StepLink href={`/dashboard/profile?persona=${encodeURIComponent(next.key)}`} label="Next persona" Icon={ChevronRight} />
             </div>
           )}
 
-          {/* Text above, figure below: the figure is the anchor and wants the
-              bottom of the column, the way it stands in the crowd. */}
-          <div className="mb-5 max-w-xs text-center">
-            {!showSwitcher && <h2 className="mb-1 text-lg font-semibold leading-tight">{active.name}</h2>}
-            <p className="text-sm leading-snug text-muted-foreground">{active.oneLiner}</p>
-            <div className="mt-3 flex flex-wrap items-center justify-center gap-1.5">
-              <span
-                className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium ${scopeLabel.bg} ${scopeLabel.fg}`}
-              >
-                <scopeLabel.Icon className="size-3.5" aria-hidden />
-                {scopeLabel.text}
-              </span>
-              {personas.length > 1 && active.prevalence && PREVALENCE_GLOSSARY[active.prevalence] && (
+          <Card className="flex w-full flex-col overflow-hidden pb-0">
+            <CardContent className="pb-0 text-center">
+              {!showSwitcher && <h2 className="mb-1 text-lg font-semibold leading-tight">{active.name}</h2>}
+              <p className="text-sm leading-snug text-muted-foreground">{active.oneLiner}</p>
+              <div className="mt-3 flex flex-wrap items-center justify-center gap-1.5">
                 <span
-                  className="inline-flex items-center rounded-full bg-muted px-2.5 py-1 text-xs font-medium text-muted-foreground"
-                  title={glossaryRule(PREVALENCE_GLOSSARY[active.prevalence])}
+                  className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium ${scopeLabel.bg} ${scopeLabel.fg}`}
                 >
-                  {active.prevalence}
+                  <scopeLabel.Icon className="size-3.5" aria-hidden />
+                  {scopeLabel.text}
                 </span>
-              )}
-            </div>
-            <p className="mt-2 text-xs text-muted-foreground" title={glossaryRule('conversations')}>
-              Heard across {active.sourceVideoCount}{' '}
-              {active.sourceVideoCount === 1 ? 'conversation' : 'conversations'}
-            </p>
-          </div>
-
-          <CrowdFigure
-            personaKey={active.key}
-            title={active.name}
-            lean={1}
-            className="h-64 w-auto text-primary sm:h-80 lg:h-[24rem]"
-          />
+                {personas.length > 1 && active.prevalence && PREVALENCE_GLOSSARY[active.prevalence] && (
+                  <span
+                    className="inline-flex items-center rounded-full bg-muted px-2.5 py-1 text-xs font-medium text-muted-foreground"
+                    title={glossaryRule(PREVALENCE_GLOSSARY[active.prevalence])}
+                  >
+                    {active.prevalence}
+                  </span>
+                )}
+              </div>
+              <p className="mt-2 text-xs text-muted-foreground" title={glossaryRule('conversations')}>
+                Heard across {active.sourceVideoCount}{' '}
+                {active.sourceVideoCount === 1 ? 'conversation' : 'conversations'}
+              </p>
+            </CardContent>
+            {/* -mb keeps the silhouette bleeding into the card's bottom edge
+                rather than sitting on a cushion of padding. */}
+            <CrowdFigure
+              personaKey={active.key}
+              title={active.name}
+              lean={1}
+              className="mt-6 h-56 w-full text-primary sm:h-72 lg:h-80"
+            />
+          </Card>
         </div>
 
         {/* Right: what moves them, then how they sound. */}

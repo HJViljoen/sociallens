@@ -11,6 +11,10 @@
 // it cannot follow the dark theme. Inline SVG is the house pattern for every
 // chart here anyway (no chart libraries — DESIGN rule), and it themes, scales
 // and gives the evidence blocks real coordinates to point at.
+//
+// Drawn FILLED here while the backdrop crowd stays in line: the page's subject
+// should read as a person standing in front of the crowd, not as one more
+// outline in it.
 
 const FIGURES = {
   a: { d: 'M-27.3,116.6 Q-34.4,42.9 0.0,44.4 Q34.8,42.9 27.2,116.6', r: 18.6, w: 34.8, h: 116.6 },
@@ -52,20 +56,20 @@ export function CrowdFigure({
     <svg
       viewBox={`${-(f.w + pad)} ${-pad} ${width} ${f.h + 2 * pad}`}
       className={className}
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={1.9}
-      strokeLinecap="round"
-      strokeLinejoin="round"
+      fill="currentColor"
+      stroke="none"
       role={title ? 'img' : 'presentation'}
       aria-hidden={title ? undefined : true}
+      preserveAspectRatio="xMidYMax meet"
     >
       {title && <title>{title}</title>}
       <g transform={`rotate(${lean} 0 ${f.h})`}>
-        {/* non-scaling-stroke keeps the line at crowd weight however large the
-            figure renders — the same treatment the dashboard charts use. */}
-        <path d={f.d} vectorEffect="non-scaling-stroke" />
-        <circle cx={0} cy={f.r} r={f.r} vectorEffect="non-scaling-stroke" />
+        {/* Filled, not outlined. The shoulder path is an open curve, so a fill
+            closes it along the hem and gives a solid body — the same silhouette
+            the crowd draws in line, brought forward as a subject rather than a
+            sketch. */}
+        <path d={f.d} />
+        <circle cx={0} cy={f.r} r={f.r} />
       </g>
     </svg>
   )

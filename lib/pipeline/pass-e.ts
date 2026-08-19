@@ -14,6 +14,7 @@ import { PassESchema, type PassEOutput } from './schemas'
 import { CALIBRATED_PROSE_RULE, stripThemeRefs } from './prose-rules'
 import { logAiCall } from './ai-log'
 import { bucketByAudienceId, createQuotePicker, fetchQuotesByAudience } from '../quotes'
+import { carryPersonas, priorFromProfile } from './persona-continuity'
 import {
   buildPopulationCounts,
   buildThemeDigest,
@@ -44,7 +45,10 @@ import {
 // what people asked for rather than describing what they are like. A profile
 // page is a character sketch — the specifics belong on Voice and Market, one
 // click away. Names are now short human nouns; blocks are characterisations.
-const PROMPT_VERSION = 'pass_e_v2'
+// v3 (2026-08-19): continuity. The cast persists across runs — shown to the
+// model as the default answer, and carried by evidence overlap afterwards so it
+// holds whether or not the model cooperates.
+const PROMPT_VERSION = 'pass_e_v3'
 
 /** Language samples shown to the model — enough to hear the register without
  *  crowding out the theme digest. */
@@ -94,6 +98,8 @@ export function buildSystemPrompt(companyName: string): string {
     '  triggers: what moves them to act. "Seeing someone like them succeed" — not "Step-by-step explanations of the access journey."',
     '  Each item is a short phrase, not a sentence. Three or four per block. If an item names a product feature, a channel, or a piece of information, it belongs on another page, not here.',
     '',
+    'CONTINUITY. If a standing cast is shown below, those people are already in this client\'s profile and are the default answer. Return them again — same names — when the conversation still contains them, even if this run\'s themes are worded differently. Introduce a new persona only when a genuinely different kind of person has appeared, and leave one out only when the conversation no longer contains them at all. A profile that renames its people every week is unreadable; the point is that what they want moves while they stay the same.',
+    '',
     'Other rules:',
     '- Every persona MUST cite the [T#] themes it rests on. A persona you cannot cite is worth less than one fewer persona: the product forbids invented personas, and citations are how the product proves it.',
     '- Personas must differ in BEHAVIOUR, not in wording. Two personas that would act the same way are one persona.',
@@ -114,6 +120,7 @@ export function buildUserPrompt(args: {
   themeLines: string[]
   phrases: string[]
   maxPersonas: number
+  prior?: string[]
 }): string {
   const { counts, themeLines, phrases, maxPersonas } = args
   const rec = (r: Record<string, number>) =>
@@ -136,6 +143,9 @@ export function buildUserPrompt(args: {
     'HOW PEOPLE PHRASE THINGS',
     ...phrases.map((p) => `- ${p}`),
     '',
+    ...(args.prior?.length
+      ? ['STANDING CAST — already in this profile, keep them unless the conversation no longer contains them', ...args.prior.map((n) => `- ${n}`), '']
+      : []),
     `Return at most ${maxPersonas} personas per scope. Fewer, well-grounded personas beat more.`,
   ].join('\n')
 }
@@ -220,6 +230,19 @@ export async function runPassE(
     }
   }
 
+  // The standing cast. A profile is not a weekly report: the same people should
+  // still be there next month, with what they want moving underneath. Shown to
+  // the model so it keeps them, and enforced afterwards regardless.
+  const { data: priorRow } = await admin
+    .from('consumer_profiles')
+    .select('personas')
+    .eq('client_id', clientId)
+    .neq('run_id', runId)
+    .order('run_date', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+  const prior = priorFromProfile((priorRow as { personas?: unknown } | null)?.personas)
+
   const { rows: digest, byRef } = buildThemeDigest(themes, { maxThemes: PERSONA_DIGEST_THEMES })
   if (!digest.length) return empty
 
@@ -234,6 +257,7 @@ export async function runPassE(
     themeLines,
     phrases: phrases.slice(0, LANGUAGE_SAMPLES),
     maxPersonas: PERSONA_MAX,
+    prior: prior.map((p) => p.name),
   })
 
   // 3. The call. Same shape as every other synthesis pass: one parse call, log
@@ -284,6 +308,9 @@ export async function runPassE(
     validPhrases: new Set(phrases),
   })
 
+  // Identity carried by EVIDENCE, not by the model cooperating.
+  const carried = carryPersonas(kept, prior)
+
   if (persist) {
     await logAiCall(admin, { clientId, runId, pass: 'pass_e', callIndex: 1, model: SYNTHESIS_MODEL, promptVersion: PROMPT_VERSION, systemPrompt, userPrompt, response: parsed, error: null, usage, durationMs, validationStatus: kept.length ? 'ok' : 'empty' })
   }
@@ -295,7 +322,7 @@ export async function runPassE(
   // bonus silently always zero and picked quotes on readability alone.
   const themeSlugById = new Map<string, string>()
   for (const i of insights) if (i.theme) themeSlugById.set(i.id, i.theme)
-  const poolIds = [...new Set(kept.flatMap((p) => p.insightIds.slice(0, QUOTE_POOL_PER_PERSONA)))]
+  const poolIds = [...new Set(carried.flatMap((p) => p.insightIds.slice(0, QUOTE_POOL_PER_PERSONA)))]
   const quotesByAudience = poolIds.length ? await fetchQuotesByAudience(admin, poolIds) : new Map()
   // A pool that resolves to nothing is a schema/permission problem, not an
   // absence of good voices — fetchQuotesByAudience swallows its query error and
@@ -304,7 +331,7 @@ export async function runPassE(
     console.warn(`[pass-e] ${poolIds.length} insight ids resolved 0 evidence rows — check insight_evidence reachability`)
   }
   const pick = createQuotePicker(quotesByAudience, themeSlugById)
-  const withQuotes = kept.map((p) => ({
+  const withQuotes = carried.map((p) => ({
     ...p,
     name: stripThemeRefs(p.name),
     oneLiner: stripThemeRefs(p.oneLiner),

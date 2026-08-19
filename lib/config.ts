@@ -636,6 +636,16 @@ export const ASK_REEVALUATE_MAX_CHECKS = 3
  *  this is clipped and the reader is told, rather than silently half-read. */
 export const ASK_INPUT_CHARS = 60000
 
+/** How much evidence two personas must share for the newer one to BE the older
+ *  one. A profile is not a weekly report — "Caregiver" should still be
+ *  Caregiver in three months while what they want moves underneath. Matching is
+ *  on the insight sets, not the name, for the reason theme_registry exists:
+ *  a reasoning model takes no temperature, so identical input still produces
+ *  different words. Set below REGISTRY_MATCH_STRONG (0.5) because a persona
+ *  spans many themes and its evidence naturally turns over faster than a single
+ *  theme's does — the corpus grows every week under the same person. */
+export const PERSONA_MATCH_MIN = 0.35
+
 /** Hero quotes attached per persona. Three is what the page shows behind one
  *  "see the voices" click; more is stored weight nobody reads. */
 export const PERSONA_QUOTES = 3
