@@ -138,6 +138,16 @@ export default async function ConsumerProfilePage({
     )
   }
 
+  // Each persona's share of the conversation this profile covers. Apportioned
+  // across the cast rather than measured against the whole corpus: the profile
+  // describes these people, so "a third of this profile" is a claim the page
+  // can actually stand behind. A conversation that speaks to two of them counts
+  // toward both, which is why this is a share of the profile and not of the
+  // category.
+  const profileVideoTotal = personas.reduce((n, p) => n + (p.sourceVideoCount || 0), 0)
+  const shareOf = (p: Persona) =>
+    profileVideoTotal > 0 ? Math.round((p.sourceVideoCount / profileVideoTotal) * 100) : 0
+
   // One silhouette per persona, decided across the whole cast so no two share
   // a body while another goes unused.
   const figures = assignFigures(personas.map((p) => p.key))
@@ -222,6 +232,8 @@ export default async function ConsumerProfilePage({
         className="relative mx-auto grid w-full max-w-[84rem] gap-6 lg:min-h-[calc(100dvh-10rem)] lg:grid-cols-[1fr_1.15fr_1fr] lg:gap-7"
       >
         <Connectors bodyCentre={figureBodyCentre(figures.get(active.key) ?? 'a')} />
+        <SharePill percent={shareOf(active)} />
+
         <div className="order-2 flex flex-col gap-6 lg:order-1 lg:h-full lg:justify-center lg:gap-16">
           <div className="profile-in-left relative">
           <Card className="rounded-3xl ring-1 ring-primary/25">
@@ -405,6 +417,27 @@ function Connectors({ bodyCentre }: { bodyCentre: number }) {
         />
       ))}
     </svg>
+  )
+}
+
+/** How much of this profile the person on screen accounts for.
+ *
+ *  A bar rather than a bare number, so the size registers before the digits do.
+ *  Sits out of the reading path at the bottom-left: it is context for the
+ *  analysis, not part of it. */
+function SharePill({ percent }: { percent: number }) {
+  if (!percent) return null
+  return (
+    <div
+      className="profile-in-left pointer-events-none absolute bottom-0 left-0 z-10 hidden items-center gap-3 rounded-full border border-primary/25 bg-card px-4 py-2 backdrop-blur-xl lg:inline-flex"
+      title="This persona's share of the conversations the profile covers. A conversation that speaks to two of these people counts toward both."
+    >
+      <span className="text-xs font-medium text-muted-foreground">Share of this profile</span>
+      <span className="h-1.5 w-20 overflow-hidden rounded-full bg-primary/15">
+        <span className="block h-full rounded-full bg-primary/70" style={{ width: `${percent}%` }} />
+      </span>
+      <span className="text-sm font-semibold tabular-nums">{percent}%</span>
+    </div>
   )
 }
 

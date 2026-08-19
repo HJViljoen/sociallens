@@ -22,9 +22,16 @@
 // rather than a different person. The set has to look like one crowd.
 const FIGURES = {
   a: { d: 'M-27.3,116.6 Q-34.4,42.9 0.0,44.4 Q34.8,42.9 27.2,116.6', r: 18.6, w: 34.8, h: 116.6 },
-  b: { d: 'M-34.4,105.6 Q-24.3,37.4 0.0,38.7 Q28.8,37.4 34.5,105.6', r: 17.8, w: 34.5, h: 105.6 },
+  // b, adjusted for the same reason as e, less severely: its shoulder apex sat
+  // 3.1 units under the head against 6–7 on a and c. Apex dropped to match.
+  b: { d: 'M-34.4,105.6 Q-24.3,42.4 0.0,43.7 Q28.8,42.4 34.5,105.6', r: 17.8, w: 34.5, h: 105.6 },
   c: { d: 'M-31.8,104.0 Q-26.8,37.7 0.0,39.0 Q33.4,37.7 31.9,104.0', r: 16.4, w: 33.4, h: 104.0 },
-  e: { d: 'M-30.3,96.0 Q-26.4,26.7 0.0,28.1 Q34.2,26.7 30.3,96.0', r: 13.4, w: 34.2, h: 96.0 },
+  // e, adjusted: as lifted, its head was the smallest of the set (0.28 of its
+  // height against ~0.32) and sat almost directly on the shoulders — a 1.3-unit
+  // neck against 6–7 on the others — so it read as a different kind of person
+  // rather than a different person. Head enlarged and the shoulder apex dropped
+  // to open the same neck gap the rest have. Silhouette width untouched.
+  e: { d: 'M-30.3,96.0 Q-26.4,37.2 0.0,38.6 Q34.2,37.2 30.3,96.0', r: 16.0, w: 34.2, h: 96.0 },
 } as const
 
 export type FigureKey = keyof typeof FIGURES
