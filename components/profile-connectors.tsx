@@ -4,27 +4,46 @@ import { useEffect, useState } from 'react'
 
 // The lines from each block to the figure.
 //
-// These started as hard-coded fractions of the grid, which is fine until the
-// content moves — and it moves constantly: every persona writes a different
-// amount, so a card that sits at 62% for one sits at 55% for the next, and a
-// line that emerged neatly from under one card starts in mid-air on another.
-// Tuning the numbers fixed the persona in front of me and broke the next one.
+// Three earlier attempts failed for the same reason: they guessed where the
+// figure was. Hard-coded fractions of the grid drifted as soon as a persona
+// wrote a different amount; aiming at the body's centre sent every line through
+// the empty gap between head and shoulders; aiming at a fixed flank left them
+// stopping short, because the silhouette's width changes with height and with
+// which figure is drawn.
 //
-// So they are measured. Each element that wants a line carries data-connector
-// ("left" or "right", naming the side of the grid it lives on); this reads
-// their real positions after paint and re-reads on resize. A line starts just
-// INSIDE its element, so the element's own background trims that end, and aims
-// past the figure's centre, so the opaque body trims the other. Both ends are
-// hidden and only the span between them shows — which is what makes them look
-// exactly connected without either end ever being precisely placed.
+// So nothing is guessed. Both ends are measured:
+//   - the start is the centre of the block, from its own bounding box;
+//   - the end is the CLOSEST POINT ON THE FIGURE'S OUTLINE, found by walking
+//     the real path and circle with getPointAtLength and taking the nearest
+//     sample to that block.
+//
+// Correct for any persona, any silhouette, any window size — and a line meets
+// the shoulder, the flank or the head depending on where its block genuinely
+// is, instead of every line aiming at one spot.
 
 interface Line {
   x1: number
   y1: number
+  x2: number
+  y2: number
   side: 'left' | 'right'
 }
 
-export function ProfileConnectors({ bodyCentre }: { bodyCentre: number }) {
+/** Sample an outline in page coordinates. */
+function sampleOutline(el: SVGGeometryElement, samples: number): DOMPoint[] {
+  const ctm = el.getScreenCTM()
+  if (!ctm) return []
+  const total = el.getTotalLength()
+  if (!total) return []
+  const out: DOMPoint[] = []
+  for (let i = 0; i <= samples; i++) {
+    const p = el.getPointAtLength((i / samples) * total)
+    out.push(new DOMPoint(p.x, p.y).matrixTransform(ctm))
+  }
+  return out
+}
+
+export function ProfileConnectors() {
   const [lines, setLines] = useState<Line[]>([])
 
   useEffect(() => {
@@ -33,43 +52,78 @@ export function ProfileConnectors({ bodyCentre }: { bodyCentre: number }) {
 
     const measure = () => {
       const g = grid.getBoundingClientRect()
-      if (!g.width || !g.height) return
+      const figure = grid.querySelector<SVGSVGElement>('[data-figure]')
+      if (!g.width || !g.height || !figure) return
+
+      const outline = [...figure.querySelectorAll<SVGGeometryElement>('path, circle')].flatMap((el) =>
+        sampleOutline(el, 160),
+      )
+      if (!outline.length) return
+
       const next: Line[] = []
       for (const el of grid.querySelectorAll<HTMLElement>('[data-connector]')) {
-        const side = el.dataset.connector === 'right' ? 'right' : 'left'
         const r = el.getBoundingClientRect()
         if (!r.width) continue
-        // 1.5% inside the element's inner edge: far enough under it to be
-        // trimmed, close enough that the visible line still starts at the edge.
-        const edge = side === 'left' ? r.right - g.left : r.left - g.left
-        const inset = side === 'left' ? -0.015 * g.width : 0.015 * g.width
+        const side = el.dataset.connector === 'right' ? 'right' : 'left'
+        // Start at the block's own centre, as asked. The card is opaque, so the
+        // run from centre to edge is hidden and the line reads as leaving the
+        // edge — while the anchor itself can never fall outside the card.
+        const cx = r.left + r.width / 2
+        const cy = r.top + r.height / 2
+
+        let best = outline[0]
+        let bestD = Infinity
+        for (const p of outline) {
+          const d = (p.x - cx) ** 2 + (p.y - cy) ** 2
+          if (d < bestD) {
+            bestD = d
+            best = p
+          }
+        }
+
+        // Aim from the centre, but BEGIN at the card's edge. Drawn from the
+        // centre itself the line shows through the card, which is translucent;
+        // clipped to where the ray leaves the box it keeps exactly the same
+        // direction and starts where the reader expects it to.
+        const dx = best.x - cx
+        const dy = best.y - cy
+        const ts: number[] = []
+        if (dx > 0) ts.push((r.right - cx) / dx)
+        if (dx < 0) ts.push((r.left - cx) / dx)
+        if (dy > 0) ts.push((r.bottom - cy) / dy)
+        if (dy < 0) ts.push((r.top - cy) / dy)
+        const t = Math.min(...ts.filter((v) => v > 0 && Number.isFinite(v)))
+        const sx = Number.isFinite(t) ? cx + dx * t : cx
+        const sy = Number.isFinite(t) ? cy + dy * t : cy
+
         next.push({
-          x1: ((edge + inset) / g.width) * 100,
-          y1: ((r.top + r.height / 2 - g.top) / g.height) * 100,
+          x1: ((sx - g.left) / g.width) * 100,
+          y1: ((sy - g.top) / g.height) * 100,
+          x2: ((best.x - g.left) / g.width) * 100,
+          y2: ((best.y - g.top) / g.height) * 100,
           side,
         })
       }
       setLines(next)
     }
 
+    // Measure now so the lines arrive with everything else, then again once the
+    // entrance has settled: during it the figure is still moving, and a point
+    // on a moving outline is the wrong point.
     measure()
+    const settle = window.setTimeout(measure, 700)
     const ro = new ResizeObserver(measure)
     ro.observe(grid)
     for (const el of grid.querySelectorAll('[data-connector]')) ro.observe(el)
-    return () => ro.disconnect()
+    return () => {
+      window.clearTimeout(settle)
+      ro.disconnect()
+    }
   }, [])
 
   // Nothing until measured: drawing at a guess first would show every line
   // jumping into place on load.
   if (!lines.length) return null
-
-  // Each side aims at its OWN flank, not at the centre line. Converging on the
-  // middle sent every line through the gap between head and shoulders — the
-  // body occludes and the head occludes, but the neck between them is empty,
-  // so that was the one stretch where a line stayed visible inside the figure.
-  // Offset outward, each line meets the shoulder slope and stops there.
-  const targetY = 100 - (1 - bodyCentre) * 100 * 0.55
-  const targetX = (side: 'left' | 'right') => (side === 'left' ? 43 : 57)
 
   return (
     <svg
@@ -83,14 +137,12 @@ export function ProfileConnectors({ bodyCentre }: { bodyCentre: number }) {
           key={i}
           x1={l.x1}
           y1={l.y1}
-          x2={targetX(l.side)}
-          y2={targetY}
+          x2={l.x2}
+          y2={l.y2}
           stroke="var(--primary)"
           strokeOpacity={0.7}
           strokeWidth={1.25}
           vectorEffect="non-scaling-stroke"
-          // Travels with the block it belongs to; the end that meets the figure
-          // moves underneath it, where the opaque body hides it.
           className={l.side === 'left' ? 'profile-line-left' : 'profile-line-right'}
         />
       ))}

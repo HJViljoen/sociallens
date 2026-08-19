@@ -78,6 +78,7 @@ export function CrowdFigure({
       strokeWidth={4.5}
       strokeLinecap="round"
       strokeLinejoin="round"
+      data-figure
       role={title ? 'img' : 'presentation'}
       aria-hidden={title ? undefined : true}
       // Bottom-anchored: the figure stands ON the bottom of whatever box it is
@@ -127,13 +128,3 @@ export function assignFigures(keys: string[]): Map<string, FigureKey> {
   return out
 }
 
-/** Where this figure's body centre sits, as a fraction of its own height.
- *
- *  The connector lines converge here. Each silhouette carries its head and
- *  shoulders at a different height, so a single hard-coded target would meet
- *  one of them well and the rest by luck. */
-export function figureBodyCentre(key: FigureKey): number {
-  const f = FIGURES[key]
-  const shoulders = f.r * 2
-  return (shoulders + f.h) / (2 * f.h)
-}

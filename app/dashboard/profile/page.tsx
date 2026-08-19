@@ -1,12 +1,13 @@
 import Link from 'next/link'
-import { HeartCrack, Compass, Sparkles, Users, UserRound, Layers, Zap } from 'lucide-react'
+import { HeartCrack, Compass, Users, UserRound, Layers, Zap } from 'lucide-react'
 import { getSessionContext } from '@/lib/auth'
-import { createQuotePicker, fetchQuotesByAudience } from '@/lib/quotes'
+import { createQuotePicker, fetchInsightsByIds, fetchQuotesByAudience } from '@/lib/quotes'
+import { PlatformMix, ShareOverTime, type PlatformRow, type ShareSeries } from '@/components/profile-stats'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Quotes } from '@/components/quotes'
-import { CrowdFigure, assignFigures, figureBodyCentre } from '@/components/crowd-figure'
+import { CrowdFigure, assignFigures } from '@/components/crowd-figure'
 import { ProfileConnectors } from '@/components/profile-connectors'
-import { glossaryRule, priorityWord, type GlossaryKey } from '@/lib/calibration'
+import { glossaryRule, type GlossaryKey } from '@/lib/calibration'
 
 // Consumer Profile — "who is actually talking?" (Pass E).
 //
@@ -157,17 +158,64 @@ export default async function ConsumerProfilePage({
   const active = personas[activeIndex]
   const showSwitcher = personas.length > 1
 
-  // Recommendations that speak to an audience, not to a channel — the same rows
-  // Market shows, filtered to the ones this page can honestly stand behind.
-  const { data: recRows } = await supabase
-    .from('recommendations')
-    .select('id, type, title, reasoning, hero_quote')
+  // Where each persona turns up. Platform lives on the insight, so this is a
+  // read over the ids the personas already carry — the base table, not the
+  // view, because these ids must resolve even where a newer run has superseded
+  // the rows but not yet pruned them.
+  const allInsightIds = [...new Set(personas.flatMap((p) => p.insightIds))]
+  const insightRows = allInsightIds.length
+    ? await fetchInsightsByIds<{ id: string; platform: string | null; source_video_id: string | null }>(
+        supabase,
+        allInsightIds,
+        'id, platform, source_video_id',
+      )
+    : []
+  const insightMeta = new Map(insightRows.map((r) => [r.id, r]))
+  const platformTotals = new Map<string, number>()
+  const platformRows: PlatformRow[] = personas.map((p) => {
+    // Counted in conversations, the same unit the rest of the page uses: a
+    // video with ten insights from one persona is one conversation, not ten.
+    const seen = new Map<string, Set<string>>()
+    for (const id of p.insightIds) {
+      const meta = insightMeta.get(id)
+      if (!meta?.platform || !meta.source_video_id) continue
+      const set = seen.get(meta.platform) ?? new Set<string>()
+      set.add(meta.source_video_id)
+      seen.set(meta.platform, set)
+    }
+    const counts: Record<string, number> = {}
+    let total = 0
+    for (const [platform, videos] of seen) {
+      counts[platform] = videos.size
+      total += videos.size
+      platformTotals.set(platform, (platformTotals.get(platform) ?? 0) + videos.size)
+    }
+    return { key: p.key, name: p.name, total, counts }
+  })
+  const platforms = [...platformTotals.entries()].sort((a, b) => b[1] - a[1]).map(([p]) => p)
+
+  // How the mix has moved. Personas are matched across runs on their key, which
+  // continuity keeps stable — matching on name would break the moment a
+  // persona was reworded.
+  const { data: historyRows } = await supabase
+    .from('consumer_profiles')
+    .select('run_date, personas')
     .eq('client_id', clientId)
-    .eq('run_id', latestRun.id as string)
-    .in('type', ['audience_targeting', 'positioning_messaging', 'customer_experience', 'product'])
-    .order('created_at', { ascending: false })
-    .limit(3)
-  const recs = (recRows ?? []) as { id: string; type: string; title: string; reasoning: string; hero_quote: string | null }[]
+    .order('run_date', { ascending: true })
+    .limit(12)
+  const history = (historyRows ?? []) as { run_date: string; personas: Partial<Persona>[] }[]
+  const shareDates = history.map((h) => h.run_date)
+  const shareSeries: ShareSeries[] = personas.map((p) => ({
+    key: p.key,
+    name: p.name,
+    points: history.map((h) => {
+      const list = Array.isArray(h.personas) ? h.personas : []
+      const totals = list.reduce((n, q) => n + (Number(q?.sourceVideoCount) || 0), 0)
+      const mine = list.find((q) => q?.key === p.key)
+      if (!mine || !totals) return null
+      return Math.round(((Number(mine.sourceVideoCount) || 0) / totals) * 100)
+    }),
+  }))
 
   // One real voice per block. The page describes people; without their words
   // the description is a claim the reader has to take on trust — and the
@@ -233,7 +281,7 @@ export default async function ConsumerProfilePage({
         // + a wider cap gives the figure real scale while keeping margin outside.
         className="relative mx-auto grid w-full max-w-[84rem] gap-6 lg:min-h-[calc(100dvh-10rem)] lg:grid-cols-[1fr_1.15fr_1fr] lg:gap-7"
       >
-        <ProfileConnectors bodyCentre={figureBodyCentre(figures.get(active.key) ?? 'a')} />
+        <ProfileConnectors />
         <div className="order-2 flex flex-col gap-6 lg:order-1 lg:h-full lg:justify-center lg:gap-16">
           <div data-connector="left" className="profile-in-left relative">
           <Card className="rounded-3xl ring-1 ring-primary/25">
@@ -299,31 +347,9 @@ export default async function ConsumerProfilePage({
         </div>
       </div>
 
-      {recs.length > 0 && (
-        <section className="space-y-3">
-          <h2 className="flex items-center gap-2 text-sm font-semibold">
-            <Sparkles className="size-4 text-muted-foreground" aria-hidden />
-            What to do about it
-          </h2>
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-            {recs.map((r, i) => (
-              <Card key={r.id}>
-                <CardHeader className="pb-2">
-                  <div className="text-xs font-medium text-muted-foreground">{priorityWord(i)}</div>
-                  <CardTitle className="text-sm font-semibold leading-snug">{r.title}</CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-2">
-                  <p className="text-sm leading-snug text-foreground/85">{r.reasoning}</p>
-                  {r.hero_quote && <Quotes items={[r.hero_quote]} />}
-                </CardContent>
-              </Card>
-            ))}
-          </div>
-          <Link href="/dashboard/market" className="inline-block text-xs font-medium text-primary hover:underline">
-            See all recommendations
-          </Link>
-        </section>
-      )}
+      <PlatformMix rows={platformRows} platforms={platforms} />
+      <ShareOverTime dates={shareDates} series={shareSeries} />
+
     </div>
   )
 }
