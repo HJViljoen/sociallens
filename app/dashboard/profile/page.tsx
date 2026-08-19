@@ -232,8 +232,6 @@ export default async function ConsumerProfilePage({
         className="relative mx-auto grid w-full max-w-[84rem] gap-6 lg:min-h-[calc(100dvh-10rem)] lg:grid-cols-[1fr_1.15fr_1fr] lg:gap-7"
       >
         <Connectors bodyCentre={figureBodyCentre(figures.get(active.key) ?? 'a')} />
-        <SharePill percent={shareOf(active)} />
-
         <div className="order-2 flex flex-col gap-6 lg:order-1 lg:h-full lg:justify-center lg:gap-16">
           <div className="profile-in-left relative">
           <Card className="rounded-3xl ring-1 ring-primary/25">
@@ -274,6 +272,7 @@ export default async function ConsumerProfilePage({
           </Card>
           </div>
           <Block title="What drives them" Icon={Compass} body={active.wants} quote={drivesVoice} className="profile-in-left profile-delay-2" />
+          <SharePill percent={shareOf(active)} />
         </div>
 
         <div className="relative z-10 order-1 flex h-full min-w-0 flex-col items-center lg:order-2">
@@ -384,13 +383,15 @@ function Connectors({ bodyCentre }: { bodyCentre: number }) {
   // onto the grid at the same fraction of the height. Each silhouette carries
   // its shoulders differently, which is why this is passed in rather than fixed.
   const target = { x: 50, y: 100 - (1 - bodyCentre) * 100 * 0.55 }
+  // Left column now carries three items and the right two, so the two sides no
+  // longer sit at the same heights.
   const starts = [
-    { x: 29, y: 35, side: 'left' as const },
-    { x: 29, y: 71, side: 'left' as const },
-    { x: 71, y: 35, side: 'right' as const },
-    { x: 71, y: 71, side: 'right' as const },
+    { x: 29, y: 28, side: 'left' as const },
+    { x: 29, y: 60, side: 'left' as const },
+    { x: 71, y: 31, side: 'right' as const },
+    { x: 71, y: 70, side: 'right' as const },
     // The share bar, tethered like everything else that describes this person.
-    { x: 30, y: 96, side: 'left' as const },
+    { x: 29, y: 83, side: 'left' as const },
   ]
   return (
     <svg
@@ -431,17 +432,19 @@ function SharePill({ percent }: { percent: number }) {
   if (!percent) return null
   return (
     <div
-      // Width derived from the track itself rather than guessed: the grid is
-      // 1fr / 1.15fr / 1fr with two gaps, so one side column is exactly this.
-      // It stays aligned with the blocks above it when the window changes.
-      className="profile-in-left profile-delay-3 absolute bottom-0 left-0 z-10 hidden w-[calc((100%-3.5rem)/3.15)] items-center gap-4 rounded-full border border-primary/25 bg-card px-6 py-4 backdrop-blur-xl lg:flex"
+      // A child of the column, not an overlay pinned to the corner: absolutely
+      // positioned it was invisible to the column's own spacing, so the blocks
+      // centred as though it were not there and left it stranded at the bottom.
+      // In the flow it is spaced with them and takes the column's width for
+      // free.
+      className="profile-in-left profile-delay-3 hidden w-full items-center gap-3 rounded-full border border-primary/25 bg-card px-5 py-2.5 backdrop-blur-xl lg:flex"
       title="This persona's share of the conversations the profile covers. A conversation that speaks to two of these people counts toward both."
     >
-      <span className="shrink-0 text-sm font-medium text-muted-foreground">Share of this profile</span>
-      <span className="h-2 min-w-[5rem] flex-1 overflow-hidden rounded-full bg-primary/15">
+      <span className="shrink-0 text-xs font-medium text-muted-foreground">Share of this profile</span>
+      <span className="h-1.5 min-w-[4rem] flex-1 overflow-hidden rounded-full bg-primary/15">
         <span className="block h-full rounded-full bg-primary/70" style={{ width: `${percent}%` }} />
       </span>
-      <span className="shrink-0 text-lg font-semibold tabular-nums">{percent}%</span>
+      <span className="shrink-0 text-base font-semibold tabular-nums">{percent}%</span>
     </div>
   )
 }
