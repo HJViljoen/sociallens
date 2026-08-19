@@ -94,7 +94,7 @@ function Donut({ row, platforms }: { row: PlatformRow; platforms: string[] }) {
   return (
     <figure className="flex flex-col items-center gap-2">
       <figcaption className="text-center text-sm font-medium leading-tight">{row.name}</figcaption>
-      <svg viewBox="0 0 100 100" className="w-full max-w-[9rem]" role="img" aria-label={`${row.name}: ${row.total} conversations`}>
+      <svg viewBox="0 0 100 100" className="w-full max-w-[11rem]" role="img" aria-label={`${row.name}: ${row.total} conversations`}>
         <circle cx="50" cy="50" r={R} fill="none" stroke="var(--muted)" strokeWidth={13} />
         {segments.map((s) => (
           <circle
@@ -160,18 +160,32 @@ export function ShareOverTime({ dates, series }: { dates: string[]; series: Shar
         <CardHeader className="pb-2">
           <CardTitle className="text-base font-semibold">Who is who</CardTitle>
         </CardHeader>
-        <CardContent className="flex h-full items-center">
-          <ul className="flex w-full flex-col gap-3">
-            {series.map((s, i) => (
-              <li key={s.key} className="flex items-center gap-2.5 text-sm">
-                <span
-                  className="h-1 w-5 shrink-0 rounded-full"
-                  style={{ background: personaColour(i) }}
-                  aria-hidden
-                />
-                <span className="truncate">{s.name}</span>
-              </li>
-            ))}
+        <CardContent className="flex h-full flex-col justify-center">
+          {/* A key that only maps colours to names leaves the reader to find
+              each line on the chart to learn anything. Carrying the current
+              share turns it into the chart's table: the same five rows, in the
+              same order, with the number the lines are drawn from. */}
+          <div className="flex items-center justify-between pb-1 text-[0.65rem] uppercase tracking-wide text-muted-foreground">
+            <span>Group</span>
+            <span>Share</span>
+          </div>
+          <ul className="flex flex-col divide-y divide-border/70">
+            {series.map((s, i) => {
+              const latest = [...s.points].reverse().find((p) => p != null)
+              return (
+                <li key={s.key} className="flex items-center gap-3 py-3.5">
+                  <span
+                    className="size-3 shrink-0 rounded-full"
+                    style={{ background: personaColour(i) }}
+                    aria-hidden
+                  />
+                  <span className="min-w-0 flex-1 truncate text-sm font-medium">{s.name}</span>
+                  <span className="shrink-0 text-sm font-medium tabular-nums">
+                    {latest != null ? `${latest}%` : '—'}
+                  </span>
+                </li>
+              )
+            })}
           </ul>
         </CardContent>
       </Card>
