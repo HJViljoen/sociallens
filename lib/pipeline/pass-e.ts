@@ -236,12 +236,21 @@ export async function runPassE(
   // The standing cast. A profile is not a weekly report: the same people should
   // still be there next month, with what they want moving underneath. Shown to
   // the model so it keeps them, and enforced afterwards regardless.
+  //
+  // The newest profile the client HAS, including this run's own earlier
+  // attempt. Excluding the current run looked right — it is what the plan-check
+  // re-evaluation must do, because diffing a run against itself erases the
+  // diff — but a profile carries identity rather than computing a difference,
+  // and the row about to be overwritten is the best predecessor there is. With
+  // it excluded, re-profiling the same run threw the cast away: an Inngest
+  // retry could hand a client a different set of people than attempt 1 did,
+  // and re-running the pass after a prompt change renamed everyone.
   const { data: priorRow } = await admin
     .from('consumer_profiles')
     .select('personas')
     .eq('client_id', clientId)
-    .neq('run_id', runId)
     .order('run_date', { ascending: false })
+    .order('created_at', { ascending: false })
     .limit(1)
     .maybeSingle()
   const prior = priorFromProfile((priorRow as { personas?: unknown } | null)?.personas)
