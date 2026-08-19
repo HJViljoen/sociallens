@@ -1,5 +1,5 @@
 import Link from 'next/link'
-import { HeartCrack, Compass, Sparkles, Users, UserRound, Layers, Zap, ChevronLeft, ChevronRight } from 'lucide-react'
+import { HeartCrack, Compass, Sparkles, Users, UserRound, Layers, Zap } from 'lucide-react'
 import { getSessionContext } from '@/lib/auth'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Quotes } from '@/components/quotes'
@@ -98,7 +98,6 @@ export default async function ConsumerProfilePage({
   if (!latestRun) {
     return (
       <div className="space-y-6">
-        <PageHeader />
         <EmptyState>Your consumer profile lands with your first update — check back then.</EmptyState>
       </div>
     )
@@ -126,7 +125,6 @@ export default async function ConsumerProfilePage({
   if (!personas.length) {
     return (
       <div className="space-y-6">
-        <PageHeader />
         <EmptyState>
           There is not yet enough conversation to describe who is talking. The profile appears once a
           few kinds of person are clearly distinguishable in the data.
@@ -137,11 +135,6 @@ export default async function ConsumerProfilePage({
 
   const activeIndex = Math.max(0, personas.findIndex((p) => p.key === sp.persona))
   const active = personas[activeIndex]
-  // A stepper rather than a row of chips: the personas are a small set you page
-  // through, and the figure is what changes, so the control belongs above it
-  // and out of the way. Wraps, so there is no dead end at either end.
-  const prev = personas[(activeIndex - 1 + personas.length) % personas.length]
-  const next = personas[(activeIndex + 1) % personas.length]
   const showSwitcher = personas.length > 1
 
   // Recommendations that speak to an audience, not to a channel — the same rows
@@ -164,14 +157,37 @@ export default async function ConsumerProfilePage({
   return (
     // min-h-full + flex: the grid must be able to claim the remaining height,
     // which is what lets the figure reach the bottom of the pane.
-    <div className="flex min-h-full flex-col gap-6">
-      <PageHeader />
+    <div className="flex min-h-full flex-col gap-5">
+      {/* Every kind of person on one bar: with a handful of personas the whole
+          cast should be visible at once — a stepper hid four of them behind an
+          arrow and made the reader page to find out who else is here. */}
+      {showSwitcher ? (
+        <div className="flex flex-wrap items-center gap-1 rounded-full border border-border bg-card p-1">
+          {personas.map((p) => (
+            <Link
+              key={p.key}
+              href={`/dashboard/profile?persona=${encodeURIComponent(p.key)}`}
+              scroll={false}
+              aria-current={p.key === active.key ? 'page' : undefined}
+              className={`flex-1 rounded-full px-4 py-2 text-center text-sm font-medium transition-colors ${
+                p.key === active.key
+                  ? 'bg-primary text-primary-foreground'
+                  : 'text-muted-foreground hover:bg-muted/50 hover:text-foreground'
+              }`}
+            >
+              {p.name}
+            </Link>
+          ))}
+        </div>
+      ) : (
+        <h2 className="text-lg font-semibold leading-tight">{active.name}</h2>
+      )}
 
       {/* Four blocks around a figure that stands on its own — no card, running
           off the bottom edge, the way it stands in the crowd behind every other
           page. The persona's description is one of the blocks rather than a
           caption under the figure, so nothing follows the figure down. */}
-      <div className="grid gap-5 lg:min-h-[calc(100dvh-13rem)] lg:grid-cols-[1fr_1.55fr_1fr]">
+      <div className="grid gap-5 lg:min-h-[calc(100dvh-10rem)] lg:grid-cols-[1fr_1.55fr_1fr]">
         <div className="order-2 grid gap-5 lg:order-1 lg:grid-rows-[1fr_1.9fr]">
           <Card className="h-full">
             <CardHeader className="pb-2">
@@ -213,15 +229,6 @@ export default async function ConsumerProfilePage({
         </div>
 
         <div className="order-1 flex h-full min-w-0 flex-col items-center lg:order-2">
-          {showSwitcher && (
-            <div className="mb-6 flex items-center gap-1 rounded-full border border-border bg-card px-1 py-1">
-              <StepLink href={`/dashboard/profile?persona=${encodeURIComponent(prev.key)}`} label="Previous persona" Icon={ChevronLeft} />
-              <span className="min-w-[9rem] px-2 text-center text-sm font-medium">{active.name}</span>
-              <StepLink href={`/dashboard/profile?persona=${encodeURIComponent(next.key)}`} label="Next persona" Icon={ChevronRight} />
-            </div>
-          )}
-          {!showSwitcher && <h2 className="mb-6 text-lg font-semibold leading-tight">{active.name}</h2>}
-
           {/* The figure takes whatever height is left and stands ON the bottom
               edge: -mb-6 eats the pane's own padding so the hem lands on the
               edge itself rather than floating above it. h-full + w-auto keeps
@@ -268,33 +275,6 @@ export default async function ConsumerProfilePage({
         </section>
       )}
     </div>
-  )
-}
-
-function PageHeader() {
-  return (
-    <div>
-      <h1 className="text-xl font-semibold">Consumer Profile</h1>
-      <p className="mt-1 text-sm text-muted-foreground">
-        Who is talking in your category, built from what they said — not a customer list.
-      </p>
-    </div>
-  )
-}
-
-/** One arrow of the persona stepper. A Link, not a button: the page is a
- *  server component and the persona lives in the URL, so paging is a navigation
- *  and stays shareable. */
-function StepLink({ href, label, Icon }: { href: string; label: string; Icon: typeof ChevronLeft }) {
-  return (
-    <Link
-      href={href}
-      scroll={false}
-      aria-label={label}
-      className="inline-flex size-8 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground"
-    >
-      <Icon className="size-4" aria-hidden />
-    </Link>
   )
 }
 
