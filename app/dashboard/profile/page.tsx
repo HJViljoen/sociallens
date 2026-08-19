@@ -1,5 +1,5 @@
 import Link from 'next/link'
-import { HeartCrack, Compass, Sparkles, Users, Layers, Quote as QuoteIcon, Zap } from 'lucide-react'
+import { HeartCrack, Compass, Sparkles, Users, Layers, Quote as QuoteIcon, Zap, ChevronLeft, ChevronRight } from 'lucide-react'
 import { getSessionContext } from '@/lib/auth'
 import { createQuotePicker, fetchQuotesByAudience } from '@/lib/quotes'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -136,8 +136,13 @@ export default async function ConsumerProfilePage({
     )
   }
 
-  const active =
-    personas.find((p) => p.key === sp.persona) ?? personas[0]
+  const activeIndex = Math.max(0, personas.findIndex((p) => p.key === sp.persona))
+  const active = personas[activeIndex]
+  // A stepper rather than a row of chips: the personas are a small set you page
+  // through, and the figure is what changes, so the control belongs above it
+  // and out of the way. Wraps, so there is no dead end at either end.
+  const prev = personas[(activeIndex - 1 + personas.length) % personas.length]
+  const next = personas[(activeIndex + 1) % personas.length]
   const showSwitcher = personas.length > 1
 
   // Recommendations that speak to an audience, not to a channel — the same rows
@@ -190,44 +195,31 @@ export default async function ConsumerProfilePage({
         </Card>
       )}
 
-      {/* Persona switcher — the primary axis of this page. Same chip vocabulary
-          as Voice's entity bar so a persona reads as the same kind of thing. */}
-      {showSwitcher && (
-        <div className="flex flex-wrap items-center gap-2">
-          {personas.map((p) => (
-            <PersonaChip key={p.key} persona={p} active={p.key === active.key} />
-          ))}
-        </div>
-      )}
-
-      {/* The figure, with the evidenced blocks around it. On mobile the figure
-          sits above the blocks; from lg it is the centre column. */}
-      <div className="grid gap-4 lg:grid-cols-[1fr_auto_1fr] lg:items-start">
-        <div className="space-y-4">
-          <Block
-            title="What they want"
-            Icon={Compass}
-            items={active.wants}
-            glossary="Drawn from what this group asks for and praises."
-          />
-          <Block
-            title="What stops them"
-            Icon={HeartCrack}
-            items={active.blockers}
-            glossary="Objections and pain points raised by this group."
-          />
+      {/* The figure is the subject: it sits in the middle, the blocks arrange
+          around it, and the stepper sits above it because paging personas is a
+          change to the figure, not a filter on the page. On mobile the figure
+          leads and the blocks stack under it. */}
+      <div className="grid items-start gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(260px,auto)_minmax(0,1fr)]">
+        {/* Left: what drives them, then what holds them back. */}
+        <div className="order-2 flex flex-col gap-4 lg:order-1 lg:pt-16">
+          <Block title="What they want" Icon={Compass} items={active.wants} />
+          <Block title="What stops them" Icon={HeartCrack} items={active.blockers} />
         </div>
 
-        <div className="flex flex-col items-center gap-3 py-2 lg:w-64">
-          <CrowdFigure
-            personaKey={active.key}
-            title={active.name}
-            lean={1}
-            className="h-56 w-auto text-primary sm:h-72 lg:h-80"
-          />
-          <div className="text-center">
-            <h2 className="text-lg font-semibold leading-tight">{active.name}</h2>
-            <p className="mt-1 text-sm leading-snug text-muted-foreground">{active.oneLiner}</p>
+        <div className="order-1 flex flex-col items-center lg:order-2">
+          {showSwitcher && (
+            <div className="mb-4 flex items-center gap-1 rounded-full border border-border bg-card px-1 py-1">
+              <StepLink href={`/dashboard/profile?persona=${encodeURIComponent(prev.key)}`} label="Previous" Icon={ChevronLeft} />
+              <span className="min-w-[9rem] px-2 text-center text-sm font-medium">{active.name}</span>
+              <StepLink href={`/dashboard/profile?persona=${encodeURIComponent(next.key)}`} label="Next" Icon={ChevronRight} />
+            </div>
+          )}
+
+          {/* Text above, figure below: the figure is the anchor and wants the
+              bottom of the column, the way it stands in the crowd. */}
+          <div className="mb-5 max-w-xs text-center">
+            {!showSwitcher && <h2 className="mb-1 text-lg font-semibold leading-tight">{active.name}</h2>}
+            <p className="text-sm leading-snug text-muted-foreground">{active.oneLiner}</p>
             <div className="mt-3 flex flex-wrap items-center justify-center gap-1.5">
               <span
                 className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium ${scopeLabel.bg} ${scopeLabel.fg}`}
@@ -249,69 +241,50 @@ export default async function ConsumerProfilePage({
               {active.sourceVideoCount === 1 ? 'conversation' : 'conversations'}
             </p>
           </div>
+
+          <CrowdFigure
+            personaKey={active.key}
+            title={active.name}
+            lean={1}
+            className="h-64 w-auto text-primary sm:h-80 lg:h-[24rem]"
+          />
         </div>
 
-        <div className="space-y-4">
-          <Block
-            title="What pushes them to act"
-            Icon={Zap}
-            items={active.triggers}
-            glossary="The circumstances this group says moved them."
-          />
-          {active.who.length > 0 && (
+        {/* Right: what moves them, then how they sound. */}
+        <div className="order-3 flex flex-col gap-4 lg:pt-8">
+          <Block title="What moves them" Icon={Zap} items={active.triggers} />
+          {active.howTheyTalk.length > 0 && (
             <Card>
               <CardHeader className="pb-2">
                 <CardTitle className="flex items-center gap-2 text-sm font-semibold">
-                  <Users className="size-4 text-muted-foreground" aria-hidden />
-                  What they reveal about themselves
+                  <QuoteIcon className="size-4 text-muted-foreground" aria-hidden />
+                  How they sound
                 </CardTitle>
               </CardHeader>
-              <CardContent className="space-y-1.5 text-sm">
-                {active.who.map((w) => (
-                  <div key={w.signal} className="flex items-baseline justify-between gap-3">
-                    <span className="text-foreground/85">{w.signal}</span>
-                    <span className="shrink-0 text-xs text-muted-foreground">{w.count}</span>
-                  </div>
-                ))}
-                {/* Counts, never quotes — this is the one block where the
-                    people being described are the subject. */}
-                <p className="pt-1 text-xs text-muted-foreground">
-                  Counted where the conversation states it. Nothing is inferred.
-                </p>
+              <CardContent>
+                <div className="flex flex-wrap gap-1.5">
+                  {active.howTheyTalk.map((phrase, i) => (
+                    <span key={i} className="rounded-md bg-muted px-2 py-1 text-xs text-foreground/80">
+                      {phrase}
+                    </span>
+                  ))}
+                </div>
               </CardContent>
             </Card>
           )}
         </div>
       </div>
 
-      {(active.howTheyTalk.length > 0 || quotes.length > 0) && (
+      {quotes.length > 0 && (
         <Card>
           <CardHeader className="pb-2">
             <CardTitle className="flex items-center gap-2 text-sm font-semibold">
               <QuoteIcon className="size-4 text-muted-foreground" aria-hidden />
-              How they talk
+              In their own words
             </CardTitle>
           </CardHeader>
-          <CardContent className="space-y-3">
-            {active.howTheyTalk.length > 0 && (
-              <div className="flex flex-wrap gap-1.5">
-                {active.howTheyTalk.map((phrase, i) => (
-                  <span key={i} className="rounded-md bg-muted px-2 py-1 text-xs text-foreground/80">
-                    {phrase}
-                  </span>
-                ))}
-              </div>
-            )}
-            {quotes.length > 0 && (
-              <details className="group">
-                <summary className="cursor-pointer text-xs font-medium text-muted-foreground hover:text-foreground">
-                  See the voices
-                </summary>
-                <div className="pt-3">
-                  <Quotes items={quotes} />
-                </div>
-              </details>
-            )}
+          <CardContent>
+            <Quotes items={quotes} />
           </CardContent>
         </Card>
       )}
@@ -356,41 +329,28 @@ function PageHeader() {
   )
 }
 
-function PersonaChip({ persona, active }: { persona: Persona; active: boolean }) {
+/** One arrow of the persona stepper. A Link, not a button: the page is a
+ *  server component and the persona lives in the URL, so paging is a navigation
+ *  and stays shareable. */
+function StepLink({ href, label, Icon }: { href: string; label: string; Icon: typeof ChevronLeft }) {
   return (
     <Link
-      href={`/dashboard/profile?persona=${encodeURIComponent(persona.key)}`}
+      href={href}
       scroll={false}
-      className={`inline-flex items-center gap-2 rounded-lg border px-4 py-2 text-sm font-medium transition-colors ${
-        active
-          ? 'border-transparent bg-primary/10 text-primary'
-          : 'border-border text-foreground hover:bg-muted/40'
-      }`}
+      aria-label={label}
+      className="inline-flex size-8 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground"
     >
-      {persona.name}
-      <span className={active ? 'opacity-70' : 'text-muted-foreground'}>
-        · {persona.sourceVideoCount}
-      </span>
+      <Icon className="size-4" aria-hidden />
     </Link>
   )
 }
 
-function Block({
-  title,
-  Icon,
-  items,
-  glossary,
-}: {
-  title: string
-  Icon: typeof Compass
-  items: string[]
-  glossary: string
-}) {
+function Block({ title, Icon, items }: { title: string; Icon: typeof Compass; items: string[] }) {
   if (!items.length) return null
   return (
     <Card>
       <CardHeader className="pb-2">
-        <CardTitle className="flex items-center gap-2 text-sm font-semibold" title={glossary}>
+        <CardTitle className="flex items-center gap-2 text-sm font-semibold">
           <Icon className="size-4 text-muted-foreground" aria-hidden />
           {title}
         </CardTitle>

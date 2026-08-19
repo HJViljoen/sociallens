@@ -39,7 +39,12 @@ import {
 // Non-fatal by construction: the pipeline runs this as its own Inngest step
 // with .catch(), so a client's report never dies for a profile.
 
-const PROMPT_VERSION = 'pass_e_v1'
+// v2 (2026-08-19, Heinrich's design review): the personas were named like
+// themes ("the identity-led wearer seeking confidence") and the blocks listed
+// what people asked for rather than describing what they are like. A profile
+// page is a character sketch — the specifics belong on Voice and Market, one
+// click away. Names are now short human nouns; blocks are characterisations.
+const PROMPT_VERSION = 'pass_e_v2'
 
 /** Language samples shown to the model — enough to hear the register without
  *  crowding out the theme digest. */
@@ -76,13 +81,26 @@ export function buildSystemPrompt(companyName: string): string {
     '',
     'You are given: counts over the whole current insight population, a digest of the run\'s themes (each with a [T#] handle, its entity bucket, category and dominant emotion), and real phrasings people used.',
     '',
-    'Return a small set of PERSONAS. A persona is a recognisable kind of person in this conversation — defined by what they want, what stops them, and what pushes them to act. Rules:',
+    'Return a small set of PERSONAS. A persona is a KIND OF PERSON in this conversation — the sort of person a colleague could picture from the name alone.',
+    '',
+    'THE NAME IS THE HARDEST PART. It must be the word a person would actually use for this kind of person: one to three plain words, a noun, no verb, no adjective doing marketing work.',
+    '  Good shape: "Caretaker". "New amputee". "Researcher". "Long-term user". "Gift buyer". "First-time buyer".',
+    '  Wrong shape: "The identity-led wearer seeking confidence" (a description, not a name) · "Value-conscious Val" (a persona-deck cliché) · "Cost and access barriers" (a theme label, not a person) · "The evaluator checking fit and commitment" (a sentence).',
+    '  If the name needs a verb or a clause to make sense, you have written a description. Cut it back to the noun.',
+    '',
+    'THE BLOCKS DESCRIBE THE PERSON, NOT THEIR REQUESTS. This is a character sketch. The specifics live elsewhere in the product and are one click away, so here you are answering "what is this kind of person like?" — never "what did they ask for?".',
+    '  wants: what drives them, in a few words each. "To get moving again" — not "Pricing, contact details, and coverage guidance that make the brand feel reachable."',
+    '  blockers: what holds this kind of person back. "Cost feels out of reach" — not "Coverage rules and public-system delays make access feel uncertain."',
+    '  triggers: what moves them to act. "Seeing someone like them succeed" — not "Step-by-step explanations of the access journey."',
+    '  Each item is a short phrase, not a sentence. Three or four per block. If an item names a product feature, a channel, or a piece of information, it belongs on another page, not here.',
+    '',
+    'Other rules:',
     '- Every persona MUST cite the [T#] themes it rests on. A persona you cannot cite is worth less than one fewer persona: the product forbids invented personas, and citations are how the product proves it.',
     '- Personas must differ in BEHAVIOUR, not in wording. Two personas that would act the same way are one persona.',
     '- scope: "category" for the conversation at large (people the brand has not necessarily won); "client" only for personas built from themes in the client bucket. Prefer category — for most brands the client bucket is thin.',
-    '- who: demographic signals ONLY where the conversation states them (age, condition, use-case, location), as a COUNT of how many themes/conversations reveal it. Never quote a person to evidence a demographic, and never infer one from a name, a platform, or a stereotype. Omit rather than guess.',
+    '- one_liner: one plain sentence on who they are and where they are in their story. Still about the person, not their shopping list.',
     '- how_they_talk: phrases taken from the language samples shown. Do not invent phrasing.',
-    '- name: descriptive and plain — "the first-time researcher", "the long-term user comparing brands". Never a first name, never a persona-deck cliché ("Budget-Conscious Brenda").',
+    '- Never infer who someone is from a name, a platform, or a stereotype, and never quote a person to evidence a demographic. Where the conversation states a condition, life stage or use-case, the product counts it and renders the count itself — you do not describe it.',
     '- Do not state how many people a persona represents. The product counts that from your citations and renders it.',
     CALIBRATED_PROSE_RULE,
     '',

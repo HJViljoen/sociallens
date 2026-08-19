@@ -14,6 +14,25 @@ describe('buildSystemPrompt', () => {
     expect(prompt).toContain('Acme')
   })
 
+  it('constrains the name to a short human noun, with the failure modes named', () => {
+    // The names read like theme labels ("the identity-led wearer seeking
+    // confidence"): a description wearing a person's hat. The word a colleague
+    // would actually use is the bar — Caretaker, New amputee, Researcher.
+    expect(prompt).toContain('one to three plain words, a noun, no verb')
+    expect(prompt).toContain('a description, not a name')
+    expect(prompt).toContain('a theme label, not a person')
+    expect(prompt).toContain('Cut it back to the noun')
+  })
+
+  it('asks for a character sketch, not a list of requests', () => {
+    // "Pricing, contact details, and coverage guidance" is Voice-of-Customer
+    // output. This page answers what the person is LIKE; the specifics are one
+    // click away elsewhere in the product.
+    expect(prompt).toContain('DESCRIBE THE PERSON, NOT THEIR REQUESTS')
+    expect(prompt).toContain('never "what did they ask for?"')
+    expect(prompt).toContain('short phrase, not a sentence')
+  })
+
   it('requires every persona to cite the themes it rests on', () => {
     expect(prompt).toContain('MUST cite')
     expect(prompt).toContain('forbids invented personas')
@@ -21,10 +40,12 @@ describe('buildSystemPrompt', () => {
 
   it('forbids inferring demographics and forbids quoting people to evidence them', () => {
     // counts-not-quotes (2026-08-22) reaches this prompt too: a demographic
-    // signal may be counted, never illustrated with someone's words.
-    expect(prompt).toContain('Never quote a person to evidence a demographic')
-    expect(prompt).toContain('never infer one from a name, a platform, or a stereotype')
-    expect(prompt).toContain('Omit rather than guess')
+    // signal may be counted, never illustrated with someone's words. The `who`
+    // field left the schema when counts moved into code, but the model can
+    // still smuggle an inferred demographic into the prose, so the guard stays.
+    expect(prompt).toContain('never quote a person to evidence a demographic')
+    expect(prompt).toContain('Never infer who someone is from a name, a platform, or a stereotype')
+    expect(prompt).toContain('the product counts it and renders the count itself')
   })
 
   it('forbids the model stating its own magnitudes', () => {
