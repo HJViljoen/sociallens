@@ -6,8 +6,8 @@ import { ANALYSIS_MODEL, SYNTHESIS_MODEL, estimateCost, ASK_MAX_CLAIMS, ASK_THEM
 import { logAiCall } from '../pipeline/ai-log'
 import { CALIBRATED_PROSE_RULE, stripThemeRefs } from '../pipeline/prose-rules'
 import { embedTexts } from '../pipeline/cluster'
-import { fetchQuotesByAudience } from '../quotes'
-import { shortlistThemes, summarise, validateJudgement, validateVerdicts, type AskTheme, type RawVerdict } from './verdicts'
+import { bucketByAudienceId, fetchInsightsByIds, fetchQuotesByAudience, scopeToClientVoices } from '../quotes'
+import { normaliseRef, shortlistThemes, summarise, validateJudgement, validateVerdicts, type AskTheme, type RawVerdict } from './verdicts'
 import type { AskResult, ClaimResult, ExtractedClaim } from './types'
 
 // The Ask engine — one pipeline, three faces (test an idea, check a plan,
@@ -184,10 +184,57 @@ export async function verdictPass(
 
   // 3. Real voices for the shortlisted themes, so the verdict is judged against
   // what people said and not against a label.
-  const poolIds = [...new Set(shortlists.flatMap((s) => s.themes.flatMap((t) => t.insightIds.slice(0, 40))))]
+  //
+  // Entity-scoped: a claim the client makes about their own market must not be
+  // evidenced by a competitor's customers. The rule and its history are in
+  // lib/quotes.ts — Market, Competitive and Dashboard all obey it, and this is
+  // the same kind of surface.
+  const bucketById = bucketByAudienceId(
+    themes.map((t) => ({ bucket: t.bucket, supporting_insight_ids: t.insightIds })),
+  )
+  const poolIds = scopeToClientVoices(
+    [...new Set(shortlists.flatMap((s) => s.themes.flatMap((t) => t.insightIds.slice(0, 40))))],
+    bucketById,
+  )
   const quotesByAudience = poolIds.length ? await fetchQuotesByAudience(admin, poolIds) : new Map()
 
-  const themesByClaimRef = new Map(shortlists.map((s) => [s.claim.ref.toLowerCase(), s.themes]))
+  // What the verdicts get checked against: which of those insights still exist,
+  // which actually carry a quotable comment, and which video each came from.
+  // The base table, not the view — stored ids must resolve even when a newer
+  // run has superseded the rows but not yet pruned them.
+  const insightRows = poolIds.length
+    ? await fetchInsightsByIds<{ id: string; source_video_id: string | null }>(admin, poolIds, 'id, source_video_id')
+    : []
+  const liveInsightIds = new Set(insightRows.map((r) => r.id))
+  const quotedInsightIds = new Set([...quotesByAudience.keys()] as string[])
+
+  // Evidence unreachable is NOT the same as evidence absent.
+  //
+  // fetchQuotesByAudience swallows its query error and returns an empty map, so
+  // a schema or permission problem looks exactly like a corpus with nothing in
+  // it. Left alone, the quote-backing rule would then downgrade every claim in
+  // a plan to "untested" and tell the user their whole document is unmeasured —
+  // a confident, wrong answer, which is worse than the bluff the rule exists to
+  // prevent. When a real pool resolves nothing, say so loudly and stand the
+  // rule down for this run rather than inventing a verdict about the verdicts.
+  const evidenceUnreachable = poolIds.length > 0 && quotedInsightIds.size === 0
+  if (evidenceUnreachable) {
+    console.warn(
+      `[ask] ${poolIds.length} insight ids resolved 0 evidence rows — quote-backing not enforced for this check; check insight_evidence reachability`,
+    )
+  }
+
+  const grounding = {
+    liveInsightIds,
+    quotedInsightIds: evidenceUnreachable ? liveInsightIds : quotedInsightIds,
+    videoByInsightId: new Map(
+      insightRows.filter((r) => r.source_video_id).map((r) => [r.id, r.source_video_id as string]),
+    ),
+  }
+
+  // Keyed exactly as validateVerdicts looks them up. A divergence here would
+  // silently empty every pool and downgrade every verdict to silent.
+  const themesByClaimRef = new Map(shortlists.map((s) => [normaliseRef(s.claim.ref), s.themes]))
   const verdictUser = shortlists
     .map((s) => {
       const lines = [`[${s.claim.ref}] ${s.claim.claim}`]
@@ -230,7 +277,7 @@ export async function verdictPass(
   costUsd += estimateCost(SYNTHESIS_MODEL, usage.prompt_tokens, usage.completion_tokens)
   if (persist) await logAiCall(admin, { clientId, runId, pass: 'ask_verdict', callIndex: 1, model: SYNTHESIS_MODEL, promptVersion: PROMPT_VERSION_VERDICT, systemPrompt: verdictSystem, userPrompt: verdictUser, response: verdicts, error: null, usage, durationMs: Date.now() - startedVerdict, validationStatus: verdicts ? 'ok' : 'parse_error' })
 
-  const validated = validateVerdicts((verdicts?.verdicts ?? []) as RawVerdict[], claims, themesByClaimRef)
+  const validated = validateVerdicts((verdicts?.verdicts ?? []) as RawVerdict[], claims, themesByClaimRef, grounding)
     .map((c) => ({ ...c, theySay: c.theySay ? stripThemeRefs(c.theySay) : null }))
   return { claims: validated, costUsd }
 }

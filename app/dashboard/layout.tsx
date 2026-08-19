@@ -3,6 +3,7 @@ import { AppSidebar } from "@/components/app-sidebar"
 import { AccessBanner } from "@/components/access-banner"
 import { getSessionContext } from "@/lib/auth"
 import { billingAccess, type BillingClient } from "@/lib/billing"
+import { askEnabled } from "@/lib/config"
 
 export default async function DashboardLayout({ children }: { children: React.ReactNode }) {
   // Trends needs ≥2 comparable updates (run_summary snapshots) before it has
@@ -28,7 +29,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
 
   return (
     <SidebarProvider>
-      <AppSidebar showTrends={showTrends} />
+      <AppSidebar showTrends={showTrends} showAsk={askEnabled()} />
       {/* min-w-0: without it this flex item refuses to shrink below the
           intrinsic width of wide children (the Content page's 9-column table),
           so the whole page overflows the phone viewport instead of the table

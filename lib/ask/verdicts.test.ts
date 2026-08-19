@@ -27,6 +27,13 @@ const theme = (id: string, over: Partial<AskTheme> = {}): AskTheme => ({
   ...over,
 })
 
+/** Full grounding: every insight exists, is quotable, and maps to a video. */
+const groundingFor = (themes: AskTheme[]) => ({
+  liveInsightIds: new Set(themes.flatMap((t) => t.insightIds)),
+  quotedInsightIds: new Set(themes.flatMap((t) => t.insightIds)),
+  videoByInsightId: new Map(themes.flatMap((t) => t.insightIds.map((id, i) => [id, t.videoIds[i % t.videoIds.length]]))),
+})
+
 const claims: ExtractedClaim[] = [
   { ref: 'C1', claim: 'price is the main barrier' },
   { ref: 'C2', claim: 'buyers compare us on weight' },
@@ -213,5 +220,76 @@ describe('diffVerdicts — what moved since last week', () => {
 
   it('ignores claims that did not exist in the earlier evaluation', () => {
     expect(diffVerdicts([], [mk('C1', 'echoes')])).toEqual([])
+  })
+})
+
+describe('grounding — a verdict must rest on something a person actually said', () => {
+  const a = theme('a')
+  const pool = new Map([['c1', [a]]])
+  const echo: RawVerdict[] = [
+    { claim_ref: 'C1', verdict: 'echoes', they_say: 'people say it constantly', theme_refs: ['T1'] },
+  ]
+
+  it('downgrades to untested when no cited insight carries a quotable comment', () => {
+    // THE anti-bluff rule. Verdict, count and theme ids were all structurally
+    // valid; theySay is free prose. Without a real comment behind it, a
+    // fabricated audience finding would render under a "Supported" badge with
+    // a counted number beside it. Supported-with-nothing-to-show is the shape a
+    // bluff takes.
+    const g = { ...groundingFor([a]), quotedInsightIds: new Set<string>() }
+    const [c1] = validateVerdicts(echo, claims, pool, g)
+    expect(c1.verdict).toBe('silent')
+    expect(c1.theySay).toBeNull()
+  })
+
+  it('downgrades to untested when the cited insights no longer exist', () => {
+    // themes outlive their insights (prune-stale-analysis), so re-evaluating
+    // an older run must not count rows that are gone.
+    const g = { ...groundingFor([a]), liveInsightIds: new Set<string>() }
+    expect(validateVerdicts(echo, claims, pool, g)[0].verdict).toBe('silent')
+  })
+
+  it('counts conversations from the cited insights’ own videos, not the theme’s whole breadth', () => {
+    // A claim touching one facet of a broad theme must not inherit the theme's
+    // total reach: "heard across 78 conversations" when nothing in those 78 was
+    // tested against the claim is a true number attached to the wrong thing.
+    const broad = theme('broad', {
+      insightIds: ['i1', 'i2'],
+      videoIds: ['v1', 'v2', 'v3', 'v4', 'v5', 'v6', 'v7', 'v8'],
+    })
+    const g = {
+      liveInsightIds: new Set(['i1', 'i2']),
+      quotedInsightIds: new Set(['i1', 'i2']),
+      videoByInsightId: new Map([['i1', 'v1'], ['i2', 'v1']]),
+    }
+    const [c1] = validateVerdicts(echo, claims, new Map([['c1', [broad]]]), g)
+    expect(c1.conversationCount).toBe(1)
+  })
+
+  it('keeps only the insights it can actually stand behind', () => {
+    const g = {
+      liveInsightIds: new Set(['i-a-1', 'i-a-2']),
+      quotedInsightIds: new Set(['i-a-1']),
+      videoByInsightId: new Map([['i-a-1', 'v-a-1']]),
+    }
+    expect(validateVerdicts(echo, claims, pool, g)[0].insightIds).toEqual(['i-a-1'])
+  })
+
+  it('still works with no grounding supplied (the pure-logic path)', () => {
+    expect(validateVerdicts(echo, claims, pool)[0].verdict).toBe('echoes')
+  })
+})
+
+describe('diffVerdicts — a run must never be diffed against itself', () => {
+  const mk = (ref: string, verdict: ClaimResult['verdict']): ClaimResult => ({
+    ref, claim: `claim ${ref}`, verdict, theySay: null, conversationCount: 0, themeRefs: [], insightIds: [],
+  })
+
+  it('reports nothing when both sides are the same reading', () => {
+    // The retry case: if the baseline query picked up the row this same run
+    // just wrote, `moved` would come back empty and overwrite the real one. The
+    // query excludes the current run; this pins what that protects.
+    const current = [mk('C1', 'contradicts')]
+    expect(diffVerdicts(current, current)).toEqual([])
   })
 })

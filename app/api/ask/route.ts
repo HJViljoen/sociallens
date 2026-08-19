@@ -3,7 +3,9 @@ import { getRouteSession } from '@/lib/auth'
 import { createAdminClient } from '@/lib/supabase-admin'
 import { runAsk } from '@/lib/ask/engine'
 import { extractPdfText, pageWarning, PdfTooLargeError, PdfUnreadableError } from '@/lib/ask/pdf'
-import { ASK_PDF_MAX_BYTES } from '@/lib/config'
+import { ASK_PDF_MAX_BYTES, askEnabled } from '@/lib/config'
+import { clipInput } from '@/lib/ask/engine'
+import { dayStartIso, evaluateQuota } from '@/lib/ask/quota'
 
 // POST /api/ask — check an idea or a plan against the mined conversation.
 //
@@ -20,9 +22,10 @@ export const runtime = 'nodejs'
 // normal plan; the cap exists so a pathological document fails cleanly.
 export const maxDuration = 300
 
-const MAX_TEXT_CHARS = 200_000
-
 export async function POST(request: Request) {
+  if (!askEnabled()) {
+    return NextResponse.json({ error: 'Not available yet.' }, { status: 404 })
+  }
   const session = await getRouteSession()
   if (!session) {
     return NextResponse.json({ error: 'Not signed in.' }, { status: 401 })
@@ -74,11 +77,29 @@ export async function POST(request: Request) {
   if (text.length < 20) {
     return NextResponse.json({ error: 'Give me a bit more to work with.' }, { status: 400 })
   }
-  if (text.length > MAX_TEXT_CHARS) text = text.slice(0, MAX_TEXT_CHARS)
+  // Store exactly what was READ, clipped code-point-safely. Storing more than
+  // the engine reads would show a reader the whole document beside verdicts
+  // covering only its first part, with nothing marking where the reading
+  // stopped. String.slice would also split a surrogate pair and fail the insert
+  // after all three calls were paid for.
+  const clip = clipInput(text)
+  text = clip.text
 
   // Service-role client for the work and the write, scoped to the tenant the
   // session resolved to — the same shape every other write in this product has.
   const admin = createAdminClient()
+
+  // Per-tenant daily cap. This is the first endpoint where a signed-in user
+  // spends real money on demand, and nothing else in the product limits it.
+  const { count: usedToday } = await admin
+    .from('plan_checks')
+    .select('id', { count: 'exact', head: true })
+    .eq('client_id', clientId)
+    .gte('created_at', dayStartIso(new Date()))
+  const quota = evaluateQuota(usedToday ?? 0)
+  if (!quota.ok) {
+    return NextResponse.json({ error: quota.message }, { status: 429 })
+  }
 
   const { data: client } = await admin
     .from('clients').select('company_name').eq('id', clientId).maybeSingle()
@@ -141,6 +162,8 @@ export async function POST(request: Request) {
   return NextResponse.json({
     id: (data as { id: string }).id,
     summary: result.summary,
-    notice: result.clipped ? 'That document was longer than I can read in one go — the later pages were not included.' : notice,
+    notice: clip.clipped || result.clipped
+      ? 'That document was longer than I can read in one go — only the earlier part was checked.'
+      : notice,
   })
 }

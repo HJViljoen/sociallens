@@ -18,7 +18,6 @@ const baseNav = [
   { href: "/dashboard/market",    label: "Market Intelligence",icon: Target },
   { href: "/dashboard/voice",     label: "Voice of Customer",  icon: MessageCircle },
   { href: "/dashboard/profile",   label: "Consumer Profile",   icon: UserRound },
-  { href: "/dashboard/ask",       label: "Ask",                icon: MessageSquareQuote },
   { href: "/dashboard/competitive",label: "Competitive Intel", icon: Swords },
   { href: "/dashboard/videos",    label: "Content",            icon: Play },
   { href: "/dashboard/reports",   label: "Reports",            icon: FileText },
@@ -28,13 +27,20 @@ const baseNav = [
 ]
 
 const TRENDS_ITEM = { href: "/dashboard/trends", label: "Trends", icon: TrendingUp }
+// Ask is gated on the same flag as its route (/api/ask 404s without it) — an
+// entry point to an endpoint that refuses is worse than no entry point.
+const ASK_ITEM = { href: "/dashboard/ask", label: "Ask", icon: MessageSquareQuote }
 
-export function AppSidebar({ showTrends = false }: { showTrends?: boolean }) {
+export function AppSidebar({ showTrends = false, showAsk = false }: { showTrends?: boolean; showAsk?: boolean }) {
   const pathname = usePathname()
-  // Slot Trends just above Reports when the tenant has history to show.
-  const navItems = showTrends
+  // Slot Trends just above Reports when the tenant has history to show, and Ask
+  // just after the profile it reads from.
+  const withTrends = showTrends
     ? baseNav.flatMap((item) => (item.href === "/dashboard/reports" ? [TRENDS_ITEM, item] : [item]))
     : baseNav
+  const navItems = showAsk
+    ? withTrends.flatMap((item) => (item.href === "/dashboard/profile" ? [item, ASK_ITEM] : [item]))
+    : withTrends
   // Close the mobile drawer when a nav item is tapped — otherwise it stays
   // open over the new page until the backdrop is tapped.
   const { setOpenMobile } = useSidebar()

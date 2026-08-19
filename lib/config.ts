@@ -606,11 +606,31 @@ export const ASK_PDF_MAX_PAGES = 60
  *  than return "no claims found" for a document full of claims. */
 export const ASK_PDF_MIN_CHARS_PER_PAGE = 200
 
+/** Ask submissions per tenant per UTC day. Three model calls each, up to
+ *  ~$0.50 for a large plan — uncapped, one signed-in account is ~$40/hour.
+ *  Crude on purpose: no new infrastructure, and the failure mode is a message
+ *  rather than a bill. A real rate limiter belongs with the self-serve motion. */
+export const ASK_DAILY_LIMIT = 25
+
+/** Master switch for the Ask surface. OFF unless set, so merging changes
+ *  nothing: the route refuses, the nav item is hidden. Shares the flag with the
+ *  consumer profile — one feature, and its weekly re-read runs in that step. */
+export function askEnabled(): boolean {
+  const v = process.env.CONSUMER_PROFILE
+  return v === '1' || v === 'true'
+}
+
 /** Stored checks re-tested per run. Each is one synthesis call, so a tenant
  *  with fifty saved plans must not quietly add fifty calls to every run.
  *  Newest first: a plan nobody has revisited in months is not the one they are
- *  steering by. */
-export const ASK_REEVALUATE_MAX_CHECKS = 10
+ *  steering by.
+ *
+ *  THREE, not ten: measured gpt-5.4 synthesis durations in this codebase are
+ *  165-237s for a SINGLE call (see the Pass B chunking note), and the Inngest
+ *  route caps at 300s. Ten sequential verdict passes in one step would time
+ *  out, retry, and re-bill from the first check without ever producing a
+ *  result. Raising this needs the loop split across steps first. */
+export const ASK_REEVALUATE_MAX_CHECKS = 3
 
 /** Characters of submitted document read (~15k tokens). A 60-page deck past
  *  this is clipped and the reader is told, rather than silently half-read. */

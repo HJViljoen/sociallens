@@ -1,4 +1,3 @@
-import { selectAll } from '../supabase-admin'
 import { ASK_REEVALUATE_MAX_CHECKS } from '../config'
 import { verdictPass } from './engine'
 import { diffVerdicts, summarise } from './verdicts'
@@ -44,17 +43,19 @@ export async function reevaluatePlanChecks(
 ): Promise<ReevaluationResult[]> {
   const { clientId, runId, runDate, companyName } = args
 
-  const checks = await selectAll<CheckRow>(() =>
-    admin
-      .from('plan_checks')
-      .select('id, title, claims')
-      .eq('client_id', clientId)
-      .order('created_at', { ascending: false }),
-  )
+  // Limit in the query, not after: paging a tenant's whole history of stored
+  // documents to use three of them grows with usage, in the pipeline hot path.
+  const { data: rows } = await admin
+    .from('plan_checks')
+    .select('id, title, claims')
+    .eq('client_id', clientId)
+    .order('created_at', { ascending: false })
+    .limit(ASK_REEVALUATE_MAX_CHECKS)
+  const checks = (rows ?? []) as CheckRow[]
   if (!checks.length) return []
 
   const out: ReevaluationResult[] = []
-  for (const check of checks.slice(0, ASK_REEVALUATE_MAX_CHECKS)) {
+  for (const check of checks) {
     const stored = Array.isArray(check.claims) ? check.claims : []
     const claims: ExtractedClaim[] = stored
       .filter((c) => c && typeof c.ref === 'string' && typeof c.claim === 'string')
@@ -64,11 +65,18 @@ export async function reevaluatePlanChecks(
     // The baseline is the most recent EVALUATION if one exists, else the answer
     // stored with the check itself — so the first re-evaluation compares
     // against the original reading rather than against nothing.
+    // Excluding THIS run matters: the step retries, and a retry that found its
+    // own half-written row as the baseline would diff the run against itself,
+    // produce an empty `moved`, and overwrite the real one. The upsert makes
+    // the write idempotent; without this the DIFF is not.
+    // Ordered by created_at, not run_date — run_date is a date, so two runs on
+    // one day would tie.
     const { data: prevEval } = await admin
       .from('plan_check_evaluations')
       .select('claims')
       .eq('plan_check_id', check.id)
-      .order('run_date', { ascending: false })
+      .neq('run_id', runId)
+      .order('created_at', { ascending: false })
       .limit(1)
       .maybeSingle()
     const previous: ClaimResult[] = Array.isArray((prevEval as { claims?: ClaimResult[] } | null)?.claims)

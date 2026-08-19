@@ -33,6 +33,12 @@ import { AI_LOG_BODY_RETENTION_DAYS, DEMO_CLIENT_ID } from '../lib/config'
 //      the handle back (lib/gather/suppression.ts filters at ingest).
 //   7. weekly_reports.html_content — the stored copy of every report we sent —
 //      scrubbed of the erased text (raw and HTML-escaped forms), best-effort.
+//   7b. plan_checks / plan_check_evaluations — an Ask answer's `theySay` is
+//      model prose written after the model was shown real comments, so it can
+//      carry the commenter's words even though no quote field is stored.
+//      Scrubbed the same way. (The insight ids those rows store resolve through
+//      evidence rows already deleted in step 3, so the live quote panel goes
+//      empty on its own.)
 // video_raw is not touched: it never carries comment items (only video-search
 // and transcribe payloads).
 // What it cannot undo, and the reply must say so: reports already emailed;
@@ -167,6 +173,42 @@ async function main() {
       }
     }
     console.log(`stored report copies carrying the text: ${reportsScrubbed} of ${reports.length} → ${args.apply ? 'scrubbed' : 'would be scrubbed'}`)
+  }
+
+  // 7b. Stored Ask answers. `plan_checks.claims[].theySay` and its
+  //     re-evaluations are model prose written AFTER the model was shown real
+  //     comments, so they can carry a commenter's words even though no quote
+  //     field is stored. Nothing else reaches them: there is no FK, and the
+  //     insight ids they store resolve through evidence rows that this script
+  //     has already deleted. Same treatment as the report copies — replace the
+  //     text in place, best effort.
+  let askAnswersScrubbed = 0
+  if (clientIds.length && texts.length) {
+    for (const table of ['plan_checks', 'plan_check_evaluations'] as const) {
+      const stored = await selectAll<{ id: string; claims: { theySay?: string | null }[] | null }>(() =>
+        admin.from(table).select('id, claims').in('client_id', clientIds).order('id', { ascending: true }),
+      )
+      for (const row of stored) {
+        const claims = Array.isArray(row.claims) ? row.claims : []
+        let touched = false
+        const next = claims.map((c) => {
+          const said = typeof c?.theySay === 'string' ? c.theySay : null
+          if (!said) return c
+          let cleaned = said
+          for (const t of texts) cleaned = cleaned.split(t).join('[removed at the commenter\'s request]')
+          if (cleaned === said) return c
+          touched = true
+          return { ...c, theySay: cleaned }
+        })
+        if (!touched) continue
+        askAnswersScrubbed++
+        if (args.apply) {
+          const { error } = await admin.from(table).update({ claims: next }).eq('id', row.id)
+          if (error) throw new Error(`scrub ${table} ${row.id}: ${error.message}`)
+        }
+      }
+    }
+    console.log(`stored Ask answers carrying the text: ${askAnswersScrubbed} → ${args.apply ? 'scrubbed' : 'would be scrubbed'}`)
   }
 
   // 6. Suppression — every key variant we know of.

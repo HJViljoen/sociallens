@@ -20,12 +20,16 @@ export function AskForm() {
     setError(null)
     try {
       const res = await fetch('/api/ask', { method: 'POST', body, headers })
-      const data = (await res.json()) as { id?: string; error?: string }
+      const data = (await res.json()) as { id?: string; error?: string; notice?: string | null }
       if (!res.ok || !data.id) {
         setError(data.error ?? 'That did not work. Try again shortly.')
         return
       }
-      router.push(`/dashboard/ask/${data.id}`)
+      // The notice says part of the document was not read. Carried into the
+      // result page rather than dropped — a reader must never be shown verdicts
+      // over part of a document without being told it was part.
+      const qs = data.notice ? `?notice=${encodeURIComponent(data.notice)}` : ''
+      router.push(`/dashboard/ask/${data.id}${qs}`)
     } catch {
       setError('That did not work. Try again shortly.')
     } finally {

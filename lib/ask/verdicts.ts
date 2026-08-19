@@ -76,6 +76,14 @@ export function normaliseRef(ref: string): string {
   return String(ref ?? '').toLowerCase().replace(/[^a-z0-9]/g, '')
 }
 
+/** What the verdicts are checked against: which insights still exist, which of
+ *  them actually carry a quotable comment, and which video each came from. */
+export interface Grounding {
+  liveInsightIds: Set<string>
+  quotedInsightIds: Set<string>
+  videoByInsightId: Map<string, string>
+}
+
 /**
  * Turn the model's verdicts into the grounded register.
  *
@@ -88,14 +96,24 @@ export function normaliseRef(ref: string): string {
  * - A non-silent verdict with no `they_say`, or whose themes all failed to
  *   resolve, becomes `silent`. This is the reverse contract: a claim the model
  *   asserted but could not ground is untested, not supported.
- * - Any claim the model skipped entirely comes back `silent`, so the output
- *   always answers every claim the user submitted.
- * - Counts come from the resolved themes, never from the model.
+ * - **A non-silent verdict must have at least one real comment behind it.**
+ *   Without this the register is only structurally grounded: the verdict, the
+ *   count and the theme ids are all checked, while `theySay` — the sentence the
+ *   reader actually reads — is free prose. Requiring a quotable insight means a
+ *   claim can only be reported as supported or contradicted when a person
+ *   really did say something, and the page can show it.
+ * - Cited evidence is intersected with the insights that STILL EXIST. Themes
+ *   outlive their insights (prune-stale-analysis), so a check re-evaluated
+ *   against an older run would otherwise count rows that are gone.
+ * - Counts are distinct SOURCE VIDEOS of the surviving cited insights — a
+ *   conversation is one video and the comments it sparked. The theme's own
+ *   total breadth is not the claim's evidence.
  */
 export function validateVerdicts(
   raw: RawVerdict[],
   claims: ExtractedClaim[],
   themesByClaimRef: Map<string, AskTheme[]>,
+  grounding?: Grounding,
 ): ClaimResult[] {
   const byRef = new Map(claims.map((c) => [normaliseRef(c.ref), c]))
   const seen = new Set<string>()
@@ -135,16 +153,30 @@ export function validateVerdicts(
       continue
     }
 
+    const cited = [...new Set(picked.flatMap((t) => t.insightIds))]
+    const live = grounding ? cited.filter((id) => grounding.liveInsightIds.has(id)) : cited
+    const quotable = grounding ? live.filter((id) => grounding.quotedInsightIds.has(id)) : live
+    if (!quotable.length) {
+      // Nobody actually said anything we can show. Supported-with-nothing-to-
+      // show is the shape a bluff takes, so it reads as untested instead.
+      results.set(key, silentResult(claim))
+      continue
+    }
+
+    const videos = grounding
+      ? new Set(quotable.map((id) => grounding.videoByInsightId.get(id)).filter(Boolean) as string[])
+      : new Set(picked.flatMap((t) => t.videoIds))
+
     results.set(key, {
       ref: claim.ref,
       claim: claim.claim,
       verdict,
       theySay,
-      conversationCount: new Set(picked.flatMap((t) => t.videoIds)).size,
+      conversationCount: videos.size,
       themeRefs: picked.map(
         (t): ThemeRef => ({ themeId: t.themeId, registryId: t.registryId, label: t.label }),
       ),
-      insightIds: [...new Set(picked.flatMap((t) => t.insightIds))],
+      insightIds: quotable,
     })
   }
 

@@ -55,8 +55,15 @@ interface CheckRow {
   created_at: string
 }
 
-export default async function AskCheckPage({ params }: { params: Promise<{ id: string }> }) {
+export default async function AskCheckPage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ id: string }>
+  searchParams: Promise<{ notice?: string }>
+}) {
   const { id } = await params
+  const { notice } = await searchParams
   const { supabase, clientId } = await getSessionContext()
 
   const { data } = await supabase
@@ -73,13 +80,16 @@ export default async function AskCheckPage({ params }: { params: Promise<{ id: s
 
   // Voices resolved live from insight_evidence — nothing verbatim is stored in
   // the check itself, so an erased comment cannot survive inside an answer.
-  const allIds = [...new Set(claims.flatMap((c) => (c.insightIds ?? []).slice(0, 40)))]
+  const perClaim = 40
+  const allIds = [...new Set(claims.flatMap((c) => (c.insightIds ?? []).slice(0, perClaim)))]
   const quotesByAudience = allIds.length ? await fetchQuotesByAudience(supabase, allIds) : new Map()
   const pick = createQuotePicker(quotesByAudience, new Map())
   const quotesByClaim = new Map<string, string[]>()
   for (const c of claims) {
     if (c.verdict === 'silent' || !c.insightIds?.length) continue
-    quotesByClaim.set(c.ref, pick(c.insightIds.slice(0, 60), 2, `${c.claim}. ${c.theySay ?? ''}`))
+    // Same slice that was fetched — asking the picker for ids nobody loaded
+    // would quietly return fewer voices than exist.
+    quotesByClaim.set(c.ref, pick(c.insightIds.slice(0, perClaim), 2, `${c.claim}. ${c.theySay ?? ''}`))
   }
 
   const s = check.summary ?? {}
@@ -103,6 +113,12 @@ export default async function AskCheckPage({ params }: { params: Promise<{ id: s
         </p>
       </div>
 
+      {notice && (
+        <Card>
+          <CardContent className="py-3 text-sm text-muted-foreground">{notice}</CardContent>
+        </Card>
+      )}
+
       {/* Evidence. Counts and real voices only — never the model's view. */}
       <section className="space-y-3">
         {claims.map((c) => {
@@ -125,23 +141,23 @@ export default async function AskCheckPage({ params }: { params: Promise<{ id: s
                 {c.verdict === 'silent' ? (
                   <p className="text-sm leading-snug text-muted-foreground">{meta.note}</p>
                 ) : (
-                  <div className="space-y-2 border-l-2 border-border pl-3">
-                    <p className="text-sm leading-relaxed text-foreground/85">{c.theySay}</p>
+                  <div className="space-y-3 border-l-2 border-border pl-3">
+                    {/* The voices lead. They are the part that was verified —
+                        the summary beneath them is a reading OF them, and
+                        labelling it as such is the difference between evidence
+                        and a sentence that merely sounds like evidence. */}
+                    {quotes.length > 0 && <Quotes items={quotes} />}
+                    <div>
+                      <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                        In summary
+                      </p>
+                      <p className="mt-1 text-sm leading-relaxed text-foreground/85">{c.theySay}</p>
+                    </div>
                     <p className="text-xs text-muted-foreground" title={glossaryRule('conversations')}>
                       Heard across {c.conversationCount}{' '}
                       {c.conversationCount === 1 ? 'conversation' : 'conversations'}
                       {c.themeRefs?.length ? ` · ${c.themeRefs.map((t) => t.label).join(' · ')}` : ''}
                     </p>
-                    {quotes.length > 0 && (
-                      <details>
-                        <summary className="cursor-pointer text-xs font-medium text-muted-foreground hover:text-foreground">
-                          See the voices
-                        </summary>
-                        <div className="pt-2">
-                          <Quotes items={quotes} />
-                        </div>
-                      </details>
-                    )}
                   </div>
                 )}
               </CardContent>
