@@ -205,9 +205,12 @@ export default async function ConsumerProfilePage({
           page. The persona's description is one of the blocks rather than a
           caption under the figure, so nothing follows the figure down. */}
       {/* relative: the connector overlay positions against this box. */}
-      <div className="relative grid gap-6 lg:min-h-[calc(100dvh-10rem)] lg:grid-cols-[1fr_1.05fr_1fr] lg:gap-7">
+      {/* Capped and centred: on a wide monitor an edge-to-edge grid pushed the
+          blocks away from the figure and left the composition stretched. The
+          margin outside is what pulls everything back around the subject. */}
+      <div className="relative mx-auto grid w-full max-w-[78rem] gap-6 lg:min-h-[calc(100dvh-10rem)] lg:grid-cols-[1fr_0.9fr_1fr] lg:gap-7">
         <Connectors />
-        <div className="order-2 flex flex-col gap-6 lg:order-1 lg:h-full lg:justify-between">
+        <div className="order-2 flex flex-col gap-6 lg:order-1 lg:h-full lg:justify-center lg:gap-16">
           <div className="relative">
           <Card className="rounded-3xl ring-1 ring-primary/25">
             <CardHeader className="pb-2">
@@ -264,7 +267,7 @@ export default async function ConsumerProfilePage({
           </div>
         </div>
 
-        <div className="order-3 flex flex-col gap-6 lg:h-full lg:justify-between">
+        <div className="order-3 flex flex-col gap-6 lg:h-full lg:justify-center lg:gap-16">
           <Block title="What stops them" Icon={HeartCrack} body={active.blockers} quote={stopsVoice} />
           <Block title="What works on them" Icon={Zap} body={active.triggers} quote={worksVoice} />
         </div>
@@ -350,12 +353,12 @@ function Block({
  *  rather than floating in the gutter with a visible gap.
  */
 function Connectors() {
-  const target = { x: 50, y: 70 }
+  const target = { x: 50, y: 80 }
   const starts = [
-    { x: 29, y: 24 },
-    { x: 29, y: 79 },
-    { x: 71, y: 24 },
-    { x: 71, y: 79 },
+    { x: 29, y: 35 },
+    { x: 29, y: 71 },
+    { x: 71, y: 35 },
+    { x: 71, y: 71 },
   ]
   return (
     <svg
