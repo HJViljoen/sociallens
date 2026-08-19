@@ -572,6 +572,29 @@ export const PERSONA_MIN_VIDEOS = 3
  *  ~20k input tokens, ~$0.05 a run. */
 export const PERSONA_DIGEST_THEMES = 140
 
+// --- Ask engine (2026-08-19) ---------------------------------------------
+// Test an idea or a whole plan against the conversation already mined. Claims
+// are extracted, matched to themes by embedding, and judged echoes /
+// contradicts / silent — with the model's own proposals kept in a separate
+// register produced by a separate call.
+
+/** Claims judged per submission. A marketing plan yields 15-40; past ~40 the
+ *  verdict prompt stops fitting comfortably and the reader stops reading. */
+export const ASK_MAX_CLAIMS = 40
+
+/** Themes shown per claim. The shortlist is by embedding cosine, so this is
+ *  how much benefit of the doubt a claim gets before "silent" is the answer. */
+export const ASK_THEMES_PER_CLAIM = 8
+
+/** Real comments shown per shortlisted theme. The verdict must be judged
+ *  against what people said, not against a label — that was the measured
+ *  under-recall in say_vs_hear, which sees labels only. */
+export const ASK_QUOTES_PER_THEME = 3
+
+/** Characters of submitted document read (~15k tokens). A 60-page deck past
+ *  this is clipped and the reader is told, rather than silently half-read. */
+export const ASK_INPUT_CHARS = 60000
+
 /** Hero quotes attached per persona. Three is what the page shows behind one
  *  "see the voices" click; more is stored weight nobody reads. */
 export const PERSONA_QUOTES = 3
