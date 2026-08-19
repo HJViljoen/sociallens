@@ -1,7 +1,6 @@
 import Link from 'next/link'
-import { HeartCrack, Compass, Sparkles, Users, UserRound, Layers, Quote as QuoteIcon, Zap, ChevronLeft, ChevronRight } from 'lucide-react'
+import { HeartCrack, Compass, Sparkles, Users, UserRound, Layers, Zap, ChevronLeft, ChevronRight } from 'lucide-react'
 import { getSessionContext } from '@/lib/auth'
-import { createQuotePicker, fetchQuotesByAudience } from '@/lib/quotes'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Quotes } from '@/components/quotes'
 import { CrowdFigure } from '@/components/crowd-figure'
@@ -157,20 +156,6 @@ export default async function ConsumerProfilePage({
     .limit(3)
   const recs = (recRows ?? []) as { id: string; type: string; title: string; reasoning: string; hero_quote: string | null }[]
 
-  // Voices resolved live from insight_evidence rather than read from the stored
-  // profile: a quote copied into this table would outlive the comment it came
-  // from, and the privacy page promises that deleting a comment removes every
-  // quote of it in the product.
-  const quoteIds = active.insightIds.slice(0, 150)
-  const quotesByAudience = quoteIds.length ? await fetchQuotesByAudience(supabase, quoteIds) : new Map()
-  const quotes = quoteIds.length
-    ? createQuotePicker(quotesByAudience, new Map())(
-        quoteIds,
-        3,
-        [active.name, active.oneLiner, ...active.wants, ...active.blockers].join('. '),
-      )
-    : []
-
   const scopeLabel =
     active.scope === 'client'
       ? { text: 'Your audience', Icon: Users, fg: 'text-primary', bg: 'bg-primary/10' }
@@ -182,30 +167,11 @@ export default async function ConsumerProfilePage({
     <div className="flex min-h-full flex-col gap-6">
       <PageHeader />
 
-      {profile?.headline && (
-        <Card>
-          <CardContent className="py-5 text-[15px] leading-relaxed text-foreground/90">
-            {profile.headline}
-            {isStale && (
-              // Say which update this is from rather than presenting an older
-              // profile as current — the profile can lag the latest run.
-              <span className="mt-2 block text-xs text-muted-foreground">
-                From your update of {profile.run_date}. The next one refreshes this.
-              </span>
-            )}
-          </CardContent>
-        </Card>
-      )}
-
-      {/* The figure is the subject: it sits in the middle, the blocks arrange
-          around it, and the stepper sits above it because paging personas is a
-          change to the figure, not a filter on the page. On mobile the figure
-          leads and the blocks stack under it. */}
       {/* Four blocks around a figure that stands on its own — no card, running
           off the bottom edge, the way it stands in the crowd behind every other
           page. The persona's description is one of the blocks rather than a
           caption under the figure, so nothing follows the figure down. */}
-      <div className="grid min-h-0 flex-1 items-start gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(16rem,20rem)_minmax(0,1fr)]">
+      <div className="grid min-h-0 flex-1 items-start gap-4 lg:grid-cols-[minmax(13rem,17rem)_minmax(0,1fr)_minmax(13rem,17rem)]">
         <div className="order-2 flex flex-col gap-4 lg:order-1">
           <Card>
             <CardHeader className="pb-2">
@@ -236,6 +202,11 @@ export default async function ConsumerProfilePage({
                 Heard across {active.sourceVideoCount}{' '}
                 {active.sourceVideoCount === 1 ? 'conversation' : 'conversations'}
               </p>
+              {isStale && (
+                // The profile can lag the latest run; saying which update it is
+                // from beats presenting an older reading as current.
+                <p className="text-xs text-muted-foreground">From your update of {profile?.run_date}.</p>
+              )}
             </CardContent>
           </Card>
           <Block title="What they want" Icon={Compass} items={active.wants} />
@@ -255,7 +226,7 @@ export default async function ConsumerProfilePage({
               edge: -mb-6 eats the pane's own padding so the hem lands on the
               edge itself rather than floating above it. h-full + w-auto keeps
               the silhouette's proportions whatever the window does. */}
-          <div className="-mb-6 flex min-h-[22rem] w-full flex-1 items-end justify-center overflow-hidden">
+          <div className="-mb-6 flex min-h-[26rem] w-full flex-1 items-end justify-center overflow-hidden">
             <CrowdFigure
               personaKey={active.key}
               title={active.name}
@@ -270,20 +241,6 @@ export default async function ConsumerProfilePage({
           <Block title="What moves them" Icon={Zap} items={active.triggers} />
         </div>
       </div>
-
-      {quotes.length > 0 && (
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="flex items-center gap-2 text-sm font-semibold">
-              <QuoteIcon className="size-4 text-muted-foreground" aria-hidden />
-              In their own words
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <Quotes items={quotes} />
-          </CardContent>
-        </Card>
-      )}
 
       {recs.length > 0 && (
         <section className="space-y-3">
