@@ -211,6 +211,74 @@ async function main() {
     console.log(`stored Ask answers carrying the text: ${askAnswersScrubbed} → ${args.apply ? 'scrubbed' : 'would be scrubbed'}`)
   }
 
+  // 7c. Stored Verbatim Agent turns. Same escape as 7b through a different
+  //     door: `agent_messages.content` is the agent's own prose for an answer
+  //     row, and `result.grounded[].text` is prose written AFTER the model was
+  //     shown real comments — both can carry a commenter's words even though no
+  //     quote text is stored anywhere in the table. The `nearest[]` register is
+  //     model prose for the same reason and is scrubbed with them.
+  //
+  //     User rows are deliberately NOT scrubbed: their `content` is the
+  //     client's own question, not a third party's words, and rewriting a
+  //     client's question would corrupt the demand-signal log this table exists
+  //     to keep. If a question happened to quote a commenter verbatim it came
+  //     from the client, not from us.
+  let agentTurnsScrubbed = 0
+  if (clientIds.length && texts.length) {
+    interface AgentRow {
+      id: string
+      role: string
+      content: string | null
+      result: { answer?: string | null; grounded?: { text?: string | null }[]; nearest?: { text?: string | null }[] } | null
+    }
+    const scrub = (s: string): string => {
+      let out = s
+      for (const t of texts) out = out.split(t).join('[removed at the commenter\'s request]')
+      return out
+    }
+    const turns = await selectAll<AgentRow>(() =>
+      admin
+        .from('agent_messages')
+        .select('id, role, content, result')
+        .in('client_id', clientIds)
+        .eq('role', 'agent')
+        .order('id', { ascending: true }),
+    )
+    for (const row of turns) {
+      const patch: { content?: string; result?: unknown } = {}
+      if (typeof row.content === 'string') {
+        const cleaned = scrub(row.content)
+        if (cleaned !== row.content) patch.content = cleaned
+      }
+      const res = row.result
+      if (res && typeof res === 'object') {
+        let touched = false
+        const mapText = <T extends { text?: string | null }>(items: T[] | undefined): T[] | undefined => {
+          if (!Array.isArray(items)) return items
+          return items.map((it) => {
+            const text = typeof it?.text === 'string' ? it.text : null
+            if (!text) return it
+            const cleaned = scrub(text)
+            if (cleaned === text) return it
+            touched = true
+            return { ...it, text: cleaned }
+          })
+        }
+        const answer = typeof res.answer === 'string' ? scrub(res.answer) : res.answer
+        if (typeof res.answer === 'string' && answer !== res.answer) touched = true
+        const next = { ...res, answer, grounded: mapText(res.grounded), nearest: mapText(res.nearest) }
+        if (touched) patch.result = next
+      }
+      if (!patch.content && !patch.result) continue
+      agentTurnsScrubbed++
+      if (args.apply) {
+        const { error } = await admin.from('agent_messages').update(patch).eq('id', row.id)
+        if (error) throw new Error(`scrub agent_messages ${row.id}: ${error.message}`)
+      }
+    }
+    console.log(`stored agent answers carrying the text: ${agentTurnsScrubbed} → ${args.apply ? 'scrubbed' : 'would be scrubbed'}`)
+  }
+
   // 6. Suppression — every key variant we know of.
   const keys = [...new Set([authorKey(args.platform, args.handle), ...exactAuthors.map((a) => authorKey(args.platform, a))].filter((k): k is string => !!k))]
   console.log(`suppression keys (${args.platform}): ${keys.join(', ')} → ${args.apply ? 'recorded' : 'would be recorded'}`)

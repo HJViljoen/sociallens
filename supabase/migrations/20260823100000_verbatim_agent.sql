@@ -69,6 +69,43 @@ create index if not exists audience_insights_embedding_idx
   on public.audience_insights using hnsw (embedding vector_cosine_ops)
   where embedding is not null;
 
+-- Similarity search lives in SQL because the PostgREST client cannot express
+-- `<=>`, and because pulling the population into Node to compare it there is
+-- the very thing this migration exists to stop.
+--
+-- Reads audience_insights_current, not the base table: the population question
+-- is "what does this corpus say NOW", and the base table still holds rows a
+-- later run superseded but prune-stale-analysis has not yet removed. Id-set
+-- lookups elsewhere deliberately stay on the base table (AGENTS.md).
+--
+-- SECURITY INVOKER (the default, stated here because it matters): p_client_id
+-- is an argument, so if this were ever reachable by a session client it must
+-- not be the only thing standing between two tenants. In practice it is called
+-- with the service role from a route handler that resolves the tenant from the
+-- session and never from the request body.
+create or replace function public.match_insights(
+  p_client_id uuid,
+  p_query vector(1536),
+  p_limit int default 40,
+  p_floor float default 0.35
+)
+returns table (id uuid, similarity float)
+language sql
+stable
+set search_path to 'public', 'pg_temp'
+as $function$
+  select ai.id, (1 - (ai.embedding <=> p_query))::float as similarity
+  from public.audience_insights_current ai
+  where ai.client_id = p_client_id
+    and ai.embedding is not null
+    and (1 - (ai.embedding <=> p_query)) >= p_floor
+  order by ai.embedding <=> p_query
+  limit greatest(p_limit, 0)
+$function$;
+
+comment on function public.match_insights is
+  'Insight-level semantic retrieval for the Verbatim Agent. Cosine similarity over audience_insights_current. p_floor mirrors CITATION_RELEVANCE_FLOOR — raising it trades recall for precision, and the failure mode of raising it too far is FALSE SILENCE, which is worse than a weak match the register system would have labelled anyway.';
+
 -- --------------------------------------------------------------- threads ----
 
 create table if not exists public.agent_threads (

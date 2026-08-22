@@ -636,6 +636,36 @@ export const ASK_REEVALUATE_MAX_CHECKS = 3
  *  this is clipped and the reader is told, rather than silently half-read. */
 export const ASK_INPUT_CHARS = 60000
 
+// ------------------------------------------------- Verbatim Agent (2026-08-22)
+// The Ask engine's question-answering face. A client arrives with a question
+// from their own work and gets an answer built from what their customers said.
+// Retrieval reaches INSIGHT level here, not the ~334 theme headers the rest of
+// the Ask engine sees — clients do not ask in theme labels.
+
+/** Insights retrieved per expanded query, before fusion. Generous on purpose:
+ *  this is the recall stage, and the register system downstream is what decides
+ *  whether a weak match is allowed to look like evidence. Starving it here
+ *  produces FALSE SILENCE, which is the worse failure — an answer suppressed
+ *  when the corpus could genuinely have spoken. */
+export const AGENT_INSIGHTS_PER_QUERY = 40
+
+/** Insights carried into synthesis after fusion across queries. Bounded by what
+ *  fits a prompt alongside their quotes, not by what retrieval can find. */
+export const AGENT_INSIGHTS_TOTAL = 60
+
+/** Agent turns per tenant per UTC day, separate from ASK_DAILY_LIMIT because a
+ *  conversation burns turns far faster than a plan check burns submissions.
+ *  Starting value — revisit on real use rather than on a guess. */
+export const AGENT_DAILY_LIMIT = 50
+
+/** Master switch for the Verbatim Agent. Deliberately NOT the CONSUMER_PROFILE
+ *  flag: lighting up the agent must not also light up Pass E and the weekly
+ *  re-evaluation inside a pipeline run, and vice versa. OFF unless set. */
+export function agentEnabled(): boolean {
+  const v = process.env.AGENT_ENABLED
+  return v === '1' || v === 'true'
+}
+
 /** How much evidence two personas must share for the newer one to BE the older
  *  one. A profile is not a weekly report — "Caregiver" should still be
  *  Caregiver in three months while what they want moves underneath. Matching is

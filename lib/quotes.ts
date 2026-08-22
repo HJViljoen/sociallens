@@ -10,6 +10,14 @@ export interface QuoteRow {
   rank: number
 }
 
+/** A quote plus what it can be traced back to. The agent's grounded register
+ *  may only carry quotes of this shape — "a quote carries a comment id" is the
+ *  citation half of the access-is-not-authority rule. */
+export interface QuoteCitation extends QuoteRow {
+  commentId: string | null
+  videoId: string | null
+}
+
 export const cleanQuote = (q: string) => q.replace(/\s+/g, ' ').trim()
 
 // Common English function words. The corpus is heavily multilingual and full of
@@ -151,6 +159,52 @@ export async function fetchQuotesByAudience(
       if (!r.quote) continue
       const arr = byAudience.get(r.audience_insight_id) ?? []
       arr.push({ quote: r.quote, rank: r.relevance_rank ?? 99 })
+      byAudience.set(r.audience_insight_id, arr)
+    }
+  }
+  return byAudience
+}
+
+/** As fetchQuotesByAudience, but carrying the CITATION ids the Verbatim Agent
+ *  needs: a quote it shows must be traceable to a real comment on a real video.
+ *
+ *  A separate function rather than widening the one above, because the pages
+ *  that call that one want a bare string to render and nothing else — but it
+ *  lives here, beside it, so the `redacted = false` rule stays in one file. If
+ *  that filter is ever changed, it must be changed in both. */
+export async function fetchQuoteCitationsByAudience(
+  client: unknown,
+  audienceIds: string[],
+): Promise<Map<string, QuoteCitation[]>> {
+  const c = client as EvidenceClient
+  const byAudience = new Map<string, QuoteCitation[]>()
+  for (let i = 0; i < audienceIds.length; i += 120) {
+    // redacted = false: demographic_signal evidence cites but never quotes
+    // (counts-not-quotes, 2026-08-22). Same rule as fetchQuotesByAudience.
+    const { data } = await c
+      .from('insight_evidence')
+      .select('audience_insight_id, quote, relevance_rank, comment_id, source_video_id')
+      .in('audience_insight_id', audienceIds.slice(i, i + 120))
+      .eq('redacted', false)
+    for (const r of (data ?? []) as {
+      audience_insight_id: string
+      quote: string | null
+      relevance_rank: number | null
+      comment_id: string | null
+      source_video_id: string | null
+    }[]) {
+      if (!r.quote) continue
+      // A quote with neither a comment nor a video behind it cannot be cited,
+      // and an uncitable quote is exactly what the grounded register must not
+      // carry. Drop it here rather than let it reach the enforcement step.
+      if (!r.comment_id && !r.source_video_id) continue
+      const arr = byAudience.get(r.audience_insight_id) ?? []
+      arr.push({
+        quote: r.quote,
+        rank: r.relevance_rank ?? 99,
+        commentId: r.comment_id,
+        videoId: r.source_video_id,
+      })
       byAudience.set(r.audience_insight_id, arr)
     }
   }
