@@ -16,7 +16,7 @@ function ConversationCount({ n }: { n: number }) {
   // distinct source videos. The number is always shown beside the claim rather
   // than turned into a magnitude word.
   return (
-    <span className="text-xs text-muted-foreground">
+    <span className="shrink-0 whitespace-nowrap text-xs text-muted-foreground">
       {n} {n === 1 ? 'conversation' : 'conversations'}
     </span>
   )
@@ -38,8 +38,11 @@ export function AgentAnswerView({ answer }: { answer: AgentAnswer }) {
           <h3 className="text-sm font-semibold">What your customers said</h3>
           {answer.grounded.map((point, i) => (
             <div key={point.id} className="space-y-2 rounded-lg border border-border/60 p-4">
-              <div className="flex flex-wrap items-baseline justify-between gap-2">
-                <p className="text-[15px] leading-snug text-foreground">
+              {/* Not flex-wrap: a finding that runs to two lines was dropping
+                  its count onto a third, where it read as a stray number
+                  rather than as the measure of the line above it. */}
+              <div className="flex items-baseline justify-between gap-3">
+                <p className="min-w-0 flex-1 text-[15px] leading-snug text-foreground">
                   <span className="mr-2 text-xs font-semibold text-muted-foreground tabular-nums">{i + 1}</span>
                   {point.text}
                 </p>
@@ -60,8 +63,8 @@ export function AgentAnswerView({ answer }: { answer: AgentAnswer }) {
         <section className="space-y-3">
           <h3 className="text-sm font-semibold">Not what you asked, but close</h3>
           {answer.nearest.map((n, i) => (
-            <div key={i} className="flex flex-wrap items-baseline justify-between gap-2 rounded-lg border border-dashed border-border/60 p-4">
-              <p className="text-[15px] leading-snug text-foreground/90">{n.text}</p>
+            <div key={i} className="flex items-baseline justify-between gap-3 rounded-lg border border-dashed border-border/60 p-4">
+              <p className="min-w-0 flex-1 text-[15px] leading-snug text-foreground/90">{n.text}</p>
               <ConversationCount n={n.conversationCount} />
             </div>
           ))}

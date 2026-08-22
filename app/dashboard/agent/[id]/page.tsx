@@ -56,8 +56,11 @@ export default async function AgentThreadPage({ params }: { params: Promise<{ id
       </div>
 
       <div className="space-y-5">
-        {messages.map((m) =>
-          m.role === 'user' ? (
+        {messages.map((m, i) =>
+          // The heading above IS the first question — printing it again
+          // directly underneath reads as a stutter. Follow-ups still show,
+          // because in a thread they are the turn that changed the answer.
+          m.role === 'user' && i === 0 ? null : m.role === 'user' ? (
             <p key={m.id} className="text-[15px] font-medium text-foreground">
               {m.content}
             </p>
