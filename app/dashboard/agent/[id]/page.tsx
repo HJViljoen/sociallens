@@ -70,13 +70,24 @@ export default async function AgentThreadPage({ params }: { params: Promise<{ id
         // loaded would quietly return fewer voices than exist.
         quotesByClaim.set(c.ref, pick(c.insightIds.slice(0, ASK_THEMES_PER_CLAIM), 2, `${c.claim}. ${c.theySay ?? ''}`))
       }
-      // Only claims we have something to SAY about get marked. Silence is
-      // clean space here too, and it makes each mark mean something: a
-      // document with three highlights has three places worth looking.
-      const { segments, anchored } = anchorClaims(
-        (check.input_text as string) ?? '',
-        claims.filter((c) => c.verdict !== 'silent'),
-      )
+      // EVERY claim is anchored, including untested ones. Two different
+      // questions were being answered by one set: "does this claim get a
+      // highlight" (non-silent only — silence is clean space) and "is this
+      // claim written in the document at all" (a fact about the document,
+      // true or false regardless of the verdict). Filtering here answered the
+      // first and was then read as the second, so every untested claim was
+      // labelled "not stated directly in the document" even when it was there
+      // word for word.
+      //
+      // Non-silent claims go FIRST so that if two claims share a sentence, the
+      // one that earns a mark wins the overlap. Rendering still skips silent
+      // ones: the mark styles are keyed by verdict and there is none for
+      // 'silent', so those spans fall through as ordinary text.
+      const ordered = [
+        ...claims.filter((c) => c.verdict !== 'silent'),
+        ...claims.filter((c) => c.verdict === 'silent'),
+      ]
+      const { segments, anchored } = anchorClaims((check.input_text as string) ?? '', ordered)
       doc = {
         claims,
         summary: (check.summary ?? { supported: 0, contradicted: 0, untested: 0 }) as AskSummary,

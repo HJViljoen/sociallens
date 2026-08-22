@@ -96,3 +96,28 @@ describe('anchorClaims', () => {
     expect(anchorClaims('some text', []).segments).toEqual([{ text: 'some text', ref: null }])
   })
 })
+
+describe('anchoring is about the DOCUMENT, not the verdict', () => {
+  const doc = 'Buyers decide on technical specification alone. Comfort is a hygiene factor here.'
+
+  it('anchors an untested claim that is written in the document', () => {
+    // The bug this pins: "anchored" was computed from non-silent claims only,
+    // then read as "is this written down" — so an untested claim quoted word
+    // for word from the brief was reported as "not stated directly".
+    const untested: ClaimResult = {
+      ...claim('C1', 'Buyers decide on technical specification alone.'),
+      verdict: 'silent',
+    }
+    const { anchored } = anchorClaims(doc, [untested])
+    expect(anchored.has('C1')).toBe(true)
+  })
+
+  it('lets a claim that earns a mark win an overlapping span', () => {
+    // Callers pass non-silent claims first for exactly this reason.
+    const marked = claim('C1', 'Comfort is a hygiene factor here.')
+    const silent: ClaimResult = { ...claim('C2', 'Comfort is a hygiene factor here.'), verdict: 'silent' }
+    const { anchored } = anchorClaims(doc, [marked, silent])
+    expect(anchored.has('C1')).toBe(true)
+    expect(anchored.has('C2')).toBe(false)
+  })
+})
