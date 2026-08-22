@@ -425,6 +425,23 @@
   }
 }
 
+/* The agent page does not scroll. It cannot do this from the page root alone:
+   the history sheet is translated ~30rem BELOW the fold when closed, and a CSS
+   transform still contributes to its scroll container's overflow — so <main>
+   saw 30rem of content underneath and happily scrolled to it. Clipping at the
+   page root instead would clip the sheet, which reaches past the dashboard's
+   own padding to sit flush with the bottom edge.
+
+   So <main> itself stops scrolling, and becomes a column so the page root can
+   take the height left after any billing banner rather than assuming it has
+   all of it. Scoped with :has() so no other page is affected and no page has
+   to know about the layout. */
+main:has(> .agent-fixed) {
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
 /* On the agent page the ambient backdrop stands down — the ring IS the crowd
    there, and two crowd layers over each other read as smudge rather than
    depth. Sibling-scoped so no page needs to know about the layout's art. */

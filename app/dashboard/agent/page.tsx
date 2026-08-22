@@ -29,16 +29,15 @@ export default async function AgentPage() {
   const threads = (rows ?? []) as ThreadRow[]
 
   return (
-    // h-full and NOT overflow-hidden. Exact height is what stops <main>
-    // (overflow-y-auto) from scrolling; clipping here would also clip the
-    // history sheet, which uses negative margins to reach past the dashboard's
-    // padding to the real bottom edge. The crowd ring clips itself instead.
+    // .agent-fixed is the hook a CSS rule uses to stop <main> scrolling and
+    // make it a column (see globals.css). flex-1 + min-h-0 then takes exactly
+    // the height left over — which is the whole pane normally, and the pane
+    // minus the billing banner when a tenant has one, instead of assuming.
     //
-    // One known exception: a tenant with a billing banner gets that banner
-    // ABOVE this, so the page becomes taller than the pane and scrolls a
-    // little. Left alone deliberately — a workspace being switched off is
-    // exactly when someone should be able to scroll to read why.
-    <div className="relative h-full">
+    // NOT overflow-hidden here: that would clip the history sheet, which
+    // reaches past the dashboard's padding to sit flush with the bottom edge.
+    // The clipping happens at <main> instead, one level up.
+    <div className="agent-fixed relative flex-1 min-h-0">
       <AgentCrowdRing />
       <div className="agent-centre-in relative z-10 grid h-full place-items-center">
         <div className="w-full pb-24">  {/* clears the taller peek below */}
