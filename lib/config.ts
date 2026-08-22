@@ -658,6 +658,20 @@ export const AGENT_INSIGHTS_TOTAL = 60
  *  Starting value — revisit on real use rather than on a guess. */
 export const AGENT_DAILY_LIMIT = 50
 
+/** Longest question accepted. Past this it is a document, and the document
+ *  check is the right tool — pasting a plan into a question box gets a worse
+ *  answer than uploading it. */
+export const AGENT_QUESTION_CHARS = 2000
+
+/** Turns of prior conversation shown to the agent. A thread is a refinement,
+ *  not an archive — beyond a few turns the model starts answering the shape of
+ *  the conversation instead of the question. */
+export const AGENT_HISTORY_TURNS = 6
+
+/** Angles one question is expanded into before retrieval. More angles is more
+ *  recall and more embedding calls (cents); fewer is faster and blinder. */
+export const AGENT_MAX_QUERIES = 5
+
 /** Real comments attached to one grounded point. Enough that the reader sees
  *  the voices rather than a claim about them, few enough that the answer stays
  *  an answer. A point that cannot muster one is not grounded. */
