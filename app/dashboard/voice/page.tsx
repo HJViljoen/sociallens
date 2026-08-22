@@ -333,24 +333,30 @@ export default async function VoiceOfCustomerPage({ searchParams }: { searchPara
       ? 'None of this update’s themes sit behind that insight any more — clear the filter to see the whole conversation.'
       : shown.length === 0 ? 'No themes match these filters.' : 'No confirmed theme matches these filters — the early signals and single mentions are in the list.'
 
+  // Whose audience — the page's primary axis. With one or two competitors the
+  // pills sit in the page bar; with more they would crowd out the title, so
+  // they move into the map tile's header row.
+  const entityPills = themes.length > 0 && entities.length > 1 ? (
+    <>
+      <Link href={hrefWith({ entity: null, type: null, themes: null, detail: null })} scroll={false}>
+        <BarPill active={entityFilter === 'all'}>All audiences</BarPill>
+      </Link>
+      {entities.map((e) => (
+        <Link key={e.bucket} href={hrefWith({ entity: e.bucket, type: null, themes: null, detail: null })} scroll={false}>
+          <BarPill active={entityFilter === e.bucket}>
+            {e.bucket === 'client' ? 'Yours' : e.bucket === 'industry-other' ? 'Category' : `${competitorName(e.bucket)}’s`}
+            <span className="font-mono text-[11px] font-medium tabular-nums text-muted-foreground">{e.confirmed}</span>
+          </BarPill>
+        </Link>
+      ))}
+    </>
+  ) : null
+  const pillsInBar = entities.length <= 3
+
   return (
     <PageFrame>
       <PageBar title="Voice of Customer" context={`What are they saying? · ${weekdayDate(runDate)}`}>
-        {themes.length > 0 && entities.length > 1 && (
-          <>
-            <Link href={hrefWith({ entity: null, type: null, themes: null, detail: null })} scroll={false}>
-              <BarPill active={entityFilter === 'all'}>All audiences</BarPill>
-            </Link>
-            {entities.map((e) => (
-              <Link key={e.bucket} href={hrefWith({ entity: e.bucket, type: null, themes: null, detail: null })} scroll={false}>
-                <BarPill active={entityFilter === e.bucket}>
-                  {e.bucket === 'client' ? 'Yours' : e.bucket === 'industry-other' ? 'Category' : `${competitorName(e.bucket)}’s`}
-                  <span className="font-mono text-[11px] font-medium tabular-nums text-muted-foreground">{e.confirmed}</span>
-                </BarPill>
-              </Link>
-            ))}
-          </>
-        )}
+        {pillsInBar && entityPills}
         <HowToRead items={legendItems} open={showLegend} basePath="/dashboard/voice" />
       </PageBar>
 
@@ -367,6 +373,9 @@ export default async function VoiceOfCustomerPage({ searchParams }: { searchPara
           ) : undefined}
           footerNote={themes.length > 0 ? <BucketLegend competitor={leadCompetitor ? competitorName(leadCompetitor) : null} /> : undefined}
         >
+          {!pillsInBar && entityPills && (
+            <div className="flex flex-wrap items-center gap-1.5">{entityPills}</div>
+          )}
           {themes.length > 0 && (
             <div className="-mx-3.5 flex items-end gap-2 border-b border-border/90 px-3.5">
               <div className="flex min-w-0 flex-1 gap-0.5 overflow-x-auto [scrollbar-width:none]">
