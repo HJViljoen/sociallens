@@ -41,7 +41,7 @@ export default async function AgentPage() {
     <div className="relative h-full">
       <AgentCrowdRing />
       <div className="agent-centre-in relative z-10 grid h-full place-items-center">
-        <div className="w-full pb-16">
+        <div className="w-full pb-24">  {/* clears the taller peek below */}
           <AgentComposer canSend={canSend} showFigure />
         </div>
       </div>
