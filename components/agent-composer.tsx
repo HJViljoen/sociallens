@@ -1,8 +1,8 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { ArrowUp, Loader2 } from 'lucide-react'
+import { ArrowUp, Loader2, Paperclip } from 'lucide-react'
 import { CrowdFigure } from '@/components/crowd-figure'
 
 // The ask box. Client state because an answer takes tens of seconds and a form
@@ -32,6 +32,7 @@ export function AgentComposer({
   placeholder?: string
 }) {
   const router = useRouter()
+  const fileRef = useRef<HTMLInputElement>(null)
   const [question, setQuestion] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -76,6 +77,32 @@ export function AgentComposer({
     }
   }
 
+  // A document goes to the SAME endpoint, as multipart. The route branches on
+  // content type and hands it to the Ask engine that already ships — the agent
+  // gains a second face, not a second engine.
+  async function onFile(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    if (!file) return
+    setBusy(true)
+    setError(null)
+    try {
+      const form = new FormData()
+      form.set('file', file)
+      const res = await fetch('/api/agent', { method: 'POST', body: form })
+      const data = (await res.json()) as { threadId?: string; error?: string }
+      if (!res.ok || !data.threadId) {
+        setError(data.error ?? 'That document could not be checked.')
+        return
+      }
+      router.push(`/dashboard/agent/${data.threadId}`)
+    } catch {
+      setError('That document could not be checked.')
+    } finally {
+      setBusy(false)
+      if (fileRef.current) fileRef.current.value = ''
+    }
+  }
+
   const ready = canSend && !busy && question.trim().length >= 8
 
   return (
@@ -97,8 +124,29 @@ export function AgentComposer({
           disabled={busy || !canSend}
           placeholder={canSend ? placeholder : 'Asking is switched off on this workspace'}
           aria-label="Ask about your customers"
-          className="h-14 w-full rounded-full border border-border bg-card pl-6 pr-16 text-[15px] text-foreground shadow-sm placeholder:text-muted-foreground focus:border-primary focus:outline-none disabled:opacity-60"
+          className={`h-14 w-full rounded-full border border-border bg-card ${threadId ? 'pl-6' : 'pl-14'} pr-16 text-[15px] text-foreground shadow-sm placeholder:text-muted-foreground focus:border-primary focus:outline-none disabled:opacity-60`}
         />
+        {/* Inside the pill on the left, mirroring the arrow — a campaign or a
+            plan is the other thing you arrive with, so it belongs in the same
+            box rather than on a separate page. */}
+        {!threadId && (
+          <label
+            className={`absolute left-3 top-3 grid size-8 cursor-pointer place-items-center rounded-full text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground ${canSend && !busy ? '' : 'pointer-events-none opacity-40'}`}
+            title="Check a document"
+          >
+            <Paperclip className="size-4" aria-hidden />
+            <span className="sr-only">Check a document</span>
+            <input
+              ref={fileRef}
+              type="file"
+              accept="application/pdf"
+              onChange={onFile}
+              disabled={busy || !canSend}
+              className="sr-only"
+            />
+          </label>
+        )}
+
         <button
           type="submit"
           disabled={!ready}
