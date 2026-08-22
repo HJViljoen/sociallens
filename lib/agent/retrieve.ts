@@ -20,6 +20,16 @@ import { fuseHits, countConversations, type Hit } from './rank'
 // cold review found in Pass C/D, and it would sit here at the surface the
 // client touches most.
 
+/** The theme an insight was clustered into on the current run. `registryId` is
+ *  the ONLY cross-run key (AGENTS.md — `themes.id` is a per-run row id and
+ *  labels churn ~88% run to run), so it is what the trend layer joins on. */
+export interface ThemeRef {
+  themeId: string
+  registryId: string | null
+  label: string
+  bucket: string
+}
+
 export interface RetrievedInsight {
   id: string
   theme: string
@@ -28,6 +38,7 @@ export interface RetrievedInsight {
   journeyStage: string | null
   videoId: string | null
   bucket: string
+  themeRef: ThemeRef | null
   similarity: number
   quotes: QuoteCitation[]
 }
@@ -62,6 +73,9 @@ export async function latestRunId(admin: Admin, clientId: string): Promise<strin
 }
 
 interface ThemeBucketRow {
+  id: string
+  registry_id: string | null
+  label: string | null
   bucket: string | null
   supporting_insight_ids: string[] | null
 }
@@ -128,7 +142,7 @@ export async function retrieveForQueries(
   const themeRows = await selectAll<ThemeBucketRow>(() =>
     admin
       .from('themes')
-      .select('bucket, supporting_insight_ids')
+      .select('id, registry_id, label, bucket, supporting_insight_ids')
       .eq('client_id', clientId)
       .eq('run_id', runId)
       .order('id', { ascending: true }),
@@ -136,6 +150,18 @@ export async function retrieveForQueries(
   const bucketById = bucketByAudienceId(
     themeRows.map((t) => ({ bucket: t.bucket ?? 'industry-other', supporting_insight_ids: t.supporting_insight_ids ?? [] })),
   )
+  // An insight can sit in more than one theme; first wins, deterministically,
+  // because themeRows is ordered by id.
+  const themeByInsight = new Map<string, ThemeRef>()
+  for (const t of themeRows) {
+    const ref: ThemeRef = {
+      themeId: t.id,
+      registryId: t.registry_id,
+      label: t.label ?? '',
+      bucket: t.bucket ?? 'industry-other',
+    }
+    for (const id of t.supporting_insight_ids ?? []) if (!themeByInsight.has(id)) themeByInsight.set(id, ref)
+  }
   const scoped = new Set(scopeToClientVoices(fused.map((f) => f.id), bucketById))
   const kept = fused.filter((f) => scoped.has(f.id))
   if (kept.length === 0) {
@@ -175,6 +201,7 @@ export async function retrieveForQueries(
       journeyStage: row.journey_stage,
       videoId: row.source_video_id,
       bucket: bucketById.get(row.id) ?? 'industry-other',
+      themeRef: themeByInsight.get(row.id) ?? null,
       similarity: hit.bestSimilarity,
       quotes: (quotesById.get(row.id) ?? []).sort((a, b) => a.rank - b.rank),
     })

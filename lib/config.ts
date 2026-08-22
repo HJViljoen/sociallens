@@ -658,6 +658,20 @@ export const AGENT_INSIGHTS_TOTAL = 60
  *  Starting value — revisit on real use rather than on a guess. */
 export const AGENT_DAILY_LIMIT = 50
 
+/** Runs of history shown to the agent. Twelve weekly readings is a quarter —
+ *  enough to see a movement, short enough that the model is not handed a year
+ *  of numbers to find a pattern in. */
+export const AGENT_TREND_MAX_RUNS = 12
+
+/** Readings needed before a direction is claimed at all. Three to six weekly
+ *  points is noise; a product that calls noise a trend is the one that gets
+ *  caught. Below this the honest answer is "too few readings yet". */
+export const AGENT_TREND_MIN_POINTS = 3
+
+/** Evidence rows a theme needs before its movement means anything. 2 → 4 is a
+ *  doubling and it is also nothing. */
+export const AGENT_TREND_MIN_EVIDENCE = 5
+
 /** Master switch for the Verbatim Agent. Deliberately NOT the CONSUMER_PROFILE
  *  flag: lighting up the agent must not also light up Pass E and the weekly
  *  re-evaluation inside a pipeline run, and vice versa. OFF unless set. */
