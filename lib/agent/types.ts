@@ -57,9 +57,20 @@ export interface AgentAnswer {
    *  genuinely does not speak to this. */
   silent: boolean
   nearest: NearestThing[]
+  /** Set when the question asks about something the corpus structurally cannot
+   *  see — the client's own spend, revenue or campaign results. The classifier
+   *  detected this from the first day and NOTHING used it, so a question about
+   *  internal numbers came back looking like an answer to it. */
+  notice?: string
   runId: string
   costUsd: number
 }
+
+/** Shown when the question is about the client's own metrics. Fixed text, like
+ *  the silence sentence: a promise about what we can see is not something to
+ *  let a model rephrase each time. */
+export const OUT_OF_CORPUS_NOTICE =
+  'This asks about your own numbers, which we cannot see — we only read public conversation. What follows is what people are saying around the subject, not an answer about your results.'
 
 export type AgentOutcome = 'answered' | 'partial' | 'silent'
 
@@ -75,7 +86,13 @@ export type AgentOutcome = 'answered' | 'partial' | 'silent'
  *  nothing when we have something we simply cannot quote. */
 export function outcomeOf(answer: AgentAnswer): AgentOutcome {
   if (answer.silent) return 'silent'
-  return answer.grounded.length === 0 || answer.judgement.length > 0 ? 'partial' : 'answered'
+  // Judgement does NOT make an answer partial. The prompt asks for judgement
+  // and says an answer without it is worse, and enforcement appends every
+  // demoted point to it — so keying on judgement made 'partial' the only value
+  // the column ever took (5 of 5 in production) and killed the demand-signal
+  // roadmap the table was built for. What actually distinguishes them is
+  // whether anything got GROUNDED.
+  return answer.grounded.length === 0 ? 'partial' : 'answered'
 }
 
 export type QuestionIntent =

@@ -57,6 +57,23 @@ export interface RetrievedContext {
 
 type Admin = ReturnType<typeof import('../supabase-admin').createAdminClient>
 
+/** How many insights of this tenant are actually searchable.
+ *
+ *  Exists because an EMPTY INDEX and a SILENT CORPUS are indistinguishable at
+ *  every other layer: match_insights filters `embedding is not null`, so a
+ *  tenant nobody has embedded returns zero rows for every question ever asked,
+ *  and the client is told "nothing relates to this" about their own customers.
+ *  That is the exact failure this design calls the worst one. Counting is
+ *  cheap; being confidently wrong is not. */
+export async function embeddedInsightCount(admin: Admin, clientId: string): Promise<number> {
+  const { count } = await admin
+    .from('audience_insights')
+    .select('id', { count: 'exact', head: true })
+    .eq('client_id', clientId)
+    .not('embedding', 'is', null)
+  return count ?? 0
+}
+
 /** Newest run that actually produced analysis. Mirrors the dashboard pages: an
  *  in-flight run has no themes yet, so the agent keeps answering from the last
  *  closed corpus rather than going blank mid-run. */

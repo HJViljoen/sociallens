@@ -52,6 +52,14 @@
 -- answers carry the ids they were grounded in and voices resolve live, so an
 -- erased comment cannot survive inside a stored answer. `content` holds the
 -- client's OWN words (their question) and the agent's own prose.
+--
+-- CORRECTION (2026-08-22, same day): for the first few hours this was FALSE of
+-- the code that wrote to the table. The route stored GroundedPoint whole, and
+-- GroundedPoint.quotes carried `text` — 78 real comment verbatims reached
+-- production, invisible to erase-commenter, under a comment saying they could
+-- not. A fresh-eyes review found it. The route now strips quote text before the
+-- write, the reader resolves the words through insight_evidence, and those 78
+-- were scrubbed out of the existing rows.
 
 create extension if not exists vector;
 
@@ -187,7 +195,7 @@ create index if not exists agent_messages_client_role_created_idx
   on public.agent_messages using btree (client_id, role, created_at desc);
 
 comment on column public.agent_messages.result is
-  'AgentAnswer for role=''agent'': { answer, grounded[], judgement[], silent, nearest[] }. grounded[] carries insightIds + comment ids ONLY — never quote text. judgement[] carries basedOn refs into grounded[]. The two are separate keys, not a flag on one list, so a careless render cannot merge them.';
+  'AgentAnswer for role=''agent'': { answer, grounded[], judgement[], silent, nearest[] }. grounded[] carries insightIds + comment ids ONLY — never quote text (this was briefly untrue in the writing code on 2026-08-22 and was corrected; the reader resolves quote text live through insight_evidence, so an erased comment stops resolving everywhere at once). judgement[] carries basedOn refs into grounded[]. The two are separate keys, not a flag on one list, so a careless render cannot merge them.';
 comment on column public.agent_messages.outcome is
   'answered | partial | silent. ''silent'' is a FIRST-CLASS result, not a failure — and the ranked list of silent questions is the roadmap for what the pipeline should extract next.';
 comment on column public.agent_messages.content is

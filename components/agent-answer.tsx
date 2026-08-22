@@ -31,6 +31,12 @@ export function AgentAnswerView({ answer }: { answer: AgentAnswer }) {
 
   return (
     <div className="space-y-6">
+      {answer.notice && (
+        <p className="rounded-lg border border-dashed border-border/60 px-4 py-3 text-sm text-muted-foreground">
+          {answer.notice}
+        </p>
+      )}
+
       <p className="text-[17px] leading-relaxed text-foreground">{answer.answer}</p>
 
       {hasGrounded && (
@@ -99,11 +105,6 @@ export function AgentAnswerView({ answer }: { answer: AgentAnswer }) {
         </section>
       )}
 
-      {answer.silent && (
-        <p className="text-sm text-muted-foreground">
-          Nothing in the conversation we have analysed speaks to this.
-        </p>
-      )}
     </div>
   )
 }

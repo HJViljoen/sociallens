@@ -6,7 +6,7 @@ import { Card, CardContent } from '@/components/ui/card'
 import { AgentComposer } from '@/components/agent-composer'
 import { AgentAnswerView } from '@/components/agent-answer'
 import { AgentDocumentView } from '@/components/agent-document'
-import { createQuotePicker, fetchQuotesByAudience } from '@/lib/quotes'
+import { createQuotePicker, fetchQuotesByAudience, fetchQuoteTextsByCommentId } from '@/lib/quotes'
 import { ASK_THEMES_PER_CLAIM } from '@/lib/config'
 import type { ClaimResult, Judgement, AskSummary } from '@/lib/ask/types'
 import { isPlatformAdmin } from '@/lib/agent/access'
@@ -82,6 +82,23 @@ export default async function AgentThreadPage({ params }: { params: Promise<{ id
     .eq('thread_id', id)
     .order('created_at', { ascending: true })
   const messages = (rows ?? []) as MessageRow[]
+
+  // Stored answers carry comment IDS, not words. Resolve the words now, through
+  // insight_evidence — so a comment the erasure sweep removed simply stops
+  // resolving and disappears from every stored answer at once. A quote that no
+  // longer resolves is dropped rather than shown blank.
+  const commentIds = messages.flatMap((m) =>
+    (m.result?.grounded ?? []).flatMap((g) => g.quotes.map((q) => q.commentId).filter((c): c is string => Boolean(c))),
+  )
+  const quoteText = commentIds.length ? await fetchQuoteTextsByCommentId(supabase, commentIds) : new Map<string, string>()
+  for (const m of messages) {
+    if (!m.result?.grounded) continue
+    for (const g of m.result.grounded) {
+      g.quotes = g.quotes
+        .map((q) => ({ ...q, text: q.text || (q.commentId ? quoteText.get(q.commentId) ?? '' : '') }))
+        .filter((q) => q.text)
+    }
+  }
 
   return (
     <div className="space-y-6">

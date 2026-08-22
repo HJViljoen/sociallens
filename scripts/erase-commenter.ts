@@ -215,8 +215,13 @@ async function main() {
   //     door: `agent_messages.content` is the agent's own prose for an answer
   //     row, and `result.grounded[].text` is prose written AFTER the model was
   //     shown real comments — both can carry a commenter's words even though no
-  //     quote text is stored anywhere in the table. The `nearest[]` register is
-  //     model prose for the same reason and is scrubbed with them.
+  //     quote text is stored anywhere in the table (CORRECTED 2026-08-22: it
+  //     WAS, for a few hours — grounded[].quotes[].text held real comment text
+  //     and this sweep walked straight past it. The route no longer stores it
+  //     and the words resolve live, but this still scrubs those keys, because a
+  //     sweep that only works if the writer behaved is not a sweep). The
+  //     `nearest[]` and `judgement[]` registers are model prose written AFTER
+  //     the model was shown real comments, so they are scrubbed too.
   //
   //     User rows are deliberately NOT scrubbed: their `content` is the
   //     client's own question, not a third party's words, and rewriting a
@@ -229,7 +234,12 @@ async function main() {
       id: string
       role: string
       content: string | null
-      result: { answer?: string | null; grounded?: { text?: string | null }[]; nearest?: { text?: string | null }[] } | null
+      result: {
+        answer?: string | null
+        grounded?: { text?: string | null; quotes?: { text?: string | null }[] }[]
+        nearest?: { text?: string | null }[]
+        judgement?: { text?: string | null }[]
+      } | null
     }
     const scrub = (s: string): string => {
       let out = s
@@ -266,7 +276,21 @@ async function main() {
         }
         const answer = typeof res.answer === 'string' ? scrub(res.answer) : res.answer
         if (typeof res.answer === 'string' && answer !== res.answer) touched = true
-        const next = { ...res, answer, grounded: mapText(res.grounded), nearest: mapText(res.nearest) }
+        // grounded[] needs both its own prose AND the quotes hanging off it.
+        const grounded = Array.isArray(res.grounded)
+          ? mapText(res.grounded)?.map((g) => {
+              const gq = (g as { quotes?: { text?: string | null }[] }).quotes
+              if (!Array.isArray(gq)) return g
+              return { ...g, quotes: mapText(gq) }
+            })
+          : res.grounded
+        const next = {
+          ...res,
+          answer,
+          grounded,
+          nearest: mapText(res.nearest),
+          judgement: mapText(res.judgement),
+        }
         if (touched) patch.result = next
       }
       if (!patch.content && !patch.result) continue

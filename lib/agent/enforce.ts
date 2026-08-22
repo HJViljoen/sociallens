@@ -70,6 +70,7 @@ export function enforceRegisters(
   // evidence than there is — the same "no voice repeats on a page" rule
   // createQuotePicker already enforces on the dashboard.
   const usedQuotes = new Set<string>()
+  const usedRefs = new Set<string>()
   // Did ANY point resolve to real, live analysis — even if it could not be
   // quoted? This is the difference between "the corpus does not speak to this"
   // and "the corpus speaks to this but we cannot quote it", and collapsing the
@@ -148,7 +149,13 @@ export function enforceRegisters(
     // The model's own ref is the id, so judgement's `based_on` can actually
     // resolve. Falling back to a positional label keeps older/garbled replies
     // renderable rather than throwing the answer away.
-    const ref = clean(point?.ref) || `G${index + 1}`
+    // Unique, or judgement citations point at the wrong evidence. The model can
+    // emit "G1" twice, or label point 0 "G2" and omit a ref on point 1 — either
+    // way a last-wins lookup would make a proposal cite a finding that does not
+    // support it, which is the one thing the register split exists to stop.
+    let ref = clean(point?.ref) || `G${index + 1}`
+    if (usedRefs.has(ref)) ref = `${ref}.${index + 1}`
+    usedRefs.add(ref)
     grounded.push({
       id: ref,
       text,
@@ -173,8 +180,12 @@ export function enforceRegisters(
   }
   judgement.push(...demoted)
 
+  // A "nearest thing" is what the corpus offers INSTEAD of an answer. Rendered
+  // beneath six grounded findings it reads as the agent losing the thread, so
+  // it is admitted only when nothing was grounded — which is what the type has
+  // always said it means.
   const nearest: NearestThing[] = []
-  if (opts.allowNearest) {
+  if (opts.allowNearest && grounded.length === 0) {
     for (const item of raw.nearest ?? []) {
       const text = clean(item?.text)
       if (!text) continue

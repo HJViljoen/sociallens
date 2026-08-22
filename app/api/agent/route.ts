@@ -49,12 +49,19 @@ export async function POST(request: Request) {
 
   // Daily cap covers BOTH faces — one tenant, one budget. Counted on questions
   // asked, which a document check also is.
-  const { count: usedToday } = await admin0
+  const { count: usedToday, error: quotaErr } = await admin0
     .from('agent_messages')
     .select('id', { count: 'exact', head: true })
     .eq('client_id', clientId)
     .eq('role', 'user')
     .gte('created_at', dayStartIso(new Date()))
+  // Fail CLOSED. An unchecked error here made `count` undefined, which
+  // evaluateQuota read as 0 — so the only spend limit in the product
+  // disappeared exactly when the database was unhealthy.
+  if (quotaErr) {
+    console.error('[agent] quota read failed:', quotaErr)
+    return NextResponse.json({ error: 'Could not start that just now. Try again shortly.' }, { status: 503 })
+  }
   const cap = evaluateQuota(usedToday ?? 0, AGENT_DAILY_LIMIT)
   if (!cap.ok) return NextResponse.json({ error: cap.message }, { status: 429 })
 
@@ -147,9 +154,20 @@ export async function POST(request: Request) {
       content: answer.answer,
       result: {
         answer: answer.answer,
-        grounded: answer.grounded,
+        // NO QUOTE TEXT. A stored answer carries the ids it was grounded in and
+        // nothing a commenter said; the words are resolved live when the thread
+        // is read. This is the same rule consumer_profiles and plan_checks
+        // already keep, and the reason it matters is erasure: a verbatim copy
+        // here outlives the comment it came from, escapes erase-commenter, and
+        // makes the published privacy promise false. It was written that way
+        // first and a fresh-eyes review caught it.
+        grounded: answer.grounded.map((g) => ({
+          ...g,
+          quotes: g.quotes.map((q) => ({ commentId: q.commentId, videoId: q.videoId })),
+        })),
         judgement: answer.judgement,
         nearest: answer.nearest,
+        notice: answer.notice ?? null,
         silent: answer.silent,
         retrievedCount: answer.retrievedCount,
         intent: answer.plan.intent,
@@ -163,7 +181,17 @@ export async function POST(request: Request) {
     const message = e instanceof Error ? e.message : String(e)
     // The failure is NOT written as a silent answer. "Nothing relates to this"
     // is a claim about the corpus, and a broken call must never wear it.
-    return NextResponse.json({ threadId: thread.id, error: message }, { status: 500 })
+    //
+    // But the raw message does not go to the browser either: it carried the
+    // Postgres function signature, the model-written retrieval queries and the
+    // OpenAI org id straight onto the page. Logged in full, reported plainly.
+    // The one exception is the unbuilt-index case, which is written FOR a
+    // reader and says the fault is ours.
+    console.error('[agent] answer failed:', message)
+    const safe = message.startsWith('This workspace has no searchable index')
+      ? message
+      : 'That did not work — something went wrong on our side, not in your data. Asking again is safe.'
+    return NextResponse.json({ threadId: thread.id, error: safe }, { status: 500 })
   }
 }
 

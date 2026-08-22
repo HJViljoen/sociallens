@@ -262,3 +262,55 @@ describe('judgement can actually cite the evidence', () => {
     expect(out.grounded[0].id).toBe('G1')
   })
 })
+
+describe('findings the fresh-eyes review caught', () => {
+  it('never lets two grounded points share a ref', () => {
+    // Last-wins lookup made judgement cite the WRONG finding — a proposal
+    // borrowing credibility from evidence that does not support it.
+    const out = enforceRegisters(
+      {
+        answer: 'x',
+        grounded: [
+          { ref: 'G1', text: 'First.', insightIds: ['a'] },
+          { ref: 'G1', text: 'Second.', insightIds: ['b'] },
+        ],
+      },
+      [insight('a', 'v1'), insight('b', 'v2')],
+      opts,
+    )
+    expect(out.grounded).toHaveLength(2)
+    expect(new Set(out.grounded.map((g) => g.id)).size).toBe(2)
+  })
+
+  it('does not offer a nearest thing when the question was answered', () => {
+    // "Not what you asked, but close" under six grounded findings reads as the
+    // agent losing the thread.
+    const out = enforceRegisters(
+      {
+        answer: 'x',
+        grounded: [{ ref: 'G1', text: 'Real.', insightIds: ['a'] }],
+        nearest: [{ text: 'Something adjacent.', insightIds: ['a'] }],
+      },
+      [insight('a', 'v1')],
+      opts,
+    )
+    expect(out.grounded).toHaveLength(1)
+    expect(out.nearest).toEqual([])
+  })
+
+  it('calls a grounded answer answered, not partial', () => {
+    // Keying outcome on judgement made 'partial' the only value the column ever
+    // took, which killed the demand-signal roadmap it exists for.
+    const out = enforceRegisters(
+      {
+        answer: 'x',
+        grounded: [{ ref: 'G1', text: 'Real.', insightIds: ['a'] }],
+        judgement: [{ text: 'And here is what I would do.', basedOn: ['G1'] }],
+      },
+      [insight('a', 'v1')],
+      opts,
+    )
+    expect(out.judgement.length).toBeGreaterThan(0)
+    expect(outcomeOf(out)).toBe('answered')
+  })
+})

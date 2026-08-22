@@ -6,9 +6,9 @@ import { logAiCall } from '../pipeline/ai-log'
 import { CALIBRATED_PROSE_RULE, stripThemeRefs } from '../pipeline/prose-rules'
 import { enforceRegisters, type RawAnswer } from './enforce'
 import { interpretQuestion } from './interpret'
-import { retrieveForQueries, latestRunId, type RetrievedInsight } from './retrieve'
+import { retrieveForQueries, latestRunId, embeddedInsightCount, type RetrievedInsight } from './retrieve'
 import { loadTrendContext, type TrendContext } from './trend'
-import type { AgentAnswer, QuestionPlan } from './types'
+import { OUT_OF_CORPUS_NOTICE, type AgentAnswer, type QuestionPlan } from './types'
 
 // The answering half. Retrieval has already put real insights and real quotes
 // on the table; this asks the model to answer the client's question FROM them,
@@ -109,7 +109,7 @@ export interface AnswerArgs {
 export async function answerQuestion(
   admin: ReturnType<typeof import('../supabase-admin').createAdminClient>,
   args: AnswerArgs,
-): Promise<AgentAnswer & { plan: QuestionPlan; retrievedCount: number }> {
+): Promise<AgentAnswer & { plan: QuestionPlan; retrievedCount: number; emptyQueries: string[] }> {
   const persist = args.persist !== false
   const allowNearest = args.allowNearest !== false
   let costUsd = 0
@@ -131,10 +131,20 @@ export async function answerQuestion(
   })
 
   if (context.insights.length === 0) {
-    // Nothing cleared the floor. Enforcement produces the fixed silence
-    // sentence; no synthesis call is made, so silence is also the cheap path.
+    // Before calling this silence, prove the index exists. A tenant whose
+    // insights were never embedded returns zero rows for EVERY question, and
+    // "nothing in the conversation relates to this" would be a confident lie
+    // about their own customers. Silence is a claim about the corpus and it
+    // has to be earned.
+    if ((await embeddedInsightCount(admin, args.clientId)) === 0) {
+      throw new Error(
+        'This workspace has no searchable index yet, so the agent cannot answer. This is our side, not your data — nothing has been read yet.',
+      )
+    }
+    // A real silence: the index exists and nothing in it cleared the floor. No
+    // synthesis call is made, so silence is also the cheap path.
     const empty = enforceRegisters({}, [], { allowNearest, runId, costUsd })
-    return { ...empty, plan, retrievedCount: 0 }
+    return { ...empty, plan, retrievedCount: 0, emptyQueries: context.emptyQueries }
   }
 
   const trend = plan.timeframe === 'trend'
@@ -211,5 +221,9 @@ export async function answerQuestion(
   }
 
   const answer = enforceRegisters(raw, context.insights, { allowNearest, runId, costUsd })
-  return { ...answer, plan, retrievedCount: context.insights.length }
+  if (plan.intent === 'about_our_metrics') answer.notice = OUT_OF_CORPUS_NOTICE
+  // emptyQueries is carried out, not discarded: which ANGLE found nothing is
+  // the difference between "we do not cover this" and "that phrasing missed",
+  // and it is the first thing to look at when an answer reads thin.
+  return { ...answer, plan, retrievedCount: context.insights.length, emptyQueries: context.emptyQueries }
 }

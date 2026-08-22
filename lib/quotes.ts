@@ -211,6 +211,36 @@ export async function fetchQuoteCitationsByAudience(
   return byAudience
 }
 
+/** Resolve quote TEXT for a set of comment ids, through insight_evidence.
+ *
+ *  Deliberately NOT through `comments`: insight_evidence is where the
+ *  redacted=false rule lives, and it is what erase-commenter deletes. Reading
+ *  the words back through it means an erased comment stops resolving
+ *  everywhere at once — which is the property that lets a stored answer carry
+ *  ids instead of words. Reading `comments` directly would resolve text the
+ *  erasure sweep had already dealt with.
+ *
+ *  Unresolvable ids are simply absent from the map; the caller drops them. */
+export async function fetchQuoteTextsByCommentId(
+  client: unknown,
+  commentIds: string[],
+): Promise<Map<string, string>> {
+  const c = client as EvidenceClient
+  const out = new Map<string, string>()
+  const unique = [...new Set(commentIds.filter(Boolean))]
+  for (let i = 0; i < unique.length; i += 120) {
+    const { data } = await c
+      .from('insight_evidence')
+      .select('comment_id, quote')
+      .in('comment_id', unique.slice(i, i + 120))
+      .eq('redacted', false)
+    for (const r of (data ?? []) as { comment_id: string | null; quote: string | null }[]) {
+      if (r.comment_id && r.quote && !out.has(r.comment_id)) out.set(r.comment_id, r.quote)
+    }
+  }
+  return out
+}
+
 /** Insight fields for a SET OF IDS, chunked to stay under the PostgREST URL cap.
  *  Reads the BASE table, never `audience_insights_current`: ids stored by the
  *  run a page is displaying must still resolve while a NEWER run has superseded
