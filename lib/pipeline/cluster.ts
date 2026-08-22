@@ -44,8 +44,13 @@ export function cosine(a: number[], b: number[]): number {
 
 /** Text fed to the embedder for one insight: the slug as words + its
  *  description, which carries far more semantic signal than the 2–4 word slug
- *  alone. */
-function embedInput(ins: InsightRow): string {
+ *  alone.
+ *
+ *  Exported because the Verbatim Agent's insight embeddings
+ *  (scripts/embed-insights.ts) MUST be produced by this exact formula. Two
+ *  copies of it would drift, and vectors built from different text are not
+ *  comparable — a silent, invisible retrieval failure. */
+export function embedInput(ins: Pick<InsightRow, 'theme' | 'description'>): string {
   return `${ins.theme.replace(/_/g, ' ')}. ${ins.description}`
 }
 
