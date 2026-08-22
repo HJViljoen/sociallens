@@ -36,7 +36,7 @@ export default async function AgentPage() {
       {/* The stage is its own box so the ring centres on the COMPOSER rather
           than on the whole scrolling page — with a thread list below, those two
           centres are not the same point and the ring would sit low. */}
-      <section className="relative grid min-h-[26rem] place-items-center overflow-hidden py-10 lg:min-h-[32rem]">
+      <section className="relative grid min-h-[30rem] place-items-center overflow-hidden py-10 lg:min-h-[42rem]">
         <AgentCrowdRing />
         <div className="agent-centre-in relative z-10 w-full">
           <AgentComposer canSend={canSend} showFigure />
