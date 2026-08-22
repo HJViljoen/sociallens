@@ -22,6 +22,11 @@ import { EMBEDDING_MODEL } from '../lib/config'
 // formula the theme clusterer uses. Do not inline a second copy: vectors built
 // from different text are not comparable, and the failure is silent.
 
+// KNOWN ISSUE, deliberately not fixed yet (2026-08-22). Embeddings are
+// REQUESTED in batches of 256 but WRITTEN one row at a time — 1,351 individual
+// updates over PostgREST took minutes on Ossur. Fine at this size; wrong for a
+// bigger tenant. The fix is a bulk upsert or a single SQL statement with a
+// values list. Heinrich's call: "mark it, we'll fix when it becomes a problem."
 const BATCH = 256
 
 interface Args { clientId: string | null; apply: boolean; force: boolean; limit: number }

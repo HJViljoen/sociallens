@@ -12,6 +12,15 @@ import { readsAsHeroQuote } from '../quotes'
 // that were actually retrieved, counts are recomputed, quotes are attached from
 // the retrieved evidence rather than from anything the model wrote.
 //
+// NO EVIDENCE FLOOR, and this is a decision, not an omission (Heinrich,
+// 2026-08-22). A grounded point backed by a single conversation is shown, with
+// its count of 1 stated plainly beside it. Requiring two would hide real
+// findings behind a rule and would be exactly the over-restriction that reads
+// to a client as false silence. The product's answer to thin evidence is to
+// SAY it is thin, not to withhold it. Heinrich: "no, don't put a floor, I
+// think having it answer honestly like this is better." Do not add one without
+// asking him.
+//
 // DEMOTE, NEVER DROP. A point whose ids do not resolve is not deleted — it
 // moves to the judgement register, where it is honestly labelled as the agent's
 // own reasoning. Deleting it would be over-restriction, and over-restriction
