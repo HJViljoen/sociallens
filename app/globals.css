@@ -112,8 +112,12 @@
   --accent-pine: #2E7D6F;
   --accent-clay: #C4633F;
   --accent-ochre: #C99A3B;
-  --accent-plum: #8A5A7A;
-  --accent-slate: #4E6E9E;
+  /* 2026-08-22: blue and purple retired (Heinrich) — 'plum' is now a deep
+     brown-red and 'slate' a warm stone, so every existing bg-plum/bg-slate use
+     (wider-category bucket, 4th/5th competitor, hashed category chips) stays
+     in the green / red / neutral family. Token names kept for churn's sake. */
+  --accent-plum: #7A3E2E;
+  --accent-slate: #8C8478;
 
   /* Sidebar — light warm panel, green as the accent (active = pale-green pill, deep-green text) */
   --sidebar: #FCF9F1;

@@ -42,11 +42,15 @@ export interface TileProps {
   footerNote?: ReactNode
   className?: string
   bodyClassName?: string
+  /** How the body's groups share spare height: packed at the top, spread
+   *  between, or centred — a tile that is shorter than its cell should not
+   *  leave all its air at the bottom. */
+  distribute?: 'start' | 'between' | 'center'
   children?: ReactNode
 }
 
 export function Tile({
-  col, row, variant = 'default', eyebrow, meta, footer, footerNote, className, bodyClassName, children,
+  col, row, variant = 'default', eyebrow, meta, footer, footerNote, className, bodyClassName, distribute = 'start', children,
 }: TileProps) {
   const isHero = variant === 'hero'
   const isStrip = variant === 'strip'
@@ -58,9 +62,9 @@ export function Tile({
         ROW[row] ?? 'xl:row-span-1',
         MIN_H[row] ?? 'min-h-[116px]',
         'xl:min-h-0',
-        variant === 'default' && 'gap-2 bg-tile px-3.5 py-3 ring-1 ring-border/90 shadow-[0_1px_2px_rgba(18,42,31,0.05),0_10px_24px_-14px_rgba(18,42,31,0.22)]',
-        variant === 'warm' && 'gap-2 bg-tile px-3.5 py-3 ring-1 ring-clay/45 shadow-[0_1px_2px_rgba(18,42,31,0.05),0_10px_24px_-14px_rgba(18,42,31,0.22)]',
-        isHero && 'stat-hero gap-3 px-5 py-4 shadow-[0_1px_2px_rgba(18,42,31,0.10),0_18px_40px_-16px_rgba(18,42,31,0.45)]',
+        variant === 'default' && 'gap-2.5 bg-tile px-4 py-3.5 ring-1 ring-border/90 shadow-[0_1px_2px_rgba(18,42,31,0.05),0_10px_24px_-14px_rgba(18,42,31,0.22)]',
+        variant === 'warm' && 'gap-2.5 bg-tile px-4 py-3.5 ring-1 ring-clay/45 shadow-[0_1px_2px_rgba(18,42,31,0.05),0_10px_24px_-14px_rgba(18,42,31,0.22)]',
+        isHero && 'stat-hero gap-3 px-6 py-5 shadow-[0_1px_2px_rgba(18,42,31,0.10),0_18px_40px_-16px_rgba(18,42,31,0.45)]',
         isStrip && 'flex-col divide-y divide-border/80 bg-tile p-0 ring-1 ring-border/90 shadow-[0_1px_2px_rgba(18,42,31,0.05),0_10px_24px_-14px_rgba(18,42,31,0.22)] sm:flex-row sm:items-stretch sm:divide-x sm:divide-y-0',
         className,
       )}
@@ -85,7 +89,7 @@ export function Tile({
         </header>
       )}
       {isStrip ? children : (
-        <div className={cn('flex min-h-0 flex-1 flex-col gap-2', bodyClassName)}>{children}</div>
+        <div className={cn('flex min-h-0 flex-1 flex-col gap-2.5', distribute === 'between' && 'justify-between', distribute === 'center' && 'justify-center', bodyClassName)}>{children}</div>
       )}
       {!isStrip && (footer || footerNote) && (
         <footer className={cn('mt-auto flex items-center justify-between gap-2 pt-1 text-[11px] font-medium', isHero ? 'text-[#DCE8DD]' : 'text-primary')}>
@@ -100,7 +104,7 @@ export function Tile({
 /** One cell of a strip tile — a counted receipt. */
 export function StripCell({ eyebrow, children, className }: { eyebrow: ReactNode; children?: ReactNode; className?: string }) {
   return (
-    <div className={cn('flex min-h-0 min-w-0 flex-1 flex-col gap-[3px] overflow-hidden px-4 py-2.5', className)}>
+    <div className={cn('flex min-h-0 min-w-0 flex-1 flex-col justify-center gap-1 overflow-hidden px-4 py-3', className)}>
       <h2 className="truncate text-[10.5px] font-semibold uppercase tracking-[0.07em] text-[#6B756B]">{eyebrow}</h2>
       {children}
     </div>

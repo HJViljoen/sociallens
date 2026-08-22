@@ -63,7 +63,7 @@ const KIND_CHIP: Record<KindTone, string> = {
   lead: 'bg-[#E3EEE3] text-positive',
   threat: 'bg-[#F3DFD5] text-[#8B3A22]',
   gap: 'bg-[#F6E7D2] text-[#8A5A1B]',
-  tone: 'bg-[#E8E3EE] text-[#5E3F6A]',
+  tone: 'bg-plum/12 text-plum',
   other: 'bg-muted text-muted-foreground',
 }
 const impactWord = (l: string | null) => (l === 'high' ? 'high impact' : l === 'medium' ? 'medium impact' : l === 'low' ? 'low impact' : null)
