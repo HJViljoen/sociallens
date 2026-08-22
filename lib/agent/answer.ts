@@ -1,7 +1,7 @@
 import { zodResponseFormat } from 'openai/helpers/zod'
 import { z } from 'zod'
 import { openai, samplingParams } from '../openai'
-import { SYNTHESIS_MODEL, estimateCost, AGENT_HISTORY_TURNS } from '../config'
+import { SYNTHESIS_MODEL, estimateCost, AGENT_HISTORY_TURNS, AGENT_REASONING_EFFORT } from '../config'
 import { logAiCall } from '../pipeline/ai-log'
 import { CALIBRATED_PROSE_RULE, stripThemeRefs } from '../pipeline/prose-rules'
 import { enforceRegisters, type RawAnswer } from './enforce'
@@ -167,7 +167,12 @@ export async function answerQuestion(
       model: SYNTHESIS_MODEL,
       messages: [{ role: 'system', content: system }, { role: 'user', content: user }],
       response_format: zodResponseFormat(AnswerSchema, 'agent_answer'),
-      ...samplingParams(SYNTHESIS_MODEL),
+      // The agent overrides the pipeline's sampling on purpose: a weekly report
+      // can afford to think for four minutes, a conversational turn cannot.
+      // See AGENT_REASONING_EFFORT for the measured trade.
+      ...(SYNTHESIS_MODEL.startsWith('gpt-5')
+        ? { reasoning_effort: AGENT_REASONING_EFFORT }
+        : samplingParams(SYNTHESIS_MODEL)),
     })
     parsed = completion.choices[0]?.message?.parsed ?? null
     if (completion.usage) {

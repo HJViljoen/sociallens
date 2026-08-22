@@ -658,6 +658,12 @@ export const AGENT_INSIGHTS_TOTAL = 60
  *  Starting value — revisit on real use rather than on a guess. */
 export const AGENT_DAILY_LIMIT = 50
 
+/** Reasoning effort for the agent's synthesis call, SEPARATE from the
+ *  pipeline's SYNTHESIS_REASONING_EFFORT. A weekly report can afford to think
+ *  for minutes; someone waiting on a page cannot. Measured on Ossur's corpus,
+ *  2026-08-22 — see the plan doc for the numbers behind this value. */
+export const AGENT_REASONING_EFFORT = 'medium' as const
+
 /** Longest question accepted. Past this it is a document, and the document
  *  check is the right tool — pasting a plan into a question box gets a worse
  *  answer than uploading it. */
