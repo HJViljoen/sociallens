@@ -24,6 +24,10 @@ function ConversationCount({ n }: { n: number }) {
 
 export function AgentAnswerView({ answer }: { answer: AgentAnswer }) {
   const hasGrounded = answer.grounded.length > 0
+  // The model's refs ("G1", "G3") are internal handles and mean nothing to a
+  // reader. Number the findings as they appear and cite THOSE, so "based on 1
+  // and 2" points at something visible on the same screen.
+  const numberOf = new Map(answer.grounded.map((g, i) => [g.id, i + 1]))
 
   return (
     <div className="space-y-6">
@@ -32,10 +36,13 @@ export function AgentAnswerView({ answer }: { answer: AgentAnswer }) {
       {hasGrounded && (
         <section className="space-y-4">
           <h3 className="text-sm font-semibold">What your customers said</h3>
-          {answer.grounded.map((point) => (
+          {answer.grounded.map((point, i) => (
             <div key={point.id} className="space-y-2 rounded-lg border border-border/60 p-4">
               <div className="flex flex-wrap items-baseline justify-between gap-2">
-                <p className="text-[15px] leading-snug text-foreground">{point.text}</p>
+                <p className="text-[15px] leading-snug text-foreground">
+                  <span className="mr-2 text-xs font-semibold text-muted-foreground tabular-nums">{i + 1}</span>
+                  {point.text}
+                </p>
                 <ConversationCount n={point.conversationCount} />
               </div>
               <Quotes items={point.quotes.map((q) => q.text)} />
@@ -67,12 +74,24 @@ export function AgentAnswerView({ answer }: { answer: AgentAnswer }) {
           {/* Visually distinct from the evidence above on purpose. A reader
               skimming must never mistake this column for the one their
               customers stand behind. */}
-          <div className="space-y-2 rounded-lg bg-muted/40 p-4">
-            {answer.judgement.map((j, i) => (
-              <p key={i} className="text-[15px] leading-snug text-foreground/85">
-                {j.text}
-              </p>
-            ))}
+          <div className="space-y-3 rounded-lg bg-muted/40 p-4">
+            {answer.judgement.map((j, i) => {
+              const cites = j.basedOn.map((ref) => numberOf.get(ref)).filter((n): n is number => Boolean(n))
+              return (
+                <div key={i} className="space-y-1">
+                  <p className="text-[15px] leading-snug text-foreground/85">{j.text}</p>
+                  {/* Which findings this rests on. A proposal a reader cannot
+                      trace back to the evidence is just an opinion — and the
+                      two that carry no citation say so rather than borrowing
+                      credibility from the ones above them. */}
+                  <p className="text-xs text-muted-foreground">
+                    {cites.length > 0
+                      ? `Reasoning from ${cites.length === 1 ? 'finding' : 'findings'} ${cites.sort((a, b) => a - b).join(', ')} above.`
+                      : 'Not drawn from any single finding above — this one is inference.'}
+                  </p>
+                </div>
+              )
+            })}
             <p className="pt-1 text-xs text-muted-foreground">
               This part is the tool&rsquo;s reading, not something your customers said.
             </p>
