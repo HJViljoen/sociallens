@@ -16,7 +16,7 @@ export function StatValue({
           'font-mono font-semibold tabular-nums leading-none tracking-[-0.03em]',
           size === 'sm' && 'text-[18px]',
           size === 'md' && 'text-[24px]',
-          size === 'lg' && 'text-[34px]',
+          size === 'lg' && 'text-[30px]',
         )}
       >
         {children}

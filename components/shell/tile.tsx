@@ -61,7 +61,7 @@ export function Tile({
         variant === 'default' && 'gap-2 bg-tile px-3.5 py-3 ring-1 ring-border/90 shadow-[0_1px_2px_rgba(18,42,31,0.05),0_10px_24px_-14px_rgba(18,42,31,0.22)]',
         variant === 'warm' && 'gap-2 bg-tile px-3.5 py-3 ring-1 ring-clay/45 shadow-[0_1px_2px_rgba(18,42,31,0.05),0_10px_24px_-14px_rgba(18,42,31,0.22)]',
         isHero && 'stat-hero gap-3 px-5 py-4 shadow-[0_1px_2px_rgba(18,42,31,0.10),0_18px_40px_-16px_rgba(18,42,31,0.45)]',
-        isStrip && 'flex-row items-stretch divide-x divide-border/80 bg-tile p-0 ring-1 ring-border/90 shadow-[0_1px_2px_rgba(18,42,31,0.05),0_10px_24px_-14px_rgba(18,42,31,0.22)]',
+        isStrip && 'flex-col divide-y divide-border/80 bg-tile p-0 ring-1 ring-border/90 shadow-[0_1px_2px_rgba(18,42,31,0.05),0_10px_24px_-14px_rgba(18,42,31,0.22)] sm:flex-row sm:items-stretch sm:divide-x sm:divide-y-0',
         className,
       )}
     >
@@ -100,7 +100,7 @@ export function Tile({
 /** One cell of a strip tile — a counted receipt. */
 export function StripCell({ eyebrow, children, className }: { eyebrow: ReactNode; children?: ReactNode; className?: string }) {
   return (
-    <div className={cn('flex min-w-0 flex-1 flex-col gap-1 px-4 py-3', className)}>
+    <div className={cn('flex min-h-0 min-w-0 flex-1 flex-col gap-[3px] overflow-hidden px-4 py-2.5', className)}>
       <h2 className="truncate text-[10.5px] font-semibold uppercase tracking-[0.07em] text-[#6B756B]">{eyebrow}</h2>
       {children}
     </div>

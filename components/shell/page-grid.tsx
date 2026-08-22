@@ -4,12 +4,15 @@ import { cn } from '@/lib/utils'
 // The one-screen frame. Inside the app shell's <main> (h-dvh minus the 48px
 // header, 24px padding) the page is a flex column: PageBar on top, the grid
 // filling whatever height is left. On ≥xl the grid is 12 columns × 6 equal
-// rows and never scrolls the page — tiles clamp their own content. Below xl
-// it becomes a single column of tiles and the page scrolls like before.
+// rows and fits one screen at 1440×900 — tiles clamp their own content. The
+// frame never drops under 776px, so a low laptop screen (1280×800) scrolls a
+// little instead of crushing the tiles (an indefinite height would let 1fr
+// rows grow to content, which is why the height is fixed, not a minimum). Below xl it becomes a single column of tiles and
+// the page scrolls like before.
 
 export function PageFrame({ children, className }: { children: ReactNode; className?: string }) {
   return (
-    <div className={cn('flex flex-col gap-3 xl:h-[calc(100dvh-6rem)] xl:min-h-0', className)}>
+    <div className={cn('flex flex-col gap-3 xl:h-[max(calc(100dvh-6rem),776px)] xl:min-h-0', className)}>
       {children}
     </div>
   )

@@ -32,6 +32,6 @@ export function RankedBar({
       {count != null && <span className="w-7 shrink-0 text-right font-mono text-[11.5px] font-semibold tabular-nums">{count}</span>}
     </>
   )
-  const cls = cn('flex items-center gap-2', href && 'rounded-sm hover:bg-muted/50', className)
+  const cls = cn('flex items-center gap-2 leading-[1.3]', href && 'rounded-sm hover:bg-muted/50', className)
   return href ? <Link href={href} className={cls}>{row}</Link> : <div className={cls}>{row}</div>
 }

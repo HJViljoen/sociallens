@@ -35,6 +35,7 @@ describe('fmtPct / fmtDelta', () => {
     expect(fmtDelta(-53)).toBe('−53')
     expect(fmtDelta(0)).toBe('±0')
     expect(fmtDelta(1240)).toBe('+1,240')
+    expect(fmtDelta(22, '%')).toBe('+22%')
   })
 })
 

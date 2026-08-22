@@ -44,7 +44,7 @@ export function fmtDelta(n: number, unit = '', decimals: 0 | 1 = 0): string {
   const v = decimals === 0 ? Math.round(n) : round1(n)
   const body = decimals === 0 ? fmtInt(Math.abs(v)) : Math.abs(v).toString()
   const sign = v > 0 ? '+' : v < 0 ? '−' : '±'
-  return `${sign}${body}${unit ? ` ${unit}` : ''}`
+  return `${sign}${body}${unit ? (unit === '%' ? '%' : ` ${unit}`) : ''}`
 }
 
 /** "2026-08-16T07:07:51Z" → "16 Aug" (UTC). */
