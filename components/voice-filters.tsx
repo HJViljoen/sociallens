@@ -2,13 +2,14 @@
 
 import { useRouter, useSearchParams, usePathname } from 'next/navigation'
 
-// Filter bar for Voice of Customer. URL-driven so the server component does the
-// actual filtering (shareable links, no client data duplication); this only
-// updates the query string and preserves any other params (e.g. ?themes, ?type).
-// Category filtering moved to the tab row on the page; strength options are
-// worded, never numeric (Redesign Spec §1 — scores are not displayed).
+// Filter controls for Voice of Customer's theme map. URL-driven so the server
+// component does the actual filtering (shareable links, no client data
+// duplication); this only updates the query string and preserves any other
+// params (?entity, ?type, ?themes, ?seed). Category filtering is the tab row
+// on the page; strength options are worded, never numeric (Redesign Spec §1 —
+// scores are not displayed). Sized for the one-screen tile (2026-08-22).
 const STAGES = [
-  { value: 'all', label: 'Any journey stage' },
+  { value: 'all', label: 'Journey: any' },
   { value: 'awareness', label: 'Awareness' },
   { value: 'consideration', label: 'Consideration' },
   { value: 'purchase', label: 'Purchase' },
@@ -25,7 +26,7 @@ export function VoiceFilters({ stage, min, deepLinked, showStage }: {
   stage: string
   min: string
   deepLinked?: boolean
-  /** Hide the journey filter on runs whose insights predate the journey tag. */
+  /** Hide the journey filter on updates whose insights predate the journey tag. */
   showStage?: boolean
 }) {
   const router = useRouter()
@@ -43,17 +44,17 @@ export function VoiceFilters({ stage, min, deepLinked, showStage }: {
     push((p) => (value === clearValue ? p.delete(key) : p.set(key, value)))
 
   const selectCls =
-    'h-9 rounded-full border border-input bg-card px-4 text-sm text-foreground outline-none transition-colors hover:bg-muted/40 focus-visible:ring-2 focus-visible:ring-ring/40'
+    'h-[22px] cursor-pointer rounded-full border border-border bg-tile pl-2 pr-1 text-[11px] text-[#3F4B44] outline-none transition-colors hover:bg-muted/40 focus-visible:ring-2 focus-visible:ring-ring/40'
 
   return (
-    <div className="flex flex-wrap items-center justify-end gap-3 sm:ml-auto">
+    <div className="flex shrink-0 flex-wrap items-center justify-end gap-1.5">
       {deepLinked && (
         <button
           type="button"
           onClick={() => push((p) => p.delete('themes'))}
-          className="inline-flex items-center gap-1.5 rounded-full bg-secondary px-3 py-1.5 text-xs font-medium text-secondary-foreground transition-colors hover:bg-secondary/80"
+          className="inline-flex h-[22px] cursor-pointer items-center gap-1 rounded-full bg-sidebar-accent px-2 text-[11px] font-medium text-primary transition-colors hover:bg-sidebar-accent/80"
         >
-          Supporting a selected insight
+          Behind a selected insight
           <span aria-hidden>✕</span>
         </button>
       )}

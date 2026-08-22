@@ -1,26 +1,37 @@
 import Link from 'next/link'
-import { MessagesSquare, Quote, Sparkles, BarChart3, Users, Target, Layers } from 'lucide-react'
 import { getSessionContext } from '@/lib/auth'
-import { fetchInsightsByIds } from '@/lib/quotes'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { categoryTint, SENTIMENT_BADGE, PREVALENCE_BADGE } from '@/lib/ui-colors'
-import { gateTier, CURATION_GATE } from '@/lib/curation'
-import { prevalenceTier, PREVALENCE_LABEL, glossaryRule } from '@/lib/calibration'
+import { selectAll } from '@/lib/supabase-admin'
+import { fetchInsightsByIds, fetchQuoteCitationsByAudience, readsAsHeroQuote, cleanQuote, type QuoteCitation } from '@/lib/quotes'
+import { categoryTint, PREVALENCE_BADGE } from '@/lib/ui-colors'
+import { prevalenceTier, PREVALENCE_LABEL, glossaryRule, type GlossaryKey } from '@/lib/calibration'
+import { fmtInt, fmtCompact, fmtPct, weekdayDate, shortDate, platformLabel, cap } from '@/lib/format'
+import {
+  themeTrajectories, themeMovers, voiceTiers, pickVoiceCards, categoryTabs, categoryLabel, topEmotions, emotionTone, bucketKind,
+  type ThemeHistoryRow, type Trajectory,
+} from '@/lib/voice-tiles'
 import { VoiceFilters } from '@/components/voice-filters'
 import { HowToRead } from '@/components/how-to-read'
-import type { GlossaryKey } from '@/lib/calibration'
-import { DetailOverlay } from '@/components/detail-overlay'
+import { PageFrame, PageGrid, PageBar, BarPill } from '@/components/shell/page-grid'
+import { Tile, TileEmpty } from '@/components/shell/tile'
+import { DetailDrawer } from '@/components/shell/detail-drawer'
+import { Sparkline } from '@/components/charts/sparkline'
+import { RankedBar } from '@/components/charts/ranked-bar'
+import { Mover } from '@/components/charts/mover'
+import { ThemeMap, BucketLegend, EDGE, type ThemeBlock } from './theme-map'
 
-// Voice of Customer — "What are they actually saying?" (Redesign Spec §4).
-// Themes are the organizing unit, not the raw insight list: each card is a
-// Pass B-labelled theme with its synthesized description, emotion, video
-// coverage, and expandable verbatim quotes (insight_evidence). Below the
-// confirmed themes: "How your customers talk" (the language-samples panel —
-// the signature panel for a product named Verbatim) and single-source early
-// signals, honestly badged. Category filtering is a tab row (demo layout);
-// journey-stage + strength filters stay URL-driven in the bar. Deep links from
-// Market/Dashboard (?themes=slug1,slug2) narrow to the themes those insights
-// are grounded in. Scores gate and order but are never shown as numbers.
+// Voice of Customer — "what are they saying?", on one screen (one-screen
+// redesign, 2026-08-22). The theme map is the hero: a squarified treemap of the
+// top themes this update (block = conversations, tint = whose audience), with
+// the category tabs and journey filter inside it; gaining-and-fading, how your
+// customers talk, and audience mood on the right; five verbatim voices across
+// the bottom. Everything deeper is one click away in a right-hand drawer
+// (?detail=<themeId> | list | movers | language | legend).
+//
+// Rules kept from the old page: theme identity is theme_registry
+// (registry_id) — cross-update joins never use labels; strength_score gates and
+// orders but is never printed (what you read is conversations, a count);
+// ?themes=slug,slug deep links from the Dashboard narrow the map and the list
+// to the themes behind that insight; an in-flight update is never read.
 
 interface ThemeRow {
   id: string
@@ -34,99 +45,138 @@ interface ThemeRow {
   supporting_video_ids: string[]
   evidence_count: number
   strength_score: number | null
+  rank_score: number | null
   dominant_emotion: string | null
   dominant_sentiment_impact: string | null
   single_source: boolean
   first_seen: boolean
 }
 
-/** Quotes shown per theme before the "+ more" line. */
-const QUOTES_SHOWN = 5
-/** Member-insight ids sampled per theme for the quote fetch (URL-length cap). */
+/** Blocks on the map. */
+const MAP_BLOCKS = 13
+/** Themes the quote ribbon draws from, and member insights sampled per theme (URL-length cap). */
+const RIBBON_THEMES = 8
 const QUOTE_IDS_PER_THEME = 12
-/** Early-signal cards shown before the "+N more" line. */
-const EARLY_SHOWN = 12
-/** Language-sample phrases shown before the "+N more" line. */
-const PHRASES_SHOWN = 24
+const QUOTES_PER_THEME = 4
+const RIBBON_CARDS = 5
+/** Phrases on the language tile / in its drawer. */
+const PHRASES_SHOWN = 8
+const PHRASES_DRAWER = 300
+/** Quotes in a theme's drawer. */
+const DETAIL_QUOTES = 6
+/** Mover rows the tile has room for. */
+const MOVER_ROWS = 6
 
-const prettyType = (s: string) => s.replace(/_/g, ' ')
-const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1)
+const LEGEND_ITEMS: GlossaryKey[] = ['conversations', 'dominant', 'widespread', 'recurring', 'early_signal']
 
-const chipBase = 'px-2 py-0.5 rounded-full text-xs font-medium'
+const chip = 'inline-flex h-[18px] items-center rounded-full px-[7px] text-[10.5px] font-medium whitespace-nowrap'
 
-const LEGEND_ITEMS: GlossaryKey[] = ['conversations', 'dominant', 'widespread', 'recurring', 'early_signal', 'strong_evidence']
+type SP = { entity?: string; themes?: string; type?: string; stage?: string; min?: string; detail?: string; seed?: string }
 
-// Each entity bucket gets its own colour + icon so a client theme ("2 of 8 your-
-// audience") never reads the same as a category one ("30 of 136 wider-category").
-// Client = brand green, category = slate, competitor = clay.
-function bucketMeta(bucket: string): { label: string; Icon: typeof Users; fg: string; bg: string; bar: string } {
-  if (bucket === 'client') return { label: 'Your audience', Icon: Users, fg: 'text-primary', bg: 'bg-primary/10', bar: 'bg-primary/70' }
-  if (bucket.startsWith('competitor:')) return { label: `${bucket.replace(/^competitor:/, '')}’s audience`, Icon: Target, fg: 'text-clay', bg: 'bg-clay/10', bar: 'bg-clay/70' }
-  return { label: 'Wider category', Icon: Layers, fg: 'text-slate', bg: 'bg-slate/10', bar: 'bg-slate/70' }
-}
-
-export default async function VoiceOfCustomerPage({
-  searchParams,
-}: {
-  searchParams?: Promise<{ entity?: string; themes?: string; type?: string; stage?: string; min?: string; detail?: string }>
-}) {
+export default async function VoiceOfCustomerPage({ searchParams }: { searchParams?: Promise<SP> }) {
   // Auth + tenant via the RLS-enforced session client. See lib/auth.ts.
   const { supabase, clientId } = await getSessionContext()
-
   const sp = (await searchParams) ?? {}
-  const showLegend = sp.detail === 'legend'
-  const detailId = sp.detail
-  // Deep-link from a Market/Dashboard insight: ?themes=slug1,slug2 narrows the
-  // page to the theme(s) whose members ground that insight.
+
+  const detail = sp.detail
+  const showLegend = detail === 'legend'
   const groundingSlugs = new Set((sp.themes ?? '').split(',').map((s) => s.trim()).filter(Boolean))
   const deepLinked = groundingSlugs.size > 0
   const entityFilter = sp.entity ?? 'all'
   const typeFilter = sp.type ?? 'all'
   const stageFilter = sp.stage ?? 'all'
   const minScore = Number(sp.min ?? '0') || 0
+  // The ribbon rotates on every visit; ?seed= pins a draw so drawers and tabs
+  // don't reshuffle it, and "Next five" advances it.
+  const seed = sp.seed != null && sp.seed !== '' && Number.isFinite(Number(sp.seed)) ? Math.trunc(Number(sp.seed)) : Math.floor(Math.random() * 1_000_000)
 
-  // Latest COMPLETED run — an in-flight run has no themes yet, so the page
-  // keeps serving the previous run's voices until the new one closes.
-  const { data: latestRun } = await supabase
-    .from('pipeline_runs').select('id')
-    .eq('client_id', clientId).in('status', ['completed', 'partial'])
-    .order('started_at', { ascending: false }).limit(1).maybeSingle()
+  // Hrefs that preserve the active view; null drops a key.
+  const hrefWith = (over: Partial<Record<'entity' | 'type' | 'themes' | 'stage' | 'min' | 'seed' | 'detail', string | null>>) => {
+    const params = new URLSearchParams()
+    const base: Record<string, string | undefined> = { entity: sp.entity, type: sp.type, themes: sp.themes, stage: sp.stage, min: sp.min, seed: String(seed) }
+    for (const [k, v] of Object.entries({ ...base, ...over })) if (v) params.set(k, v)
+    const qs = params.toString()
+    return qs ? `/dashboard/voice?${qs}` : '/dashboard/voice'
+  }
+  const closeHref = hrefWith({ detail: null })
+
+  // Latest COMPLETED update — an in-flight one has no themes yet, so the page
+  // keeps serving the previous update's voices until the new one closes.
+  const [{ data: latestRun }, runningRes, { data: client }] = await Promise.all([
+    supabase.from('pipeline_runs').select('id, started_at')
+      .eq('client_id', clientId).in('status', ['completed', 'partial'])
+      .order('started_at', { ascending: false }).limit(1).maybeSingle(),
+    supabase.from('pipeline_runs').select('id').eq('client_id', clientId).eq('status', 'running'),
+    supabase.from('clients').select('company_name').eq('id', clientId).maybeSingle(),
+  ])
+  const runningIds = ((runningRes.data ?? []) as { id: string }[]).map((r) => r.id)
+  const brand = client?.company_name ?? 'your brand'
 
   if (!latestRun) {
     return (
-      <div className="space-y-6">
-        <PageHeader showLegend={showLegend} legendItems={LEGEND_ITEMS} />
-        <EmptyState>Your customer voices land with your first update — check back then.</EmptyState>
-      </div>
+      <PageFrame>
+        <PageBar title="Voice of Customer" context="What are they saying?">
+          <HowToRead items={LEGEND_ITEMS} open={showLegend} basePath="/dashboard/voice" />
+        </PageBar>
+        <PageGrid>
+          <Tile col={12} row={2} eyebrow="The conversation, by theme">
+            <TileEmpty>Your customer voices land with your first update — check back then.</TileEmpty>
+          </Tile>
+        </PageGrid>
+      </PageFrame>
     )
   }
   const runId = latestRun.id as string
 
-  const [themesRes, earlierRes, samplesRes, clientRes] = await Promise.all([
+  const [themesRes, historyRows, summaryRows, samplesRes, emotionRows] = await Promise.all([
     supabase.from('themes')
       .select('id, registry_id, bucket, category, label, description, member_themes, supporting_insight_ids, supporting_video_ids, evidence_count, strength_score, rank_score, dominant_emotion, dominant_sentiment_impact, single_source, first_seen')
       .eq('client_id', clientId).eq('run_id', runId)
-      // Widest-heard first (Tier 1): strength_score is the strongest single
-      // insight and says nothing about how many people raised the theme.
-      .order('rank_score', { ascending: false, nullsFirst: false })
-      .order('evidence_count', { ascending: false }),
-    supabase.from('themes').select('id')
-      .eq('client_id', clientId).neq('run_id', runId).limit(1),
+      .order('evidence_count', { ascending: false })
+      .order('rank_score', { ascending: false, nullsFirst: false }),
+    // Every update's themes, for the per-theme sparks and the movers (joined on
+    // registry_id in lib/voice-tiles). selectAll: a tenant crosses 1000 rows in
+    // three updates.
+    selectAll<ThemeHistoryRow>(() =>
+      supabase.from('themes').select('run_id, registry_id, label, category, bucket, strength_score, evidence_count, first_seen')
+        .eq('client_id', clientId).order('run_id', { ascending: true }).order('id', { ascending: true }),
+    ),
+    selectAll<{ run_id: string; run_date: string }>(() =>
+      supabase.from('run_summary').select('run_id, run_date').eq('client_id', clientId).order('run_date', { ascending: true }),
+    ),
     supabase.from('language_samples_current')
       .select('phrase, platform', { count: 'exact' })
       .eq('client_id', clientId)
-      .limit(PHRASES_SHOWN),
-    supabase.from('clients').select('company_name').eq('id', clientId).maybeSingle(),
+      .limit(detail === 'language' ? PHRASES_DRAWER : PHRASES_SHOWN),
+    // Population read of the current analysis → the *_current view (AGENTS.md).
+    selectAll<{ id: string; emotion: string | null }>(() =>
+      supabase.from('audience_insights_current').select('id, emotion').eq('client_id', clientId).order('id', { ascending: true }),
+    ),
   ])
 
   const themes = (themesRes.data ?? []) as ThemeRow[]
-  const showNew = ((earlierRes.data ?? []).length) > 0
-  const brand = clientRes.data?.company_name ?? 'your brand'
+  // The updates that count for movement: closed updates that produced themes
+  // (an update from before themes existed is no baseline for "new").
+  const themedRunIds = new Set(historyRows.map((r) => r.run_id))
+  themedRunIds.add(runId)
+  const runDates = new Map(
+    summaryRows.filter((s) => s.run_id && themedRunIds.has(s.run_id) && !runningIds.includes(s.run_id)).map((s) => [s.run_id, s.run_date]),
+  )
+  if (!runDates.has(runId)) runDates.set(runId, (latestRun.started_at as string).slice(0, 10))
+  const updatesCount = runDates.size
+  const runDate = runDates.get(runId) ?? (latestRun.started_at as string)
+  const showNew = updatesCount > 1
+  const samples = (samplesRes.data ?? []) as { phrase: string; platform: string | null }[]
+  const sampleTotal = samplesRes.count ?? samples.length
 
-  // ---- Prevalence denominators (calibrated language) ----
+  // ---- bucket vocabulary (raw bucket values are never client-facing) ----
+  const competitorName = (bucket: string) => bucket.replace(/^competitor:/, '')
+  const bucketName = (bucket: string) =>
+    bucket === 'client' ? 'Your audience' : bucket === 'industry-other' ? 'Wider category' : `${competitorName(bucket)}’s audience`
+  const groupName = (bucket: string) => (bucket === 'client' ? brand : bucket === 'industry-other' ? 'category' : competitorName(bucket))
+
   // A theme's reach is measured against its own entity group: the group's
-  // distinct insight-bearing conversations = union of its themes' evidence
-  // (clustering partitions every insight, so the union covers the group).
+  // distinct insight-bearing conversations = union of its themes' evidence.
   const groupConversations = new Map<string, Set<string>>()
   for (const t of themes) {
     let set = groupConversations.get(t.bucket)
@@ -134,608 +184,446 @@ export default async function VoiceOfCustomerPage({
     for (const id of t.supporting_video_ids ?? []) set.add(id)
   }
   const groupSize = (bucket: string) => groupConversations.get(bucket)?.size ?? 0
-  const groupName = (bucket: string) =>
-    bucket === 'client' ? brand : bucket === 'industry-other' ? 'category' : bucket.replace(/^competitor:/, '')
-  // Human wording for the entity-bucket chip — raw bucket values ("industry-other",
-  // "competitor:X") are pipeline vocabulary and never client-facing.
-  const bucketChip = (bucket: string) =>
-    bucket === 'client' ? 'Your audience'
-      : bucket === 'industry-other' ? 'Wider category'
-        : `${bucket.replace(/^competitor:/, '')}’s audience`
-  // Journey stage per insight, for the stage filter — read by id from the base
-  // table (fetchInsightsByIds), not the current view: the ids come from THIS
-  // run's themes, and a newer in-flight run may already have superseded some of
-  // those videos' rows (incremental Pass A, 2026-08-17).
-  const stageByInsight = new Map(
-    (await fetchInsightsByIds<{ id: string; journey_stage: string | null }>(
-      supabase,
-      themes.flatMap((t) => t.supporting_insight_ids ?? []),
-      'id, journey_stage',
-    )).map((i) => [i.id, i.journey_stage]),
+
+  // Journey stage + platform per insight, read by id from the base table (the
+  // ids come from THIS update's themes; a newer in-flight update may already
+  // have superseded some of those videos' rows in the current view).
+  const insightMeta = new Map(
+    (await fetchInsightsByIds<{ id: string; journey_stage: string | null; platform: string | null }>(
+      supabase, themes.flatMap((t) => t.supporting_insight_ids ?? []), 'id, journey_stage, platform',
+    )).map((i) => [i.id, i]),
   )
-  const stagesPresent = new Set([...stageByInsight.values()].filter(Boolean))
-  const samples = (samplesRes.data ?? []) as { phrase: string; platform: string | null }[]
-  const sampleTotal = samplesRes.count ?? samples.length
+  const stagesPresent = new Set([...insightMeta.values()].map((i) => i.journey_stage).filter(Boolean))
 
-  // Entities present this run, for the top selector bar — the client first, then
-  // the wider category, then competitors by audience size.
-  const bucketRank = (b: string) => (b === 'client' ? 0 : b === 'industry-other' ? 1 : 2)
-  const entities = [...groupConversations.keys()]
-    .map((b) => ({ bucket: b, size: groupSize(b), meta: bucketMeta(b) }))
-    .sort((a, z) => bucketRank(a.bucket) - bucketRank(z.bucket) || z.size - a.size)
-
-  // ---- Filters (applied to both tiers) ----
+  // ---- filters ----
   const inEntity = (t: ThemeRow) => entityFilter === 'all' || t.bucket === entityFilter
   const shown = themes.filter((t) =>
     inEntity(t) &&
     (!deepLinked || t.member_themes.some((slug) => groundingSlugs.has(slug))) &&
     (typeFilter === 'all' || t.category === typeFilter) &&
-    (stageFilter === 'all' || t.supporting_insight_ids.some((id) => stageByInsight.get(id) === stageFilter)) &&
+    (stageFilter === 'all' || t.supporting_insight_ids.some((id) => insightMeta.get(id)?.journey_stage === stageFilter)) &&
     Number(t.strength_score ?? 0) >= minScore,
   )
-  const confirmed = shown.filter((t) => !t.single_source)
-  // Priority by SHARE of the entity's conversations, not raw count: a theme
-  // 3-of-6 (50%) in a small competitor bucket outranks one 50-of-136 (37%) in
-  // the big category bucket. "Confirmed" (multi-source) is the sample floor that
-  // keeps a 1-of-1 fluke out. Featured = the calibrated high-prevalence tiers
-  // (themselves share-based) or the client's own audience; the rest stay confirmed
-  // but compact (full detail one click away in the overlay). A grounding deep-link
-  // shows everything in full — the reader came for exactly those themes.
-  const share = (t: ThemeRow) => { const d = groupSize(t.bucket); return d > 0 ? t.evidence_count / d : 0 }
-  const byShare = (a: ThemeRow, b: ThemeRow) => share(b) - share(a) || b.evidence_count - a.evidence_count
-  const isFeatured = (t: ThemeRow) => {
-    const prevalence = prevalenceTier(t.evidence_count, groupSize(t.bucket))
-    return t.bucket === 'client' || prevalence === 'dominant' || prevalence === 'widespread'
-  }
-  const featured = (deepLinked ? confirmed : confirmed.filter(isFeatured)).sort(byShare)
-  const tail = deepLinked ? [] : confirmed.filter((t) => !isFeatured(t)).sort(byShare)
-  const detailTheme = detailId ? themes.find((t) => t.id === detailId) ?? null : null
-  // "Early signal" is a calibrated term — a single-source theme must also clear
-  // the strength bar to carry it (same knob as the insight gate). The rest are
-  // kept honest but demoted to a collapsed "also heard once" archive.
-  const singles = shown.filter((t) => t.single_source)
-  const early = singles.filter((t) => Number(t.strength_score ?? 0) >= CURATION_GATE.earlySignalMinScore)
-  const heardOnce = singles.filter((t) => Number(t.strength_score ?? 0) < CURATION_GATE.earlySignalMinScore)
+  const tiers = voiceTiers(shown)
+  const tiersAll = voiceTiers(themes)
+  const tiersEntity = voiceTiers(themes.filter(inEntity))
 
-  // ---- The shape of this update's corpus (unfiltered — describes the run) ----
-  // Most of what a market says is said once; the chart makes that honest and
-  // shows how much repetition sits behind the confirmed tier.
-  const confirmedAllCount = themes.filter((t) => !t.single_source).length
-  const earlyAllCount = themes.filter((t) => t.single_source && Number(t.strength_score ?? 0) >= CURATION_GATE.earlySignalMinScore).length
-  const onceAllCount = themes.length - confirmedAllCount - earlyAllCount
-  const shapeSorted = [...themes].sort((a, b) => b.evidence_count - a.evidence_count || Number(b.strength_score ?? 0) - Number(a.strength_score ?? 0))
-  const shapeMax = shapeSorted[0]?.evidence_count ?? 1
+  // Entities this update, for the page bar: you first, then competitors by
+  // confirmed themes, then the wider category. The number is confirmed themes.
+  const confirmedByBucket = new Map<string, number>()
+  for (const t of tiersAll.confirmed) confirmedByBucket.set(t.bucket, (confirmedByBucket.get(t.bucket) ?? 0) + 1)
+  const bucketRank = (b: string) => (b === 'client' ? 0 : b === 'industry-other' ? 2 : 1)
+  const entities = [...groupConversations.keys()]
+    .map((bucket) => ({ bucket, confirmed: confirmedByBucket.get(bucket) ?? 0 }))
+    .sort((a, z) => bucketRank(a.bucket) - bucketRank(z.bucket) || z.confirmed - a.confirmed)
+  const leadCompetitor = entities.find((e) => e.bucket.startsWith('competitor:'))?.bucket ?? null
 
   // Category tabs count CONFIRMED themes in the SELECTED ENTITY, so a tab's
-  // number matches what the explorer shows and switching entity re-scopes them.
-  // (Single-source themes live in the Early-signals / Also-heard-once sections.)
+  // number matches what the map shows and switching entity re-scopes them.
   const categoryCounts = new Map<string, number>()
-  for (const t of themes) if (!t.single_source && inEntity(t)) categoryCounts.set(t.category, (categoryCounts.get(t.category) ?? 0) + 1)
-  const tabs = [...categoryCounts.entries()].sort((a, b) => b[1] - a[1])
-  const entityConfirmedCount = [...categoryCounts.values()].reduce((a, n) => a + n, 0)
+  for (const t of tiersEntity.confirmed) categoryCounts.set(t.category, (categoryCounts.get(t.category) ?? 0) + 1)
+  const tabs = categoryTabs(categoryCounts)
 
-  // ---- Verbatim quotes for the confirmed themes on display ----
-  // Sample a capped slice of member insights per theme (URL-length safety),
-  // then group the ranked evidence back per theme.
-  const quoteIds = [...new Set([
-    ...confirmed.flatMap((t) => t.supporting_insight_ids.slice(0, QUOTE_IDS_PER_THEME)),
-    ...(detailTheme?.supporting_insight_ids.slice(0, QUOTE_IDS_PER_THEME) ?? []),
-  ])]
-  // Counts-not-quotes (2026-08-22): demographic_signal evidence cites but never
-  // quotes — its rows carry redacted = true and quote ''. They are counted here
-  // (so the card can say how many comments were withheld) and never rendered.
-  const quoteByInsight = new Map<string, string[]>()
-  const withheldByInsight = new Map<string, number>()
-  const CHUNK = 100
-  for (let i = 0; i < quoteIds.length; i += CHUNK) {
-    const { data } = await supabase
-      .from('insight_evidence').select('audience_insight_id, quote, relevance_rank, redacted')
-      .in('audience_insight_id', quoteIds.slice(i, i + CHUNK))
-      .order('relevance_rank', { ascending: true })
-    for (const ev of (data ?? []) as { audience_insight_id: string; quote: string; redacted: boolean | null }[]) {
-      if (ev.redacted || !ev.quote) {
-        withheldByInsight.set(ev.audience_insight_id, (withheldByInsight.get(ev.audience_insight_id) ?? 0) + 1)
-        continue
+  // ---- trajectories across updates (sparks + movers) ----
+  const { trajectories, keyOf } = themeTrajectories(historyRows.filter((r) => !runningIds.includes(r.run_id)), runDates)
+  const trajectoryByKey = new Map(trajectories.map((t) => [t.key, t]))
+  const historyOf = (t: ThemeRow): Trajectory | undefined => trajectoryByKey.get(keyOf(t))
+  const moversAll = themeMovers(trajectories).filter((t) => entityFilter === 'all' || t.bucket === entityFilter)
+  const movers = moversAll.filter((t) => t.movement !== 'steady')
+  const steadyCount = moversAll.length - movers.length
+
+  // ---- the map: the widest-heard confirmed themes under the current filters.
+  // A deep link shows exactly the themes behind that insight, singles included.
+  const mapPool = (deepLinked ? shown : tiers.confirmed)
+    .slice()
+    .sort((a, b) => b.evidence_count - a.evidence_count || Number(b.rank_score ?? 0) - Number(a.rank_score ?? 0))
+  const blocks: ThemeBlock[] = mapPool.slice(0, MAP_BLOCKS).map((t) => ({
+    id: t.id,
+    label: t.label,
+    count: t.evidence_count,
+    bucket: bucketKind(t.bucket),
+    category: categoryLabel(t.category),
+    categoryClass: categoryTint(t.category),
+    isNew: showNew && t.first_seen,
+    series: historyOf(t)?.evidence,
+    href: hrefWith({ detail: t.id }),
+  }))
+
+  // ---- the ribbon: five verbatim voices from the top themes, scoped to the
+  // current audience; redacted (demographic) evidence never reaches it.
+  const ribbonThemes = mapPool.slice(0, RIBBON_THEMES)
+  const citations = await fetchQuoteCitationsByAudience(
+    supabase, ribbonThemes.flatMap((t) => t.supporting_insight_ids.slice(0, QUOTE_IDS_PER_THEME)),
+  )
+  type Cand = { theme: ThemeRow; quote: string; citation: QuoteCitation; insightId: string }
+  const seenQuote = new Set<string>()
+  const candidatesByTheme: Cand[][] = ribbonThemes.map((theme) => {
+    const out: Cand[] = []
+    const pool: Cand[] = []
+    for (const insightId of theme.supporting_insight_ids.slice(0, QUOTE_IDS_PER_THEME)) {
+      for (const c of citations.get(insightId) ?? []) {
+        const q = cleanQuote(c.quote)
+        if (!readsAsHeroQuote(q)) continue
+        pool.push({ theme, quote: q, citation: c, insightId })
       }
-      const arr = quoteByInsight.get(ev.audience_insight_id)
-      if (arr) arr.push(ev.quote)
-      else quoteByInsight.set(ev.audience_insight_id, [ev.quote])
     }
-  }
-  const quotesFor = (t: ThemeRow): string[] => {
-    const out: string[] = []
-    for (const id of t.supporting_insight_ids.slice(0, QUOTE_IDS_PER_THEME)) {
-      for (const q of quoteByInsight.get(id) ?? []) {
-        if (out.length >= QUOTES_SHOWN) return out
-        if (!out.includes(q)) out.push(q)
-      }
+    pool.sort((a, b) => a.citation.rank - b.citation.rank)
+    for (const c of pool) {
+      const key = c.quote.toLowerCase()
+      if (seenQuote.has(key)) continue
+      seenQuote.add(key)
+      out.push(c)
+      if (out.length >= QUOTES_PER_THEME) break
     }
     return out
+  })
+  const ribbon = pickVoiceCards(candidatesByTheme, seed, RIBBON_CARDS)
+  // Platform + likes for the five shown: the comment behind each quote.
+  const commentIds = ribbon.cards.map((c) => c.quote.citation.commentId).filter((id): id is string => !!id)
+  const commentMeta = new Map<string, { likes: number | null; platform: string | null }>()
+  if (commentIds.length > 0) {
+    const { data } = await supabase.from('comments').select('id, likes, platform').in('id', commentIds)
+    for (const c of (data ?? []) as { id: string; likes: number | null; platform: string | null }[]) commentMeta.set(c.id, c)
   }
-  /** Comments cited for this theme whose words are withheld (audience-profile evidence). */
-  const withheldFor = (t: ThemeRow): number =>
-    t.supporting_insight_ids.slice(0, QUOTE_IDS_PER_THEME).reduce((n, id) => n + (withheldByInsight.get(id) ?? 0), 0)
+  const cards = ribbon.cards.map(({ quote: c }) => {
+    const meta = c.citation.commentId ? commentMeta.get(c.citation.commentId) : undefined
+    const platform = meta?.platform ?? insightMeta.get(c.insightId)?.platform ?? null
+    const who = [
+      platform ? platformLabel(platform) : null,
+      meta?.likes && meta.likes > 0 ? `${fmtCompact(meta.likes)} likes` : null,
+      c.theme.bucket === 'client' ? 'your audience' : c.theme.bucket.startsWith('competitor:') ? `${competitorName(c.theme.bucket)}’s audience` : null,
+    ].filter(Boolean).join(' · ')
+    return { theme: c.theme, quote: c.quote, who }
+  })
 
-  // Theme history for the overlay — the same THEME across earlier runs, keyed
-  // on its registry id (stable identity); falls back to the label for rows
-  // written before the registry existed. Self-gates: with one themed run there
-  // is no history and nothing renders.
-  let detailHistory: number[] = []
+  // ---- audience mood: the feeling Pass A read on each insight, counted —
+  // scoped to the selected audience through its themes' member insights.
+  const entityInsightIds = entityFilter === 'all' ? null : new Set(themes.filter(inEntity).flatMap((t) => t.supporting_insight_ids))
+  const moods = topEmotions(emotionRows.filter((r) => !entityInsightIds || entityInsightIds.has(r.id)).map((r) => r.emotion), 3)
+  const moodMax = moods[0]?.pct ?? 0
+  const MOOD_COLOR = { positive: 'var(--positive)', negative: 'var(--accent-clay)', neutral: 'var(--input)' } as const
+
+  // ---- theme drawer (?detail=<themeId>) ----
+  const detailTheme = detail ? themes.find((t) => t.id === detail) ?? null : null
+  const detailQuotes: string[] = []
+  let detailWithheld = 0
   if (detailTheme) {
-    const histBy = (col: 'registry_id' | 'label', val: string) =>
-      supabase.from('themes').select('evidence_count, created_at')
-        .eq('client_id', clientId).eq(col, val)
-        .order('created_at', { ascending: true })
-    let hist = detailTheme.registry_id
-      ? ((await histBy('registry_id', detailTheme.registry_id)).data ?? [])
-      : []
-    // Pre-registry rows carry no id, so a theme whose identity is new this week
-    // still has label-keyed history worth drawing.
-    if (hist.length < 2) hist = (await histBy('label', detailTheme.label)).data ?? []
-    detailHistory = (hist as { evidence_count: number }[]).map((h) => h.evidence_count)
+    // Counts-not-quotes: demographic evidence cites but never quotes — its rows
+    // carry redacted = true and an empty quote; counted here, never rendered.
+    const { data } = await supabase
+      .from('insight_evidence').select('audience_insight_id, quote, relevance_rank, redacted')
+      .in('audience_insight_id', detailTheme.supporting_insight_ids.slice(0, QUOTE_IDS_PER_THEME))
+      .order('relevance_rank', { ascending: true })
+    const seen = new Set<string>()
+    for (const ev of (data ?? []) as { quote: string; redacted: boolean | null }[]) {
+      if (ev.redacted || !ev.quote) { detailWithheld++; continue }
+      const q = cleanQuote(ev.quote)
+      if (seen.has(q.toLowerCase()) || detailQuotes.length >= DETAIL_QUOTES) continue
+      seen.add(q.toLowerCase())
+      detailQuotes.push(q)
+    }
   }
+  const detailHistory = detailTheme ? historyOf(detailTheme) : undefined
 
-  // Hrefs that preserve the active filters; detail=… opens a theme's overlay.
-  const voiceHref = (detail: string | null) => {
-    const params = new URLSearchParams()
-    if (sp.entity) params.set('entity', sp.entity)
-    if (sp.type) params.set('type', sp.type)
-    if (sp.themes) params.set('themes', sp.themes)
-    if (sp.stage) params.set('stage', sp.stage)
-    if (sp.min) params.set('min', sp.min)
-    if (detail) params.set('detail', detail)
-    const qs = params.toString()
-    return qs ? `/dashboard/voice?${qs}` : '/dashboard/voice'
-  }
-  // Switching entity re-scopes the page: keep journey/strength, drop the category
-  // tab + any grounding deep-link so you land on a clean view of that audience.
-  const entityHref = (bucket: string | null) => {
-    const params = new URLSearchParams()
-    if (bucket) params.set('entity', bucket)
-    if (sp.stage) params.set('stage', sp.stage)
-    if (sp.min) params.set('min', sp.min)
-    const qs = params.toString()
-    return qs ? `/dashboard/voice?${qs}` : '/dashboard/voice'
-  }
+  const earlyInView = tiers.early.length
+  const legendItems: GlossaryKey[] = showNew ? [...LEGEND_ITEMS, 'new'] : LEGEND_ITEMS
+  const mapEmptyLine = themes.length === 0
+    ? 'Your customer voices are being organised into themes — they land with your next update.'
+    : deepLinked && shown.length === 0
+      ? 'None of this update’s themes sit behind that insight any more — clear the filter to see the whole conversation.'
+      : shown.length === 0 ? 'No themes match these filters.' : 'No confirmed theme matches these filters — the early signals and single mentions are in the list.'
 
   return (
-    <div className="space-y-6">
-      <PageHeader showLegend={showLegend} legendItems={showNew ? [...LEGEND_ITEMS, 'new'] : LEGEND_ITEMS} />
+    <PageFrame>
+      <PageBar title="Voice of Customer" context={`What are they saying? · ${weekdayDate(runDate)}`}>
+        {themes.length > 0 && entities.length > 1 && (
+          <>
+            <Link href={hrefWith({ entity: null, type: null, themes: null, detail: null })} scroll={false}>
+              <BarPill active={entityFilter === 'all'}>All audiences</BarPill>
+            </Link>
+            {entities.map((e) => (
+              <Link key={e.bucket} href={hrefWith({ entity: e.bucket, type: null, themes: null, detail: null })} scroll={false}>
+                <BarPill active={entityFilter === e.bucket}>
+                  {e.bucket === 'client' ? 'Yours' : e.bucket === 'industry-other' ? 'Category' : `${competitorName(e.bucket)}’s`}
+                  <span className="font-mono text-[11px] font-medium tabular-nums text-muted-foreground">{e.confirmed}</span>
+                </BarPill>
+              </Link>
+            ))}
+          </>
+        )}
+        <HowToRead items={legendItems} open={showLegend} basePath="/dashboard/voice" />
+      </PageBar>
 
-      {/* The shape of the conversation — every theme this update, by evidence */}
-      {!deepLinked && themes.length > 0 && (
-        <Card className="py-4">
-          <CardContent className="space-y-2">
-            <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-              <BarChart3 className="size-4 text-primary" aria-hidden /> The shape of this update
-            </div>
-            <p className="text-sm">
-              <span className="font-bold tabular-nums">{themes.length}</span> themes heard this update
-              <span className="text-muted-foreground"> · </span>
-              <span className="font-semibold text-primary tabular-nums">{confirmedAllCount}</span> confirmed
-              <span className="text-muted-foreground"> · </span>
-              <span className="font-semibold text-warning tabular-nums">{earlyAllCount}</span> early signals
-              <span className="text-muted-foreground"> · </span>
-              <span className="font-semibold text-muted-foreground tabular-nums">{onceAllCount}</span> heard once
-            </p>
-            <div className="flex h-14 items-end gap-px">
-              {shapeSorted.map((t) => {
-                const tone = !t.single_source
-                  ? 'bg-primary/70'
-                  : Number(t.strength_score ?? 0) >= CURATION_GATE.earlySignalMinScore ? 'bg-warning/60' : 'bg-muted-foreground/25'
-                return (
-                  <div
-                    key={t.id}
-                    title={`${t.label} · ${t.evidence_count} conversation${t.evidence_count === 1 ? '' : 's'}`}
-                    className={`min-w-0 flex-1 rounded-t-sm ${tone}`}
-                    style={{ height: `${Math.max(7, Math.round((t.evidence_count / shapeMax) * 100))}%` }}
-                  />
-                )
-              })}
-            </div>
-          </CardContent>
-        </Card>
-      )}
-
-      {themes.length === 0 && (
-        <EmptyState>Your customer voices are being organised into themes — they land with your next update.</EmptyState>
-      )}
-
-      {/* Entity selector — the primary axis: whose audience are we reading. A
-          horizontal bar above the block; the category / journey / strength filters
-          live inside the block and narrow within the chosen audience. */}
-      {themes.length > 0 && entities.length > 1 && (
-        <div className="flex flex-wrap items-center gap-2">
-          <EntityChip label="All audiences" href={entityHref(null)} active={entityFilter === 'all'} />
-          {entities.map((e) => (
-            <EntityChip
-              key={e.bucket}
-              label={e.meta.label}
-              count={e.size}
-              href={entityHref(e.bucket)}
-              active={entityFilter === e.bucket}
-              Icon={e.meta.Icon}
-              fg={e.meta.fg}
-              bg={e.meta.bg}
-            />
-          ))}
-        </div>
-      )}
-
-      {/* The theme explorer — an interactive subsection: the filter controls live
-          inside the block with the themes they narrow (Meltwater-style). */}
-      {themes.length > 0 && (
-        <section id="grounding" className="space-y-4 rounded-xl border bg-muted/40 p-4 sm:p-5">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-              <MessagesSquare className="size-4 text-primary" aria-hidden />
-              What your market is saying <span className="text-foreground">· {confirmed.length}</span>
-            </div>
-            <VoiceFilters stage={stageFilter} min={String(minScore)} deepLinked={deepLinked} showStage={stagesPresent.size > 0} />
-          </div>
-          {tabs.length > 0 && (
-            <div className="flex flex-wrap gap-2">
-              <TabLink label="All" count={entityConfirmedCount} active={typeFilter === 'all'} category={null} sp={sp} />
-              {tabs.map(([category, n]) => (
-                <TabLink key={category} label={cap(prettyType(category))} count={n} active={typeFilter === category} category={category} sp={sp} />
-              ))}
+      <PageGrid>
+        {/* ── hero: the theme map ─────────────────────────────────────── */}
+        <Tile col={8} row={4} eyebrow="The conversation, by theme"
+          meta={themes.length > 0 ? `${tiersAll.confirmed.length} confirmed · ${tiersAll.early.length} early · ${tiersAll.heardOnce.length} heard once · block size = conversations this update` : undefined}
+          bodyClassName="gap-1.5"
+          footer={themes.length > 0 ? (
+            <span className="flex items-center gap-2">
+              <Link href={hrefWith({ detail: 'list' })} scroll={false}>All {fmtInt(shown.length)} themes as a list →</Link>
+              {blocks.length > 0 && <span className="font-normal text-muted-foreground">top {blocks.length} shown · click a block to hear its voices</span>}
+            </span>
+          ) : undefined}
+          footerNote={themes.length > 0 ? <BucketLegend competitor={leadCompetitor ? competitorName(leadCompetitor) : null} /> : undefined}
+        >
+          {themes.length > 0 && (
+            <div className="-mx-3.5 flex items-end gap-2 border-b border-border/90 px-3.5">
+              <div className="flex min-w-0 flex-1 gap-0.5 overflow-x-auto [scrollbar-width:none]">
+                <TabLink label="All" count={tiersEntity.confirmed.length} active={typeFilter === 'all'} href={hrefWith({ type: null, detail: null })} />
+                {tabs.map((t) => (
+                  <TabLink key={t.category} label={t.label} count={t.count} active={typeFilter === t.category} href={hrefWith({ type: t.category, detail: null })} />
+                ))}
+              </div>
+              <div className="pb-1">
+                <VoiceFilters stage={stageFilter} min={String(minScore)} deepLinked={deepLinked} showStage={stagesPresent.size > 0} />
+              </div>
             </div>
           )}
-          {confirmed.length === 0 && (
-            <p className="py-2 text-sm text-muted-foreground">
-              {shown.length === 0 ? 'No themes match these filters.' : 'No confirmed themes match these filters — see early signals below.'}
-            </p>
+          {blocks.length > 0 ? (
+            <ThemeMap blocks={blocks} className="mt-0.5 min-h-[260px]" />
+          ) : (
+            <TileEmpty>{mapEmptyLine}</TileEmpty>
           )}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {featured.map((t) => {
-              const quotes = quotesFor(t)
-              const withheld = withheldFor(t)
-              const denom = groupSize(t.bucket)
-              // Calibrated prevalence: word by rule, count next to it (never the model's wording).
-              const prevalence = prevalenceTier(t.evidence_count, denom)
-              const bm = bucketMeta(t.bucket)
-              return (
-                <Card key={t.id}>
-                  <CardContent className="space-y-3 py-6 sm:px-6">
-                    {/* Bucket identity leads, colour-coded, so a client theme never
-                        reads the same as a category or competitor one */}
-                    <div className="flex items-start justify-between gap-2">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <span className={`inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-xs font-semibold ${bm.bg} ${bm.fg}`}>
-                          <bm.Icon className="size-3.5" aria-hidden />
-                          {bm.label}
-                        </span>
-                        <span title={glossaryRule(prevalence)} className={`${chipBase} ${PREVALENCE_BADGE[prevalence]}`}>{PREVALENCE_LABEL[prevalence]}</span>
-                        <span className={`${chipBase} capitalize ${categoryTint(t.category)}`}>{prettyType(t.category)}</span>
-                        {t.dominant_emotion && (
-                          <span className={`${chipBase} capitalize ${categoryTint(t.dominant_emotion)}`}>{t.dominant_emotion}</span>
-                        )}
-                      </div>
-                      {showNew && t.first_seen && (
-                        <span title={glossaryRule('new')} className={`${chipBase} shrink-0 font-semibold bg-warning/15 text-warning`}>New</span>
-                      )}
-                    </div>
-                    {/* The theme is the headline; its synthesized read beneath */}
-                    <h3 className="text-base font-semibold leading-snug">{t.label}</h3>
-                    {t.description && <p className="text-sm leading-relaxed text-muted-foreground">{t.description}</p>}
-                    {/* Number-anchor coloured by bucket — client/category/competitor read apart */}
-                    <div className="space-y-1.5 border-t pt-3">
-                      <div className="flex items-baseline gap-1.5">
-                        <span className={`text-2xl font-bold tabular-nums ${bm.fg}`}>{t.evidence_count}</span>
-                        <span className="text-xs text-muted-foreground">of {denom} {groupName(t.bucket)} conversations</span>
-                      </div>
-                      <EvidenceBar count={t.evidence_count} denom={denom} tone={bm.bar} />
-                    </div>
-                    {quotes.length > 0 && (
-                      <details className="group">
-                        <summary className="flex cursor-pointer list-none items-center gap-1.5 text-xs font-medium text-primary [&::-webkit-details-marker]:hidden">
-                          <span className="text-[9px] transition-transform group-open:rotate-90" aria-hidden>▶</span>
-                          Hear these voices
-                        </summary>
-                        <div className="mt-2 space-y-1.5">
-                          {quotes.map((q, n) => (
-                            <p key={n} className="text-xs text-muted-foreground italic">&ldquo;{q}&rdquo;</p>
-                          ))}
-                        </div>
-                      </details>
-                    )}
-                    {withheld > 0 && (
-                      <p className="text-[11px] text-muted-foreground">
-                        {withheld} {withheld === 1 ? 'comment describes' : 'comments describe'} who these commenters are. Counted, not quoted.
-                      </p>
-                    )}
-                  </CardContent>
-                </Card>
-              )
-            })}
-          </div>
+        </Tile>
 
-          {/* The confirmed tail — same standing, compact form; the overlay has the full picture */}
-          {tail.length > 0 && (
-            <div className="space-y-2 pt-1">
-              <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                More confirmed themes <span className="opacity-60">· {tail.length}</span>
-              </h3>
-              <Card className="py-0">
-                <CardContent className="divide-y p-0">
-                  {tail.map((t) => {
-                    const denom = groupSize(t.bucket)
-                    const prevalence = prevalenceTier(t.evidence_count, denom)
-                    const bm = bucketMeta(t.bucket)
-                    return (
-                      <Link
-                        key={t.id}
-                        href={voiceHref(t.id)}
-                        scroll={false}
-                        className="flex items-center justify-between gap-3 px-4 py-2.5 transition-colors hover:bg-muted/30"
-                      >
-                        <span className="flex min-w-0 items-center gap-2">
-                          <bm.Icon className={`size-3.5 shrink-0 ${bm.fg}`} aria-hidden />
-                          <span className="min-w-0 truncate text-sm font-medium">{t.label}</span>
-                        </span>
-                        <span className="flex shrink-0 items-center gap-2">
-                          <span className={`hidden sm:inline ${chipBase} capitalize ${categoryTint(t.category)}`}>{prettyType(t.category)}</span>
-                          <span title={glossaryRule(prevalence)} className={`${chipBase} ${PREVALENCE_BADGE[prevalence]}`}>{PREVALENCE_LABEL[prevalence]}</span>
-                          <span className={`text-[11px] font-medium tabular-nums ${bm.fg}`}>{t.evidence_count} of {denom}</span>
-                          <span className="text-muted-foreground" aria-hidden>→</span>
-                        </span>
-                      </Link>
-                    )
-                  })}
-                </CardContent>
-              </Card>
+        {/* ── gaining and fading ─────────────────────────────────────── */}
+        <Tile col={4} row={2} eyebrow="Gaining and fading" meta={updatesCount > 1 ? 'conversations · vs last update' : undefined}
+          footer={movers.length > 0 ? <Link href={hrefWith({ detail: 'movers' })} scroll={false}>All movers →</Link> : undefined}
+          footerNote={movers.length > 0 ? 'themes heard in ≥2 updates' : undefined}
+        >
+          {updatesCount < 2 ? (
+            <TileEmpty>Movement lands with your second update.</TileEmpty>
+          ) : movers.length === 0 ? (
+            <TileEmpty>No theme has moved clearly yet — {steadyCount > 0 ? `${steadyCount} heard in more than one update, all steady so far` : 'the themes heard so far are all new this update'}.</TileEmpty>
+          ) : (
+            <div className="flex flex-col gap-[7px] pt-0.5">
+              {movers.slice(0, MOVER_ROWS).map((t) => <MoverRow key={t.key} t={t} competitorName={competitorName} />)}
             </div>
           )}
-        </section>
-      )}
+        </Tile>
 
-      {/* How your customers talk — the signature panel */}
-      {samples.length > 0 && (
-        <Card className="ring-1 ring-primary/20">
-          <CardHeader className="pb-3">
-            <CardTitle className="flex items-center gap-2 text-base">
-              <Quote className="size-4 text-primary" aria-hidden /> How your customers talk
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="flex flex-wrap items-center gap-2">
-              {samples.map((s, i) => (
-                <span
-                  key={i}
-                  title={s.platform ? cap(s.platform) : undefined}
-                  className="rounded-full bg-secondary px-3 py-1 text-xs italic text-secondary-foreground"
-                >
-                  &ldquo;{s.phrase}&rdquo;
+        {/* ── how your customers talk ────────────────────────────────── */}
+        <Tile col={4} row={1} eyebrow="How your customers talk" meta={sampleTotal > 0 ? `${fmtInt(sampleTotal)} phrases` : undefined}
+          footer={sampleTotal > 0 ? <Link href={hrefWith({ detail: 'language' })} scroll={false}>Borrow the language →</Link> : undefined}
+        >
+          {samples.length > 0 ? (
+            <div className="flex flex-wrap content-start gap-1 overflow-hidden">
+              {samples.slice(0, PHRASES_SHOWN).map((s, i) => (
+                <span key={i} title={s.platform ? platformLabel(s.platform) : undefined} className={`${chip} max-w-full truncate bg-muted italic text-[#3F4B44]`}>
+                  {s.phrase}
                 </span>
               ))}
-              {sampleTotal > samples.length && (
-                <span className="text-xs text-muted-foreground">+{sampleTotal - samples.length} more collected</span>
-              )}
             </div>
-          </CardContent>
-        </Card>
-      )}
+          ) : <TileEmpty>The phrases your customers use land with your next update.</TileEmpty>}
+        </Tile>
 
-      {/* Early signals — single-source themes, honestly framed */}
-      {early.length > 0 && (
-        <section className="space-y-3">
-          <h2 className="flex items-center gap-2 text-sm font-semibold uppercase tracking-wide text-muted-foreground">
-            <Sparkles className="size-4 text-warning" aria-hidden />
-            Early signals <span className="opacity-60">· {early.length}</span>
-          </h2>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-            {early.slice(0, EARLY_SHOWN).map((t) => (
-              <Card key={t.id} className="py-4">
-                <CardContent className="space-y-1.5">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <span className={`${chipBase} capitalize ${categoryTint(t.category)}`}>{prettyType(t.category)}</span>
-                    <span title={glossaryRule('early_signal')} className={`${chipBase} bg-warning/15 text-warning`}>Early signal</span>
-                  </div>
-                  <p className="text-sm font-medium">{t.label}</p>
-                  {t.description && <p className="text-xs text-muted-foreground line-clamp-2">{t.description}</p>}
-                </CardContent>
-              </Card>
-            ))}
-          </div>
-          {early.length > EARLY_SHOWN && (
-            <p className="text-xs text-muted-foreground">+{early.length - EARLY_SHOWN} more early signals in this update</p>
+        {/* ── audience mood ──────────────────────────────────────────── */}
+        <Tile col={4} row={1} eyebrow="Audience mood" meta={moods.length > 0 ? `top feelings · of ${fmtInt(moods[0].total)} read` : undefined}>
+          {moods.length > 0 ? (
+            <div className="flex flex-col gap-[4px]">
+              {moods.map((m) => (
+                <RankedBar key={m.emotion} label={cap(m.emotion)} pct={moodMax > 0 ? (m.pct / moodMax) * 100 : 0} color={MOOD_COLOR[emotionTone(m.emotion)]} count={fmtPct(m.pct, 0)} barWidth={120} />
+              ))}
+            </div>
+          ) : <TileEmpty>Mood lands with your next update.</TileEmpty>}
+        </Tile>
+
+        {/* ── hear these voices ──────────────────────────────────────── */}
+        <Tile col={12} row={2} eyebrow="Hear these voices"
+          meta={cards.length > 0 ? `${cards.length} of ${fmtInt(ribbon.total)} · rotates on every visit · verbatim, unedited — a clay rule means a real person said this` : undefined}
+          footer={cards.length > 0 && ribbon.total > cards.length ? <Link href={hrefWith({ seed: String(seed + 1), detail: null })} scroll={false}>Next five →</Link> : undefined}
+          footerNote={themes.length > 0 ? (
+            <span>
+              <Link href={hrefWith({ detail: 'language' })} scroll={false} className="hover:text-primary">language samples</Link>
+              {' and '}
+              <Link href={hrefWith({ detail: 'list' })} scroll={false} className="hover:text-primary">early signals ({earlyInView})</Link>
+              {' live in the drawer'}
+            </span>
+          ) : undefined}
+        >
+          {cards.length > 0 ? (
+            <div className="-mx-3 flex min-h-0 flex-1 flex-col items-stretch divide-y divide-border/80 sm:flex-row sm:divide-x sm:divide-y-0">
+              {cards.map((c, i) => (
+                <Link key={i} href={hrefWith({ detail: c.theme.id })} scroll={false} className="flex min-w-0 flex-1 flex-col gap-1.5 px-3 hover:bg-muted/30">
+                  <span className={`${chip} max-w-full self-start truncate ${categoryTint(c.theme.category)}`}>{c.theme.label}</span>
+                  <blockquote className="min-h-0 border-l-2 border-clay pl-2 text-[12.5px] italic leading-[1.4] text-foreground/90">
+                    <span className="line-clamp-4">“{c.quote}”</span>
+                    {c.who && <span className="mt-0.5 block text-[10.5px] not-italic text-muted-foreground">{c.who}</span>}
+                  </blockquote>
+                </Link>
+              ))}
+            </div>
+          ) : (
+            <TileEmpty>{themes.length === 0 ? 'Verbatim voices land with your first analysed update.' : 'No quotable voices under these filters yet — the list has every theme.'}</TileEmpty>
           )}
-        </section>
-      )}
+        </Tile>
+      </PageGrid>
 
-      {/* Also heard once — single mentions below the signal bar, kept for the record */}
-      {heardOnce.length > 0 && (
-        <details className="group">
-          <summary className="flex cursor-pointer list-none items-center gap-2 text-sm font-semibold uppercase tracking-wide text-muted-foreground [&::-webkit-details-marker]:hidden">
-            <span className="text-[10px] transition-transform group-open:rotate-90" aria-hidden>▶</span>
-            Also heard once <span className="opacity-60">· {heardOnce.length}</span>
-            <span className="normal-case font-normal tracking-normal text-xs opacity-70">single mentions that didn&rsquo;t clear the signal bar</span>
-          </summary>
-          <div className="mt-3 flex flex-wrap gap-1.5">
-            {heardOnce.map((t) => (
-              <span key={t.id} title={t.description ?? undefined} className="px-2 py-0.5 rounded-full text-xs bg-muted text-muted-foreground">
-                {t.label}
-              </span>
-            ))}
-          </div>
-        </details>
-      )}
-
-      {/* Theme detail overlay — URL-driven (?detail=theme-id), everything the
-          full card shows, for themes that render compact in the tail list. */}
-      {detailTheme && (
-        <DetailOverlay closeHref={voiceHref(null)}>
-          {(() => {
-            const tier = gateTier(detailTheme.strength_score, detailTheme.evidence_count)
-            const denom = groupSize(detailTheme.bucket)
-            const prevalence = prevalenceTier(detailTheme.evidence_count, denom)
-            const quotes = quotesFor(detailTheme)
-            const withheld = withheldFor(detailTheme)
-            return (
-              <div className="space-y-3 pr-6">
-                <ThemeChips t={detailTheme} tier={tier} prevalence={prevalence} showNew={showNew} bucketLabel={bucketChip(detailTheme.bucket)} />
-                <h3 className="text-lg font-semibold">{detailTheme.label}</h3>
-                {detailTheme.description && <p className="text-sm text-muted-foreground">{detailTheme.description}</p>}
-                <div className="border-t pt-3 space-y-1">
-                  <EvidenceBar count={detailTheme.evidence_count} denom={denom} />
-                  <p className="text-[10px] text-muted-foreground">
-                    heard in {detailTheme.evidence_count} of {denom} {groupName(detailTheme.bucket)} conversations
+      {/* ── drawers: one click deeper ────────────────────────────────── */}
+      <DetailDrawer open={!!detailTheme} closeHref={closeHref} title={detailTheme?.label ?? 'Theme'}
+        description={detailTheme ? `${bucketName(detailTheme.bucket)} · ${categoryLabel(detailTheme.category)}` : undefined}>
+        {detailTheme && (() => {
+          const denom = groupSize(detailTheme.bucket)
+          const prevalence = prevalenceTier(detailTheme.evidence_count, denom)
+          const kind = bucketKind(detailTheme.bucket)
+          const pct = denom > 0 ? Math.min(100, Math.round((detailTheme.evidence_count / denom) * 100)) : 0
+          return (
+            <div className="space-y-4">
+              <div className="flex flex-wrap items-center gap-1.5">
+                <span title={glossaryRule(prevalence)} className={`${chip} ${PREVALENCE_BADGE[prevalence]}`}>{PREVALENCE_LABEL[prevalence]}</span>
+                <span className={`${chip} ${categoryTint(detailTheme.category)}`}>{categoryLabel(detailTheme.category)}</span>
+                {detailTheme.dominant_emotion && <span className={`${chip} capitalize bg-muted text-muted-foreground`}>{detailTheme.dominant_emotion}</span>}
+                {showNew && detailTheme.first_seen && <span title={glossaryRule('new')} className={`${chip} bg-sidebar-accent text-primary`}>New</span>}
+              </div>
+              {detailTheme.description && <p className="text-[13px] leading-[1.5] text-foreground/90">{detailTheme.description}</p>}
+              <div className="space-y-1.5 border-t border-border/70 pt-3">
+                <div className="flex items-baseline gap-1.5">
+                  <span className="font-mono text-[22px] font-semibold tabular-nums leading-none" style={{ color: EDGE[kind] }}>{fmtInt(detailTheme.evidence_count)}</span>
+                  <span className="text-[11.5px] text-muted-foreground">of {fmtInt(denom)} {groupName(detailTheme.bucket)} conversations</span>
+                </div>
+                <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted" aria-hidden>
+                  <div className="h-full rounded-full" style={{ width: `${Math.max(3, pct)}%`, background: EDGE[kind] }} />
+                </div>
+              </div>
+              {detailHistory && detailHistory.evidence.length >= 2 && (
+                <div className="flex items-center gap-3 border-t border-border/70 pt-3">
+                  <Sparkline values={detailHistory.evidence} color={EDGE[kind]} width={120} height={30} />
+                  <p className="text-[11px] text-muted-foreground">
+                    conversations per update, across the {detailHistory.evidence.length} updates this theme has appeared in ({shortDate(detailHistory.dates[0])} → {shortDate(detailHistory.dates[detailHistory.dates.length - 1])})
                   </p>
                 </div>
-                {detailHistory.length >= 2 && (
-                  <div className="flex items-center gap-3 border-t pt-3">
-                    <span className="text-primary"><Sparkline values={detailHistory} /></span>
-                    <p className="text-[10px] text-muted-foreground">
-                      conversations per update, across the {detailHistory.length} updates this theme has appeared in
-                    </p>
-                  </div>
-                )}
-                {quotes.length > 0 && (
-                  <div className="space-y-1.5">
-                    <p className="text-xs font-medium">The voices behind it</p>
-                    {quotes.map((q, n) => (
-                      <p key={n} className="text-xs text-muted-foreground italic">&ldquo;{q}&rdquo;</p>
-                    ))}
-                    <p className="text-[10px] text-muted-foreground">a sample of the conversations behind this theme</p>
-                  </div>
-                )}
-                {withheld > 0 && (
-                  <p className="text-[11px] text-muted-foreground">
-                    {withheld} {withheld === 1 ? 'comment describes' : 'comments describe'} who these commenters are. Counted, not quoted.
-                  </p>
-                )}
-              </div>
+              )}
+              {detailQuotes.length > 0 && (
+                <div className="space-y-2 border-t border-border/70 pt-3">
+                  <p className="text-[10.5px] font-semibold uppercase tracking-[0.07em] text-muted-foreground">The voices behind it</p>
+                  {detailQuotes.map((q, n) => (
+                    <blockquote key={n} className="border-l-2 border-clay pl-2 text-[12.5px] italic leading-[1.4] text-foreground/90">“{q}”</blockquote>
+                  ))}
+                  <p className="text-[11px] text-muted-foreground">a sample of the conversations behind this theme</p>
+                </div>
+              )}
+              {detailWithheld > 0 && (
+                <p className="text-[11px] text-muted-foreground">
+                  {detailWithheld} {detailWithheld === 1 ? 'comment describes' : 'comments describe'} who these commenters are. Counted, not quoted.
+                </p>
+              )}
+            </div>
+          )
+        })()}
+      </DetailDrawer>
+
+      <DetailDrawer open={detail === 'list'} closeHref={closeHref} title={`All ${fmtInt(shown.length)} themes`}
+        description={`${entityFilter === 'all' ? 'every audience' : bucketName(entityFilter).toLowerCase()}${typeFilter !== 'all' ? ` · ${categoryLabel(typeFilter).toLowerCase()}` : ''} · widest-heard first`}>
+        <div className="space-y-5">
+          <ThemeList title="Confirmed" hint="heard in more than one conversation" rows={[...tiers.confirmed].sort((a, b) => b.evidence_count - a.evidence_count)} hrefWith={hrefWith} showNew={showNew} />
+          <ThemeList title="Early signals" hint="heard once so far, but clearly" rows={tiers.early} hrefWith={hrefWith} showNew={showNew} />
+          <ThemeList title="Heard once" hint="single mentions, kept for the record" rows={tiers.heardOnce} hrefWith={hrefWith} showNew={showNew} compact />
+          {shown.length === 0 && <p className="text-muted-foreground">No themes match these filters.</p>}
+        </div>
+      </DetailDrawer>
+
+      <DetailDrawer open={detail === 'movers'} closeHref={closeHref} title="Gaining and fading" description={`themes heard in ≥2 of your ${updatesCount} updates · conversations per update, delta vs last`}>
+        <div className="space-y-5">
+          {(['gaining', 'fading', 'emerging'] as const).map((m) => {
+            const rows = movers.filter((t) => t.movement === m)
+            if (rows.length === 0) return null
+            return (
+              <section key={m} className="space-y-2">
+                <h3 className="text-[10.5px] font-semibold uppercase tracking-[0.07em] text-muted-foreground">
+                  {m === 'gaining' ? 'Gaining' : m === 'fading' ? 'Fading' : 'New since your first update'} <span className="font-mono normal-case tracking-normal">{rows.length}</span>
+                </h3>
+                <div className="flex flex-col gap-2">
+                  {rows.map((t) => <MoverRow key={t.key} t={t} competitorName={competitorName} sparkWidth={88} />)}
+                </div>
+              </section>
             )
-          })()}
-        </DetailOverlay>
-      )}
-    </div>
+          })}
+          {steadyCount > 0 && <p className="text-[11px] text-muted-foreground">{steadyCount} more {steadyCount === 1 ? 'theme has' : 'themes have'} held steady across the updates {steadyCount === 1 ? 'it was' : 'they were'} heard in.</p>}
+          {movers.length === 0 && <p className="text-muted-foreground">Nothing has moved clearly yet.</p>}
+        </div>
+      </DetailDrawer>
+
+      <DetailDrawer open={detail === 'language'} closeHref={closeHref} title="How your customers talk" description={`${fmtInt(sampleTotal)} phrases, verbatim — the words to borrow`}>
+        <div className="flex flex-wrap gap-1.5">
+          {samples.map((s, i) => (
+            <span key={i} title={s.platform ? platformLabel(s.platform) : undefined} className="rounded-full bg-muted px-2.5 py-1 text-[12px] italic text-[#3F4B44]">{s.phrase}</span>
+          ))}
+        </div>
+        {sampleTotal > samples.length && <p className="mt-3 text-[11px] text-muted-foreground">showing {fmtInt(samples.length)} of {fmtInt(sampleTotal)}</p>}
+      </DetailDrawer>
+    </PageFrame>
   )
 }
 
-/** The calibrated chip row a theme carries everywhere it appears in full. */
-function ThemeChips({ t, tier, prevalence, showNew, bucketLabel }: {
-  t: ThemeRow
-  tier: ReturnType<typeof gateTier>
-  prevalence: ReturnType<typeof prevalenceTier>
-  showNew: boolean
-  bucketLabel: string
-}) {
-  return (
-    <div className="flex flex-wrap items-center gap-2">
-      <span title={glossaryRule(prevalence)} className={`${chipBase} ${PREVALENCE_BADGE[prevalence]}`}>{PREVALENCE_LABEL[prevalence]}</span>
-      <span className={`${chipBase} capitalize ${categoryTint(t.category)}`}>{prettyType(t.category)}</span>
-      <span className={`${chipBase} bg-muted text-muted-foreground`}>{bucketLabel}</span>
-      {t.dominant_emotion && (
-        <span className={`${chipBase} capitalize ${categoryTint(t.dominant_emotion)}`}>{t.dominant_emotion}</span>
-      )}
-      {t.dominant_sentiment_impact && (
-        <span className={`${chipBase} capitalize ${SENTIMENT_BADGE[t.dominant_sentiment_impact] ?? 'bg-muted text-muted-foreground'}`}>
-          {t.dominant_sentiment_impact}
-        </span>
-      )}
-      {tier === 'confirmed' && <span title={glossaryRule('strong_evidence')} className={`${chipBase} bg-positive/12 text-positive`}>Strong evidence</span>}
-      {showNew && t.first_seen && (
-        <span title={glossaryRule('new')} className={`${chipBase} font-semibold bg-warning/15 text-warning`}>New</span>
-      )}
-    </div>
-  )
-}
-
-/** Tiny evidence-over-updates line for the overlay (Trends' sparkline shape). */
-function Sparkline({ values }: { values: number[] }) {
-  const W = 96, H = 32, p = 4
-  const min = Math.min(...values), max = Math.max(...values)
-  const x = (i: number) => p + (values.length === 1 ? 0 : (i / (values.length - 1)) * (W - 2 * p))
-  const y = (v: number) => p + (1 - (v - min) / ((max - min) || 1)) * (H - 2 * p)
-  const line = values.map((v, i) => `${x(i)},${y(v)}`).join(' ')
-  return (
-    <svg viewBox={`0 0 ${W} ${H}`} className="h-8 w-24" preserveAspectRatio="none" aria-hidden>
-      <polyline points={line} fill="none" stroke="currentColor" strokeWidth={2} strokeLinejoin="round" strokeLinecap="round" vectorEffect="non-scaling-stroke" />
-      <circle cx={x(values.length - 1)} cy={y(values[values.length - 1])} r={2.5} fill="currentColor" />
-    </svg>
-  )
-}
-
-/** Evidence weight, visually: the theme's conversations against its group. */
-function EvidenceBar({ count, denom, tone = 'bg-primary/60' }: { count: number; denom: number; tone?: string }) {
-  const pct = denom > 0 ? Math.min(100, Math.round((count / denom) * 100)) : 0
-  return (
-    <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted" aria-hidden>
-      <div className={`h-full rounded-full ${tone}`} style={{ width: `${Math.max(3, pct)}%` }} />
-    </div>
-  )
-}
-
-function PageHeader({ showLegend, legendItems }: { showLegend: boolean; legendItems: GlossaryKey[] }) {
-  return (
-    <div className="flex items-start justify-between gap-4">
-      <h1 className="text-2xl font-bold">Voice of Customer</h1>
-      <HowToRead items={legendItems} open={showLegend} basePath="/dashboard/voice" />
-    </div>
-  )
-}
-
-/** A category tab — a Link so the server filters; preserves the other params. */
-function TabLink({ label, count, active, category, sp }: {
-  label: string
-  count: number
-  active: boolean
-  category: string | null
-  sp: { entity?: string; themes?: string; stage?: string; min?: string }
-}) {
-  const params = new URLSearchParams()
-  if (sp.entity) params.set('entity', sp.entity)
-  if (category) params.set('type', category)
-  if (sp.themes) params.set('themes', sp.themes)
-  if (sp.stage) params.set('stage', sp.stage)
-  if (sp.min) params.set('min', sp.min)
-  const qs = params.toString()
-  return (
-    <Link
-      href={qs ? `/dashboard/voice?${qs}` : '/dashboard/voice'}
-      className={`inline-flex items-center gap-1.5 rounded-full px-3.5 py-1.5 text-xs font-medium transition-colors ${
-        active
-          ? 'bg-primary text-primary-foreground'
-          : 'bg-card text-foreground ring-1 ring-border hover:bg-muted/40'
-      }`}
-    >
-      {label}
-      <span className={active ? 'opacity-70' : 'text-muted-foreground'}>{count}</span>
-    </Link>
-  )
-}
-
-/** A big entity segment for the top selector bar — colour-coded per bucket, with
- *  its conversation count (the same denominator the theme cards read "N of"). */
-function EntityChip({ label, count, href, active, Icon, fg, bg }: {
-  label: string
-  count?: number
-  href: string
-  active: boolean
-  Icon?: typeof Users
-  fg?: string
-  bg?: string
-}) {
+/** One category tab — a Link so the server filters. */
+function TabLink({ label, count, active, href }: { label: string; count: number; active: boolean; href: string }) {
   return (
     <Link
       href={href}
       scroll={false}
-      className={`inline-flex items-center gap-2 rounded-lg border px-4 py-2 text-sm font-medium transition-colors ${
-        active ? `${bg ?? 'bg-primary/10'} ${fg ?? 'text-primary'} border-transparent` : 'border-border text-foreground hover:bg-muted/40'
+      className={`-mb-px flex shrink-0 items-baseline gap-1 whitespace-nowrap border-b-2 px-2 pb-1.5 pt-0.5 text-[11.5px] font-medium transition-colors ${
+        active ? 'border-primary text-primary' : 'border-transparent text-[#6B756B] hover:text-foreground'
       }`}
     >
-      {Icon && <Icon className={`size-4 ${active ? '' : fg}`} aria-hidden />}
       {label}
-      {count != null && <span className={active ? 'opacity-70' : 'text-muted-foreground'}>· {count}</span>}
+      <span className="font-mono text-[10.5px] tabular-nums text-muted-foreground/80">{count}</span>
     </Link>
   )
 }
 
-function EmptyState({ children }: { children: React.ReactNode }) {
+/** One gaining/fading row: the Mover chart row for a theme trajectory. A
+ *  gaining theme draws green, a fading one clay; an emerging theme is a
+ *  "New" row with its count and no delta (nothing before it to compare). */
+function MoverRow({ t, competitorName, sparkWidth }: { t: Trajectory; competitorName: (b: string) => string; sparkWidth?: number }) {
+  const kind = bucketKind(t.bucket)
+  const suffix = kind === 'competitor' ? ` · ${competitorName(t.bucket)}’s` : kind === 'client' ? ' · yours' : ''
+  const label = (
+    <span className="flex min-w-0 items-center gap-1.5">
+      {t.movement === 'emerging' && <span className={`${chip} bg-sidebar-accent text-primary`}>New</span>}
+      <span className="truncate">{t.label}{suffix ? <span className="text-muted-foreground">{suffix}</span> : null}</span>
+    </span>
+  )
   return (
-    <Card>
-      <CardContent className="py-10 text-center text-sm text-muted-foreground">{children}</CardContent>
-    </Card>
+    <Mover
+      label={label}
+      series={t.evidence}
+      value={t.latestEvidence}
+      delta={t.movement === 'emerging' ? null : t.evidenceDelta}
+      good="up"
+      color={t.movement === 'fading' ? 'var(--accent-clay)' : t.movement === 'emerging' ? 'var(--primary)' : 'var(--positive)'}
+      sparkWidth={sparkWidth ?? 72}
+    />
+  )
+}
+
+/** A ranked section of the list drawer. */
+function ThemeList({ title, hint, rows, hrefWith, showNew, compact }: {
+  title: string
+  hint: string
+  rows: ThemeRow[]
+  hrefWith: (o: { detail: string }) => string
+  showNew: boolean
+  compact?: boolean
+}) {
+  if (rows.length === 0) return null
+  return (
+    <section className="space-y-1.5">
+      <h3 className="flex items-baseline gap-2 text-[10.5px] font-semibold uppercase tracking-[0.07em] text-muted-foreground">
+        {title} <span className="font-mono normal-case tracking-normal">{rows.length}</span>
+        <span className="font-normal normal-case tracking-normal opacity-80">{hint}</span>
+      </h3>
+      <div className="flex flex-col">
+        {rows.map((t) => (
+          <Link key={t.id} href={hrefWith({ detail: t.id })} scroll={false} className="flex items-center gap-2 rounded-sm py-[3px] hover:bg-muted/50">
+            <span className="size-1.5 shrink-0 rounded-full" style={{ background: EDGE[bucketKind(t.bucket)] }} aria-hidden />
+            <span className={`min-w-0 flex-1 truncate ${compact ? 'text-[12px] text-muted-foreground' : 'text-[12.5px]'}`}>{t.label}</span>
+            {showNew && t.first_seen && <span className={`${chip} bg-sidebar-accent text-primary`}>New</span>}
+            {!compact && <span className={`${chip} hidden sm:inline-flex ${categoryTint(t.category)}`}>{categoryLabel(t.category)}</span>}
+            <span className="w-7 shrink-0 text-right font-mono text-[11.5px] font-semibold tabular-nums">{t.evidence_count}</span>
+          </Link>
+        ))}
+      </div>
+    </section>
   )
 }

@@ -1,25 +1,33 @@
 import Link from 'next/link'
-import { Target, TrendingUp, Sparkles, Lightbulb, AlertTriangle } from 'lucide-react'
+import type { ReactNode } from 'react'
 import { getSessionContext } from '@/lib/auth'
-import { Card, CardContent, CardHeader } from '@/components/ui/card'
-import { categoryTint } from '@/lib/ui-colors'
-import { CURATION_GATE, gateTier, type GateTier } from '@/lib/curation'
-import { priorityWord, glossaryRule } from '@/lib/calibration'
+import { CURATION_GATE, type GateTier } from '@/lib/curation'
+import { priorityWord, glossaryRule, type GlossaryKey } from '@/lib/calibration'
 import { HowToRead } from '@/components/how-to-read'
-import { Quotes } from '@/components/quotes'
-import type { GlossaryKey } from '@/lib/calibration'
 import { rankByTheme, fetchQuotesByAudience, fetchInsightsByIds, createQuotePicker, bucketByAudienceId, scopeToClientVoices, type ThemeBucketRow } from '@/lib/quotes'
 import type { CiSummary, SayVsHearEntry } from '@/lib/pipeline/schemas'
 import type { BrandVoiceSnapshot } from '@/lib/pipeline/claims'
+import { weekdayDate, shortDate, platformLabel, fmtInt } from '@/lib/format'
+import {
+  insightTiers, confirmedCompetitiveIds, orderAgenda, priorityDot, distinctVideos,
+  claimVerdict, claimCounts, claimCountsLine, ledgerRows, truncateWords, quadrantBullets, tierCounts, newsRingChip,
+  type ClaimTone, type AgendaItem,
+} from '@/lib/market-tiles'
+import { PageFrame, PageGrid, PageBar, BarPill } from '@/components/shell/page-grid'
+import { Tile, TileEmpty } from '@/components/shell/tile'
+import { DetailDrawer } from '@/components/shell/detail-drawer'
 
-// Market Intelligence — "What should we do?" (Redesign Spec §3). The editorial
-// layer over Pass D: the consumer-intelligence summary leads (the "someone
-// already read everything for you" block), gate-passed recommendations are
-// promoted above insights, then max-3 key insights, early signals honestly
-// framed, and the full un-curated list demoted to a collapsed archive. Scores
-// gate and order but are never displayed as numbers (spec §1) — evidence chips
-// replace them. Read-only server component; same auth/run-anchor pattern as
-// the dashboard.
+// Market Intelligence — "What should we do?", on one screen: the decision
+// ledger (one-screen redesign round 2, 2026-08-22). Left, the agenda: numbered
+// recommendations, #1 featured with its voices and status pills, #2–#5 compact
+// with what grounds them. Right: the short read as one 2×2 panel, the say-vs-
+// hear ledger (you say · verdict · they hear), key insights, what others say
+// about you, and the news as context. Every tile gates on its data and shows
+// an honest one-line empty at its size; drawers (?detail=) hold the full lists.
+// Scores gate and order but are never shown as numbers — evidence words from
+// lib/curation replace them. Read-only server component; same auth/run-anchor
+// pattern as the dashboard (latest COMPLETED update, so an in-flight update
+// never blanks the page).
 
 interface MarketInsight {
   id: string
@@ -53,70 +61,127 @@ interface SingleSourceTheme {
   description: string | null
 }
 
-/** Single-source theme pills shown before the "+N more" overflow line. */
-const SINGLE_SOURCE_SHOWN = 12
-
-const prettyType = (s: string) => s.replace(/_/g, ' ')
-
-const chipBase = 'px-2 py-0.5 rounded-full text-xs font-medium'
-
-/** A stable coloured category chip (insight type, rec type). */
-function CategoryChip({ children }: { children: string }) {
-  return <span className={`${chipBase} capitalize ${categoryTint(children)}`}>{prettyType(children)}</span>
+interface NewsRow {
+  title: string
+  url: string
+  source_ref: string
+  published_at: string | null
+  ring: number
 }
 
-/** Calibrated priority word — positional, never the model's own rating
- *  (lib/calibration.ts): "Act now" appears exactly once per update. */
+/** Single-source theme pills shown in the findings drawer before "+N more". */
+const SINGLE_SOURCE_SHOWN = 12
+/** News headlines kept for the tile + its drawer (rings 0–2, as Trends shows). */
+const NEWS_SHOWN = 8
+
+const BASE = '/dashboard/market'
+const prettyType = (s: string) => s.replace(/_/g, ' ')
+const plural = (n: number, one: string, many = `${one}s`) => (n === 1 ? one : many)
+
+const LEGEND_ITEMS: GlossaryKey[] = ['conversations', 'say_vs_hear', 'about_you', 'news', 'act_now', 'plan_next', 'worth_considering', 'strong_evidence', 'early_signal']
+
+// ── small page-local primitives (full class strings — Tailwind v4 scans them) ──
+
+const TONE: Record<ClaimTone, string> = {
+  positive: 'bg-positive/12 text-positive',
+  clay: 'bg-clay/10 text-clay',
+  sand: 'bg-muted text-muted-foreground',
+}
+
+function Chip({ tone = 'sand', title, children }: { tone?: ClaimTone | 'warning'; title?: string; children: ReactNode }) {
+  const cls = tone === 'warning' ? 'bg-warning/15 text-warning' : TONE[tone]
+  return <span title={title} className={`inline-flex shrink-0 items-center whitespace-nowrap rounded-full px-2 py-px text-[10.5px] font-medium ${cls}`}>{children}</span>
+}
+
+/** The score replacement: judgment as a word, never a number. */
+function EvidenceChip({ tier }: { tier: GateTier }) {
+  if (tier === 'confirmed') return <Chip tone="positive" title={glossaryRule('strong_evidence')}>Strong evidence</Chip>
+  if (tier === 'early_signal') return <Chip tone="warning" title={glossaryRule('early_signal')}>Early signal</Chip>
+  return null
+}
+
 const PRIORITY_TIP: Record<string, string> = {
   'Act now': glossaryRule('act_now'),
   'Plan next': glossaryRule('plan_next'),
   'Worth considering': glossaryRule('worth_considering'),
 }
 
+/** Calibrated, positional priority word — "Act now" appears once per update. */
 function PriorityChip({ word }: { word: string }) {
+  return <Chip tone={word === 'Act now' ? 'warning' : 'sand'} title={PRIORITY_TIP[word]}>{word}</Chip>
+}
+
+function PriorityDot({ priority, className = '' }: { priority: string | null; className?: string }) {
+  return <span className={`inline-block size-2 shrink-0 rounded-full ${className}`} style={{ background: priorityDot(priority) }} aria-hidden />
+}
+
+/** A verbatim voice — the clay rule is the signature; never model prose. */
+function Quote({ text, who, clamp = true }: { text: string; who?: ReactNode; clamp?: boolean }) {
   return (
-    <span title={PRIORITY_TIP[word]} className={`${chipBase} ${word === 'Act now' ? 'bg-warning/15 text-warning' : 'bg-muted text-muted-foreground'}`}>
-      {word}
-    </span>
+    <blockquote className="border-l-2 border-clay/70 pl-2.5 text-[12.5px] italic leading-[1.4] text-foreground/90">
+      <span className={clamp ? 'line-clamp-2' : undefined}>“{text}”</span>
+      {who && <span className="mt-0.5 block text-[10.5px] not-italic text-muted-foreground">{who}</span>}
+    </blockquote>
   )
 }
 
-/** The score replacement (spec §1): judgment as a chip, never a number. */
-function EvidenceChip({ tier }: { tier: GateTier }) {
-  if (tier === 'confirmed') return <span title={glossaryRule('strong_evidence')} className={`${chipBase} bg-positive/12 text-positive`}>Strong evidence</span>
-  if (tier === 'early_signal') return <span title={glossaryRule('early_signal')} className={`${chipBase} bg-warning/15 text-warning`}>Early signal</span>
-  return null
+/** Status pills — visual for now; status write-back is a later step. */
+function StatusPill({ children }: { children: ReactNode }) {
+  return (
+    <Link href={BASE} scroll={false} className="inline-flex h-5 items-center rounded-full px-2 text-[10.5px] font-medium text-[#3F4B44] ring-1 ring-border transition-colors hover:bg-muted">
+      {children}
+    </Link>
+  )
 }
 
-const LEGEND_ITEMS: GlossaryKey[] = ['conversations', 'say_vs_hear', 'about_you', 'act_now', 'plan_next', 'worth_considering', 'strong_evidence', 'early_signal']
+const voiceHref = (themes: string[]) => `/dashboard/voice?themes=${encodeURIComponent(themes.join(','))}#grounding`
 
-export default async function MarketIntelligencePage({
-  searchParams,
-}: {
-  searchParams?: Promise<{ detail?: string }>
-}) {
-  const showLegend = ((await searchParams) ?? {}).detail === 'legend'
+function ThemeChips({ themes }: { themes: string[] }) {
+  if (themes.length === 0) return null
+  return (
+    <div className="flex flex-wrap gap-1">
+      {themes.map((t) => (
+        <Link key={t} href={`/dashboard/voice?themes=${encodeURIComponent(t)}`} className="rounded-full bg-muted px-2 py-px text-[10.5px] text-muted-foreground transition-colors hover:bg-muted/70">
+          {prettyType(t)}
+        </Link>
+      ))}
+    </div>
+  )
+}
+
+export default async function MarketIntelligencePage({ searchParams }: { searchParams?: Promise<{ detail?: string }> }) {
+  const sp = (await searchParams) ?? {}
+  const showLegend = sp.detail === 'legend'
   // Auth + tenant via the RLS-enforced session client. See lib/auth.ts.
   const { supabase, clientId } = await getSessionContext()
 
-  // Latest COMPLETED run — an in-flight run has no synthesis rows yet, so the
-  // page keeps serving the previous run's read until the new one closes.
-  const { data: latestRun } = await supabase
-    .from('pipeline_runs').select('id')
-    .eq('client_id', clientId).in('status', ['completed', 'partial'])
-    .order('started_at', { ascending: false }).limit(1).maybeSingle()
+  // Latest COMPLETED update — an in-flight one has no synthesis rows yet, so
+  // the page keeps serving the previous read until the new one closes.
+  const [{ data: client }, { data: latestRun }] = await Promise.all([
+    supabase.from('clients').select('company_name').eq('id', clientId).maybeSingle(),
+    supabase.from('pipeline_runs').select('id, started_at')
+      .eq('client_id', clientId).in('status', ['completed', 'partial'])
+      .order('started_at', { ascending: false }).limit(1).maybeSingle(),
+  ])
+  const brand = client?.company_name ?? 'Your brand'
 
   if (!latestRun) {
     return (
-      <div className="space-y-8">
-        <PageHeader showLegend={showLegend} />
-        <EmptyState />
-      </div>
+      <PageFrame>
+        <PageBar title="Market Intelligence" context={`What should we do? · ${brand}`}>
+          <HowToRead items={LEGEND_ITEMS} open={showLegend} basePath={BASE} />
+        </PageBar>
+        <PageGrid>
+          <Tile col={12} row={2} eyebrow="Your first update">
+            <TileEmpty>Your market intelligence lands with your first update — check back then.</TileEmpty>
+          </Tile>
+        </PageGrid>
+      </PageFrame>
     )
   }
   const runId = latestRun.id as string
 
-  const [miRes, recRes, ciRes, summaryRes, ssRes, bucketRes] = await Promise.all([
+  const [miRes, recRes, ciRes, summaryRes, ssRes, bucketRes, newsRes] = await Promise.all([
     supabase.from('market_insights')
       .select('id, insight_type, title, description, evidence, confidence_score, opportunity_score, hero_quote')
       .eq('client_id', clientId).eq('run_id', runId)
@@ -126,7 +191,7 @@ export default async function MarketIntelligencePage({
       .eq('client_id', clientId).eq('run_id', runId),
     supabase.from('competitive_insights').select('id, evidence, impact_level')
       .eq('client_id', clientId).eq('run_id', runId),
-    supabase.from('run_summary').select('consumer_intelligence_summary, say_vs_hear, brand_voice')
+    supabase.from('run_summary').select('run_date, consumer_intelligence_summary, say_vs_hear, brand_voice')
       .eq('client_id', clientId).eq('run_id', runId).maybeSingle(),
     // Single-source pills must clear the same strength bar as early-signal
     // insights — "Early signal" is a calibrated term, not a catch-all for
@@ -141,27 +206,35 @@ export default async function MarketIntelligencePage({
     supabase.from('themes')
       .select('bucket, supporting_insight_ids')
       .eq('client_id', clientId).eq('run_id', runId),
+    // In the news — rings 0–2 only (brand / competitors / category), newest
+    // first, the same read Trends had: context beside the conversation, never
+    // a claimed cause.
+    supabase.from('news_items')
+      .select('title, url, source_ref, published_at, ring')
+      .eq('client_id', clientId).lte('ring', 2)
+      .order('published_at', { ascending: false, nullsFirst: false })
+      .limit(NEWS_SHOWN),
   ])
 
   const insights = (miRes.data ?? []) as MarketInsight[]
   const recommendations = (recRes.data ?? []) as Recommendation[]
   const competitive = (ciRes.data ?? []) as CompetitiveRef[]
   const ciSummary = (summaryRes.data?.consumer_intelligence_summary ?? null) as CiSummary | null
-  const sayVsHear = (summaryRes.data?.say_vs_hear ?? null) as SayVsHearEntry[] | null
+  const sayVsHear = ((summaryRes.data?.say_vs_hear ?? null) as SayVsHearEntry[] | null) ?? null
   const brandVoice = (summaryRes.data?.brand_voice ?? null) as BrandVoiceSnapshot | null
-  // The strip needs a brand-side voice to talk about; competitor claims alone
-  // (or a tenant with no data yet) render nothing.
-  const hasBrandVoice = !!brandVoice && brandVoice.counts.own + brandVoice.counts.about > 0
+  const aboutYou = brandVoice?.about ?? []
   const singleSourceThemes = (ssRes.data ?? []) as SingleSourceTheme[]
   const singleSourceTotal = ssRes.count ?? singleSourceThemes.length
+  const news = (newsRes.data ?? []) as NewsRow[]
+  const runDate = (summaryRes.data?.run_date as string | undefined) ?? (latestRun.started_at as string)
 
   const miById = new Map(insights.map((mi) => [mi.id, mi]))
   const competitiveById = new Map(competitive.map((c) => [c.id, c]))
-  // Slugs + source videos for the ids THIS run cites (market-insight evidence
-  // and its themes' membership) — read by id from the base table
-  // (fetchInsightsByIds), not the current view: a newer in-flight run may have
-  // superseded some of those videos' rows, which would silently shrink the
-  // measured grounding counts below (incremental Pass A, 2026-08-17).
+  // Slugs + source videos for the ids THIS update cites (market-insight
+  // evidence and its themes' membership) — read by id from the base table
+  // (fetchInsightsByIds), not the current view: a newer in-flight update may
+  // have superseded some of those videos' rows, which would silently shrink
+  // the measured grounding counts below (incremental Pass A, 2026-08-17).
   const citedIds = new Set<string>()
   for (const mi of insights) for (const id of mi.evidence?.supporting_theme_ids ?? []) citedIds.add(id)
   for (const t of (bucketRes.data ?? []) as ThemeBucketRow[]) for (const id of t.supporting_insight_ids ?? []) citedIds.add(id)
@@ -171,25 +244,15 @@ export default async function MarketIntelligencePage({
   const themeSlugById = new Map(audienceRows.map((a) => [a.id, a.theme]))
   const videoByInsight = new Map(audienceRows.map((a) => [a.id, a.source_video_id]))
 
-  /** Measured grounding: distinct conversations behind an insight's evidence. */
-  const conversationCount = (mi: MarketInsight): number => {
-    const vids = new Set<string>()
-    for (const id of mi.evidence?.supporting_theme_ids ?? []) {
-      const v = videoByInsight.get(id)
-      if (v) vids.add(v)
-    }
-    return vids.size
-  }
+  // ── curation gate over the insights (already in opportunity order) ──────
+  const tierById = insightTiers(insights)
+  const tiers = tierCounts(tierById)
+  const confirmed = insights.filter((mi) => tierById.get(mi.id) === 'confirmed')
+  const keyInsights = confirmed.slice(0, 2)
+  const earlyInsights = insights.filter((mi) => tierById.get(mi.id) === 'early_signal')
+  const archiveInsights = insights.filter((mi) => tierById.get(mi.id) === 'archive')
 
-  // ---- Curation gate over the insights (already in opportunity order) ----
-  const sourceCount = (mi: MarketInsight) =>
-    (mi.evidence?.supporting_theme_ids?.length ?? 0) +
-    (mi.evidence?.supporting_competitive_insight_ids?.length ?? 0)
-  const tierOf = new Map(insights.map((mi) => [mi.id, gateTier(mi.confidence_score, sourceCount(mi))]))
-  const confirmed = insights.filter((mi) => tierOf.get(mi.id) === 'confirmed')
-  const keyInsights = confirmed.slice(0, 3)
-  const earlyInsights = insights.filter((mi) => tierOf.get(mi.id) === 'early_signal')
-
+  const insightConversations = (mi: MarketInsight) => distinctVideos(mi.evidence?.supporting_theme_ids ?? [], videoByInsight)
   /** Deduped grounding theme slugs for an insight — chips + the Voice deep-link. */
   function insightThemes(mi: MarketInsight): string[] {
     const slugs = new Set<string>()
@@ -200,204 +263,61 @@ export default async function MarketIntelligencePage({
     return [...slugs].slice(0, 4)
   }
 
-  // ---- Recommendations: gate-passed ones promoted (spec §3.2) ----
-  // A recommendation passes when at least one insight behind it does: a
-  // confirmed market insight, or — competitive insights carry no confidence
-  // score — a high-impact competitive insight clearing the same source floor.
-  const confirmedGroundIds = new Set<string>([
-    ...confirmed.map((mi) => mi.id),
-    ...competitive
-      .filter((c) =>
-        c.impact_level === 'high' &&
-        (c.evidence?.supporting_theme_ids?.length ?? 0) >= CURATION_GATE.confirmedMinSources)
-      .map((c) => c.id),
-  ])
-  const priorityRank: Record<string, number> = { high: 0, medium: 1, low: 2 }
-  const recsSorted = [...recommendations].sort(
-    (a, b) =>
-      (priorityRank[a.priority ?? 'low'] ?? 3) - (priorityRank[b.priority ?? 'low'] ?? 3) ||
-      (b.based_on?.insight_ids?.length ?? 0) - (a.based_on?.insight_ids?.length ?? 0),
-  )
-  const topRecs = recsSorted
-    .filter((r) => (r.based_on?.insight_ids ?? []).some((id) => confirmedGroundIds.has(id)))
-    .slice(0, 3)
-  const topRecIds = new Set(topRecs.map((r) => r.id))
-  const restRecs = recsSorted.filter((r) => !topRecIds.has(r.id))
+  // ── recommendations: the agenda, ordered by evidence ────────────────────
+  const agenda = orderAgenda(recommendations, tierById, confirmedCompetitiveIds(competitive))
+  const featured = agenda[0] ?? null
+  const compactRows = agenda.slice(1, 5)
 
-  /** Grounding theme slugs behind a recommendation, via its supporting insights. */
-  function recThemes(rec: Recommendation): string[] {
-    const slugs = new Set<string>()
-    for (const id of rec.based_on?.insight_ids ?? []) {
-      for (const tid of miById.get(id)?.evidence?.supporting_theme_ids ?? []) {
-        const slug = themeSlugById.get(tid)
-        if (slug) slugs.add(slug)
-      }
-      for (const tid of competitiveById.get(id)?.evidence?.supporting_theme_ids ?? []) {
-        const slug = themeSlugById.get(tid)
-        if (slug) slugs.add(slug)
-      }
-    }
-    return [...slugs].slice(0, 4)
-  }
-
-  // ---- verbatim quotes for the evidence-led cards (shared lib/quotes) ----
-  // Pull the audience insights most on-topic for each card into the quote pool
-  // (theme-ranked so the specific voices beat the generic, high-volume ones),
-  // fetch once, and build a page-scoped picker. Cards lead with the pipeline's
-  // hero_quote where present and fall back to the heuristic otherwise. Every
-  // card here is a claim about the client, so pools keep client + category
-  // voices only — a competitor's customers never speak under a client claim.
-  const bucketById = bucketByAudienceId((bucketRes.data ?? []) as ThemeBucketRow[])
-  function recSupportAudienceIds(rec: Recommendation): string[] {
+  /** Every audience-insight id behind a recommendation, via its supporting insights. */
+  function recSupportIds(rec: Recommendation): string[] {
     const ids: string[] = []
     for (const id of rec.based_on?.insight_ids ?? []) {
       ids.push(...(miById.get(id)?.evidence?.supporting_theme_ids ?? []))
       ids.push(...(competitiveById.get(id)?.evidence?.supporting_theme_ids ?? []))
     }
-    return scopeToClientVoices(ids, bucketById)
+    return ids
   }
-  const insightAudienceIds = (mi: MarketInsight): string[] =>
-    scopeToClientVoices(mi.evidence?.supporting_theme_ids ?? [], bucketById)
+  /** Grounding theme slugs behind a recommendation. */
+  function recThemes(rec: Recommendation): string[] {
+    const slugs = new Set<string>()
+    for (const id of recSupportIds(rec)) {
+      const slug = themeSlugById.get(id)
+      if (slug) slugs.add(slug)
+    }
+    return [...slugs].slice(0, 4)
+  }
+  const recConversations = (rec: Recommendation) => distinctVideos(recSupportIds(rec), videoByInsight)
+
+  // ── verbatim quotes (shared lib/quotes) ─────────────────────────────────
+  // Pool the audience insights most on-topic for the featured action and the
+  // key insights (theme-ranked so the specific voices beat the generic ones),
+  // fetch once, pick with a page-scoped picker. Every claim here is about the
+  // client, so pools keep client + category voices only — a competitor's
+  // customers never speak under a client claim.
+  const bucketById = bucketByAudienceId((bucketRes.data ?? []) as ThemeBucketRow[])
+  const recVoiceIds = (rec: Recommendation) => scopeToClientVoices(recSupportIds(rec), bucketById)
+  const insightVoiceIds = (mi: MarketInsight) => scopeToClientVoices(mi.evidence?.supporting_theme_ids ?? [], bucketById)
   const cardSpecs: { ids: string[]; claim: string }[] = [
-    ...[...keyInsights, ...earlyInsights].map((mi) => ({ ids: insightAudienceIds(mi), claim: `${mi.title} ${mi.description}` })),
-    ...topRecs.map((rec) => ({ ids: recSupportAudienceIds(rec), claim: `${rec.title} ${rec.reasoning}` })),
+    ...(featured ? [{ ids: recVoiceIds(featured.rec), claim: `${featured.rec.title} ${featured.rec.reasoning}` }] : []),
+    ...keyInsights.map((mi) => ({ ids: insightVoiceIds(mi), claim: `${mi.title} ${mi.description}` })),
   ]
   const poolIds = new Set<string>()
   for (const spec of cardSpecs) {
     for (const id of rankByTheme(spec.ids, spec.claim, themeSlugById).slice(0, 80)) {
-      if (poolIds.size < 600) poolIds.add(id)
+      if (poolIds.size < 400) poolIds.add(id)
     }
   }
   const quotesByAudience = await fetchQuotesByAudience(supabase, [...poolIds])
   const pick = createQuotePicker(quotesByAudience, themeSlugById)
+  const featuredQuotes = featured ? pick(recVoiceIds(featured.rec), 2, `${featured.rec.title} ${featured.rec.reasoning}`, featured.rec.hero_quote) : []
+  const featuredVoices = featured ? recVoiceIds(featured.rec).length : 0
+  const featuredConversations = featured ? recConversations(featured.rec) : 0
+  const keyQuotes = new Map(keyInsights.map((mi) => [mi.id, pick(insightVoiceIds(mi), 1, `${mi.title} ${mi.description}`, mi.hero_quote)]))
 
-  const nothingYet = !ciSummary && insights.length === 0 && recommendations.length === 0
-
-  return (
-    <div className="space-y-8">
-      <PageHeader showLegend={showLegend} />
-
-      {nothingYet && <EmptyState />}
-
-      {/* The short read — a tight at-a-glance digest (spec §3.1) */}
-      {ciSummary && <ShortRead s={ciSummary} />}
-
-      {/* Brand voice (2026-08-16): who is speaking on brand-side videos — the
-          client (own posts + own accounts), third parties about the client, and
-          competitors. Roll-up strip first; the say-vs-hear contrast quotes ONLY
-          the client's own voice; "About you" is evidence-only, their words. All
-          three self-gate on the run_summary snapshot. */}
-      {hasBrandVoice && !nothingYet && <BrandVoiceStrip counts={brandVoice!.counts} />}
-      {sayVsHear && sayVsHear.length > 0 && <SayVsHearSection entries={sayVsHear} themeSlugById={themeSlugById} />}
-      {brandVoice && brandVoice.about.length > 0 && <AboutYouSection entries={brandVoice.about} />}
-
-      {/* Top recommendations (spec §3.2) — the outcome, promoted above insights */}
-      {recommendations.length > 0 && (
-        <section className="space-y-4">
-          <SectionHeading label="Top recommendations" />
-          {topRecs.length > 0 ? (
-            // #1 is featured full-width (voices in its own satellite); #2/#3 are
-            // quiet equal-height cards beneath. Grid stretch equalises the pair —
-            // no cross-row spans (the dashboard's failure mode).
-            <div className="space-y-4">
-              <FeaturedRec
-                rec={topRecs[0]}
-                word={priorityWord(0)}
-                voices={recThemes(topRecs[0])}
-                quotes={pick(recSupportAudienceIds(topRecs[0]), 2, `${topRecs[0].title} ${topRecs[0].reasoning}`, topRecs[0].hero_quote)}
-              />
-              {topRecs.length > 1 && (
-                <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-                  {topRecs.slice(1).map((rec, i) => (
-                    <RecCard key={rec.id} rec={rec} word={priorityWord(i + 1)} voices={recThemes(rec)} gatePassed clamp className="h-full" />
-                  ))}
-                </div>
-              )}
-            </div>
-          ) : (
-            <p className="text-sm text-muted-foreground">
-              Nothing has strong enough evidence to lead with yet — the full list is under &ldquo;All recommendations&rdquo;.
-            </p>
-          )}
-          {restRecs.length > 0 && (
-            <CollapsedSection label="All recommendations" count={restRecs.length}>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {restRecs.map((rec) => (
-                  <RecCard key={rec.id} rec={rec} word="Worth considering" voices={recThemes(rec)} compact />
-                ))}
-              </div>
-            </CollapsedSection>
-          )}
-        </section>
-      )}
-
-      {/* Key insights (spec §3.3) — max 3, gate-passed, by opportunity */}
-      {keyInsights.length > 0 && (
-        <section className="space-y-4">
-          <SectionHeading label="Key insights" />
-          {keyInsights.map((mi) => (
-            <InsightCard key={mi.id} mi={mi} tier="confirmed" themes={insightThemes(mi)} conversations={conversationCount(mi)} quotes={pick(insightAudienceIds(mi), 2, `${mi.title} ${mi.description}`, mi.hero_quote)} />
-          ))}
-        </section>
-      )}
-
-      {/* Early signals (spec §3.4) — honestly framed, grouped in a shaded panel
-          (the Meltwater "keyphrases" cluster: soft cards + a chip cloud on shade) */}
-      {(earlyInsights.length > 0 || singleSourceThemes.length > 0) && (
-        <section className="space-y-4 rounded-3xl bg-muted/40 p-4 sm:p-5">
-          <SectionHeading label="Early signals" />
-          {earlyInsights.map((mi) => (
-            <InsightCard key={mi.id} mi={mi} tier="early_signal" themes={insightThemes(mi)} conversations={conversationCount(mi)} quotes={pick(insightAudienceIds(mi), 2, `${mi.title} ${mi.description}`, mi.hero_quote)} />
-          ))}
-          {singleSourceThemes.length > 0 && (
-            <div className="space-y-2">
-              <p className="text-xs text-muted-foreground">
-                Each of these was heard in a single conversation so far:
-              </p>
-              <div className="flex flex-wrap items-center gap-1.5">
-                {singleSourceThemes.map((t, i) => (
-                  <span key={i} title={t.description ?? undefined} className="px-2 py-0.5 rounded-full text-xs bg-muted text-muted-foreground">
-                    {t.label}
-                  </span>
-                ))}
-                {singleSourceTotal > singleSourceThemes.length && (
-                  <span className="text-xs text-muted-foreground">
-                    +{singleSourceTotal - singleSourceThemes.length} more
-                  </span>
-                )}
-              </div>
-            </div>
-          )}
-        </section>
-      )}
-
-      {/* All findings (spec §3.5) — the un-curated list, demoted to an archive */}
-      {insights.length > 0 && (
-        <CollapsedSection label="All findings" count={insights.length}>
-          <div className="space-y-4">
-            {insights.map((mi) => (
-              <InsightCard key={mi.id} mi={mi} tier={tierOf.get(mi.id) ?? 'archive'} themes={insightThemes(mi)} conversations={conversationCount(mi)} />
-            ))}
-          </div>
-        </CollapsedSection>
-      )}
-    </div>
-  )
-}
-
-/** Say vs hear (Step 2b) — two-panel contrast per claim: what the brand's own
- *  video says (verbatim, from its transcript) against what the tracked
- *  conversation says. Entries arrive pre-validated from the pipeline
- *  (run_summary.say_vs_hear); silence is a real verdict, rendered honestly —
- *  never fabricated audience voice. */
-function SayVsHearSection({ entries, themeSlugById }: { entries: SayVsHearEntry[]; themeSlugById: Map<string, string> }) {
-  const verdict = (a: SayVsHearEntry['audience']) =>
-    a === 'echoes'
-      ? { text: 'They echo it', cls: 'bg-positive/12 text-positive' }
-      : a === 'contradicts'
-        ? { text: 'They push back', cls: 'bg-warning/15 text-warning' }
-        : { text: 'Not talked about yet', cls: 'bg-muted text-muted-foreground' }
-  const themesOf = (e: SayVsHearEntry): string[] => {
+  // ── say vs hear ─────────────────────────────────────────────────────────
+  const claims = sayVsHear ?? []
+  const counts = claimCounts(claims)
+  const claimThemes = (e: SayVsHearEntry): string[] => {
     const slugs = new Set<string>()
     for (const id of e.supporting_theme_ids ?? []) {
       const s = themeSlugById.get(id)
@@ -405,342 +325,377 @@ function SayVsHearSection({ entries, themeSlugById }: { entries: SayVsHearEntry[
     }
     return [...slugs].slice(0, 4)
   }
+
+  // ── overlays ────────────────────────────────────────────────────────────
+  const showRecs = sp.detail === 'recs'
+  const showClaims = sp.detail === 'claims'
+  const showInsights = sp.detail === 'insights'
+  const showAbout = sp.detail === 'about'
+  const showNews = sp.detail === 'news'
+
+  const context = `What should we do? · ${brand} · ${weekdayDate(runDate)}`
+
   return (
-    <section className="space-y-4">
-      <SectionHeading label="What you say vs what they hear" hint="Your own videos&rsquo; words, set against the tracked conversation" />
-      <div className="space-y-4">
-        {entries.map((e, i) => {
-          const chip = verdict(e.audience)
-          const themes = themesOf(e)
-          return (
-            <Card key={i}>
-              <CardContent className="pt-6 space-y-4">
-                <div className="grid gap-6 lg:grid-cols-2">
-                  <div className="space-y-2">
-                    <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">You say</p>
-                    <p className="text-sm font-medium">{e.you_say}</p>
-                    <blockquote className="border-l-2 pl-3 text-sm italic text-muted-foreground">&ldquo;{e.your_quote}&rdquo;</blockquote>
+    <PageFrame>
+      <PageBar title="Market Intelligence" context={context}>
+        <BarPill active>This update</BarPill>
+        <HowToRead items={LEGEND_ITEMS} open={showLegend} basePath={BASE} />
+      </PageBar>
+
+      <PageGrid>
+        {/* ── the agenda: what to do ─────────────────────────────────── */}
+        <Tile col={5} row={6} variant={featured ? 'warm' : 'default'} eyebrow="What to do · this update"
+          meta={agenda.length > 0 ? `${agenda.length} ${plural(agenda.length, 'recommendation')} · ordered by evidence` : undefined}
+          footer={agenda.length > 0 ? <Link href={`${BASE}?detail=recs`} scroll={false}>All recommendations →</Link> : undefined}
+          footerNote={agenda.length > 0 ? (
+            <span className="flex items-center gap-2 text-[10.5px]">
+              <span className="flex items-center gap-1"><PriorityDot priority="high" />high</span>
+              <span className="flex items-center gap-1"><PriorityDot priority="medium" />medium</span>
+              <span className="flex items-center gap-1"><PriorityDot priority="low" />low</span>
+            </span>
+          ) : undefined}
+          bodyClassName="overflow-hidden"
+        >
+          {featured ? (
+            <>
+              {/* #1 — featured */}
+              <div className="flex flex-col gap-2 pb-2">
+                <div className="flex items-start gap-2.5">
+                  <span className="w-3.5 shrink-0 font-mono text-[12px] font-semibold leading-[1.25] text-[#9AA39A]">1</span>
+                  <PriorityDot priority={featured.rec.priority} className="mt-[7px]" />
+                  <h3 className="line-clamp-3 flex-1 text-[17px] font-semibold leading-[1.25] tracking-[-0.01em] [text-wrap:balance]">{featured.rec.title}</h3>
+                </div>
+                <div className="flex flex-col gap-2 pl-[31px]">
+                  <div className="flex flex-wrap items-center gap-1">
+                    <PriorityChip word={priorityWord(0)} />
+                    <EvidenceChip tier={featured.tier} />
+                    {featuredConversations > 0 && <Chip title={glossaryRule('conversations')}>{fmtInt(featuredConversations)} {plural(featuredConversations, 'conversation')}</Chip>}
+                    <Chip>{prettyType(featured.rec.type)}</Chip>
                   </div>
-                  <div className="space-y-2">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">What your audience says</p>
-                      <span title={glossaryRule('say_vs_hear')} className={`${chipBase} ${chip.cls}`}>{chip.text}</span>
+                  <p className="line-clamp-4 text-[12.5px] leading-[1.45] text-foreground/85">{featured.rec.reasoning}</p>
+                  {featuredQuotes.length > 0 && (
+                    <div className="flex flex-col gap-1.5">
+                      {featuredQuotes.map((q, i) => (
+                        <Quote key={i} text={q} who={i === featuredQuotes.length - 1 && featuredVoices > 0 ? `${featuredQuotes.length === 1 ? 'one' : 'two'} of ${fmtInt(featuredVoices)} voices behind this` : undefined} />
+                      ))}
                     </div>
-                    {e.they_say ? (
-                      <p className="text-sm">{e.they_say}</p>
-                    ) : (
-                      <p className="text-sm text-muted-foreground">The tracked conversation doesn&rsquo;t engage with this claim yet.</p>
+                  )}
+                  <div className="flex flex-wrap items-center gap-2 text-[11px] font-medium text-primary">
+                    {recThemes(featured.rec).length > 0 && (
+                      <Link href={voiceHref(recThemes(featured.rec))}>See the voices{featuredVoices > 0 ? ` (${fmtInt(featuredVoices)})` : ''} →</Link>
                     )}
-                    {themes.length > 0 && (
-                      <div className="flex flex-wrap gap-1.5">
-                        {themes.map((t) => (
-                          <Link
-                            key={t}
-                            href={`/dashboard/voice?themes=${encodeURIComponent(t)}`}
-                            className="px-2 py-0.5 rounded-full text-xs bg-muted text-muted-foreground hover:bg-muted/70"
-                          >
-                            {prettyType(t)}
-                          </Link>
-                        ))}
-                      </div>
-                    )}
+                    <StatusPill>Acknowledge</StatusPill>
+                    <StatusPill>Mark acted on</StatusPill>
                   </div>
                 </div>
-                <p className="border-t pt-3 text-sm text-muted-foreground">{e.gap}</p>
-              </CardContent>
-            </Card>
-          )
-        })}
-      </div>
-    </section>
-  )
-}
-
-/** One honest line above the brand-voice blocks: how many claims each speaker
- *  contributes — ALL-TIME (claims accumulate across updates, decision D1),
- *  post-hygiene, uncapped, so the label says "so far", not "this update".
- *  "Client as a whole" is this roll-up — never a pooled claim list, which is
- *  what misattributed third-party words as "You say" before 2026-08-16. */
-function BrandVoiceStrip({ counts }: { counts: BrandVoiceSnapshot['counts'] }) {
-  const part = (n: number, label: string) => (
-    <span className="inline-flex items-baseline gap-1.5">
-      <span className="text-base font-semibold tabular-nums text-foreground">{n}</span>
-      <span>{label}</span>
-    </span>
-  )
-  return (
-    <p className="flex flex-wrap items-baseline gap-x-4 gap-y-1 text-sm text-muted-foreground">
-      <span className="text-xs font-medium uppercase tracking-wide">Brand voice so far</span>
-      {part(counts.own, counts.own === 1 ? 'claim in your voice' : 'claims in your voice')}
-      <span aria-hidden>·</span>
-      {part(counts.about, 'about you')}
-      <span aria-hidden>·</span>
-      {part(counts.competitors, 'from competitors')}
-    </p>
-  )
-}
-
-/** About you — third parties talking about the brand (a reviewer, a clinic, a
- *  news channel), quoted verbatim from their transcripts. Evidence-only, no
- *  synthesis: the quote is the subject, the claim its annotation, the speaker
- *  named. These are is_client videos ("about the brand") that are NOT the
- *  brand speaking — kept out of say-vs-hear on purpose. */
-function AboutYouSection({ entries }: { entries: BrandVoiceSnapshot['about'] }) {
-  return (
-    <section className="space-y-4">
-      <SectionHeading label="What others say about you" hint="Other people&rsquo;s videos that name your brand &mdash; their words, not yours, and not your audience" />
-      <div className="grid gap-4 md:grid-cols-2">
-        {entries.map((e, i) => (
-          <Card key={i}>
-            <CardContent className="pt-6 space-y-3">
-              <blockquote className="border-l-2 pl-3 text-sm italic">&ldquo;{e.quote}&rdquo;</blockquote>
-              <p className="text-sm text-muted-foreground">{e.claim}</p>
-              <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-                <span title={glossaryRule('about_you')} className={`${chipBase} bg-muted text-muted-foreground`}>{e.account}</span>
-                {e.platform && <span className="capitalize">{e.platform}</span>}
-                {e.url && (
-                  <a href={e.url} target="_blank" rel="noopener noreferrer" className="underline underline-offset-2 hover:text-foreground">
-                    Watch
-                  </a>
-                )}
               </div>
-            </CardContent>
-          </Card>
-        ))}
-      </div>
-    </section>
+
+              {/* #2–#5 — compact */}
+              {compactRows.map((a, i) => {
+                const themes = recThemes(a.rec)
+                const conv = recConversations(a.rec)
+                return (
+                  <div key={a.rec.id} className="flex flex-col gap-[3px] border-t border-border/80 py-2">
+                    <div className="flex items-start gap-2.5">
+                      <span className="w-3.5 shrink-0 font-mono text-[12px] font-semibold leading-[1.3] text-[#9AA39A]">{i + 2}</span>
+                      <PriorityDot priority={a.rec.priority} className="mt-[6px]" />
+                      <span className="line-clamp-2 flex-1 text-[13px] font-semibold leading-[1.3]">{a.rec.title}</span>
+                      {conv > 0 && <span className="shrink-0 font-mono text-[11px] tabular-nums text-muted-foreground">{fmtInt(conv)} conv.</span>}
+                    </div>
+                    <div className="flex items-center gap-2 pl-[31px]">
+                      <span className="min-w-0 flex-1 truncate text-[11px] text-muted-foreground">
+                        {themes.length > 0 ? `Grounded in ${themes.map(prettyType).join(' · ')}` : prettyType(a.rec.type)}
+                      </span>
+                      <EvidenceChip tier={a.tier} />
+                    </div>
+                  </div>
+                )
+              })}
+            </>
+          ) : (
+            <TileEmpty>Recommendations land with your next update.</TileEmpty>
+          )}
+        </Tile>
+
+        {/* ── the short read: one 2×2 panel ──────────────────────────── */}
+        <Tile col={7} row={2} eyebrow="The short read" meta={ciSummary ? `what the market is telling ${brand}` : undefined} bodyClassName="overflow-hidden">
+          {ciSummary ? (
+            <div className="-mx-3.5 -mb-3 grid flex-1 grid-cols-1 border-t border-border/80 sm:grid-cols-2">
+              <Quadrant title="Unmet needs" items={quadrantBullets(ciSummary.top_unmet_needs)} color="text-clay" dot="bg-clay" className="sm:border-r border-b border-border/80" />
+              <Quadrant title="Buying triggers" items={quadrantBullets(ciSummary.top_buying_triggers)} color="text-primary" dot="bg-primary" className="border-b border-border/80" />
+              <Quadrant title="Who stands out" items={quadrantBullets(ciSummary.top_differentiators)} color="text-slate" dot="bg-slate" className="sm:border-r border-b border-border/80 sm:border-b-0" />
+              <Quadrant title="Threats to watch" items={quadrantBullets(ciSummary.threats)} color="text-warning" dot="bg-warning" />
+            </div>
+          ) : (
+            <TileEmpty>The short read lands with your next update.</TileEmpty>
+          )}
+        </Tile>
+
+        {/* ── say vs hear: the claims ledger ─────────────────────────── */}
+        <Tile col={7} row={2} eyebrow="What you say vs what they hear"
+          meta={claims.length > 0 ? claimCountsLine(counts) : undefined}
+          footer={claims.length > 0 ? <Link href={`${BASE}?detail=claims`} scroll={false}>All {claims.length} {plural(claims.length, 'claim')} →</Link> : undefined}
+          footerNote={claims.length > 0 ? 'your claims from your own videos · their side from the tracked conversation' : undefined}
+          bodyClassName="overflow-hidden gap-1"
+        >
+          {claims.length > 0 ? (
+            <>
+              <div className="grid grid-cols-[1fr_108px_1.3fr] gap-2.5 text-[10.5px] font-semibold uppercase tracking-[0.05em] text-[#7A847A]">
+                <span>You say</span><span className="text-center">Verdict</span><span>They hear</span>
+              </div>
+              <div className="flex min-h-0 flex-col">
+                {ledgerRows(claims, 4).map((e, i) => {
+                  const v = claimVerdict(e.audience)
+                  const themes = claimThemes(e)
+                  return (
+                    <div key={i} className="grid grid-cols-[1fr_108px_1.3fr] items-center gap-2.5 border-t border-border/70 py-[5px]">
+                      <span className="line-clamp-2 text-[12px] font-semibold leading-[1.35]">{e.you_say}</span>
+                      <span className="text-center"><Chip tone={v.tone} title={glossaryRule('say_vs_hear')}>{v.label}</Chip></span>
+                      {e.they_say ? (
+                        <span className="line-clamp-2 border-l-2 border-clay/70 pl-2 text-[12px] leading-[1.35] text-foreground/90">
+                          {e.they_say}
+                          {themes.length > 0 && <> <Link href={voiceHref(themes)} className="whitespace-nowrap text-[10.5px] font-medium text-primary">voices →</Link></>}
+                        </span>
+                      ) : (
+                        <span className="line-clamp-2 text-[12px] leading-[1.35] text-muted-foreground">— nobody in the tracked conversation mentions this yet</span>
+                      )}
+                    </div>
+                  )
+                })}
+              </div>
+            </>
+          ) : (
+            <TileEmpty>Lands once your own videos have been analysed.</TileEmpty>
+          )}
+        </Tile>
+
+        {/* ── key insights ───────────────────────────────────────────── */}
+        <Tile col={4} row={2} eyebrow="Key insights"
+          meta={insights.length > 0 ? (
+            <span className="flex items-center gap-1">
+              <Chip tone="positive" title={glossaryRule('strong_evidence')}>{tiers.confirmed} confirmed</Chip>
+              {tiers.early > 0 && <Chip tone="warning" title={glossaryRule('early_signal')}>{tiers.early} early</Chip>}
+            </span>
+          ) : undefined}
+          footer={insights.length > 0 ? <Link href={`${BASE}?detail=insights`} scroll={false}>All {insights.length} {plural(insights.length, 'finding')} →</Link> : undefined}
+          footerNote={tiers.early > 0 ? `${tiers.early} early ${plural(tiers.early, 'signal')} in the drawer` : undefined}
+          bodyClassName="overflow-hidden"
+        >
+          {keyInsights.length > 0 ? (
+            <div className="flex flex-col divide-y divide-border/70">
+              {keyInsights.map((mi) => {
+                const conv = insightConversations(mi)
+                return (
+                  <div key={mi.id} className="flex flex-col gap-[2px] py-1.5 first:pt-0">
+                    <span className="line-clamp-2 text-[13px] font-semibold leading-[1.3]">{mi.title}</span>
+                    <span className="line-clamp-1 text-[11px] text-muted-foreground">
+                      {truncateWords(mi.description, 110)}{conv > 0 ? ` · ${fmtInt(conv)} ${plural(conv, 'conversation')}` : ''}
+                    </span>
+                  </div>
+                )
+              })}
+            </div>
+          ) : insights.length > 0 ? (
+            <TileEmpty>Nothing has strong enough evidence to headline yet — the early signals are one click deeper.</TileEmpty>
+          ) : (
+            <TileEmpty>Findings land with your next update.</TileEmpty>
+          )}
+        </Tile>
+
+        {/* ── said about you ─────────────────────────────────────────── */}
+        <Tile col={3} row={1} eyebrow="Said about you"
+          footer={aboutYou.length > 0 ? <Link href={`${BASE}?detail=about`} scroll={false}>All {aboutYou.length} →</Link> : undefined}
+          bodyClassName="overflow-hidden"
+        >
+          {aboutYou.length > 0 ? (
+            <Quote text={aboutYou[0].quote} who={`${aboutYou[0].account}${aboutYou[0].platform ? ` · ${platformLabel(aboutYou[0].platform)}` : ''}`} />
+          ) : (
+            <TileEmpty>Nothing said about you in other people’s videos yet.</TileEmpty>
+          )}
+        </Tile>
+
+        {/* ── in the news ────────────────────────────────────────────── */}
+        <Tile col={3} row={1} eyebrow="In the news" meta={news.length > 0 ? `${news.length} · context, not cause` : undefined}
+          footer={news.length > 1 ? <Link href={`${BASE}?detail=news`} scroll={false}>{news.length - 1} more →</Link> : undefined}
+          bodyClassName="overflow-hidden"
+        >
+          {news.length > 0 ? (
+            <div className="flex items-start gap-2">
+              <Chip tone={newsRingChip(news[0].ring).tone} title={glossaryRule('news')}>{newsRingChip(news[0].ring).label}</Chip>
+              <a href={news[0].url} target="_blank" rel="noopener noreferrer" className="line-clamp-2 text-[12px] leading-[1.35] hover:underline">{news[0].title}</a>
+            </div>
+          ) : (
+            <TileEmpty>Nothing in the news this week.</TileEmpty>
+          )}
+        </Tile>
+      </PageGrid>
+
+      {/* ── drawers: one click deeper ────────────────────────────────── */}
+      <DetailDrawer open={showRecs} closeHref={BASE} title="All recommendations" description={`${agenda.length} this update · ordered by evidence, the best-grounded first`}>
+        <ol className="space-y-4">
+          {agenda.map((a, i) => (
+            <RecDrawerRow key={a.rec.id} item={a} index={i} themes={recThemes(a.rec)} conversations={recConversations(a.rec)} />
+          ))}
+        </ol>
+      </DetailDrawer>
+
+      <DetailDrawer open={showClaims} closeHref={BASE} title="What you say vs what they hear" description={claims.length > 0 ? claimCountsLine(counts) : undefined}>
+        <div className="space-y-4">
+          {claims.map((e, i) => {
+            const v = claimVerdict(e.audience)
+            return (
+              <div key={i} className="space-y-2 border-t border-border/70 pt-3 first:border-t-0 first:pt-0">
+                <div className="flex items-start justify-between gap-2">
+                  <p className="text-[13px] font-semibold leading-[1.35]">{e.you_say}</p>
+                  <Chip tone={v.tone} title={glossaryRule('say_vs_hear')}>{v.label}</Chip>
+                </div>
+                <Quote text={e.your_quote} who="your own video" clamp={false} />
+                {e.they_say ? (
+                  <p className="text-[12.5px] text-foreground/90"><span className="font-medium">They hear:</span> {e.they_say}</p>
+                ) : (
+                  <p className="text-[12.5px] text-muted-foreground">— nobody in the tracked conversation mentions this yet</p>
+                )}
+                <p className="text-[12px] text-muted-foreground">{e.gap}</p>
+                <ThemeChips themes={claimThemes(e)} />
+              </div>
+            )
+          })}
+        </div>
+      </DetailDrawer>
+
+      <DetailDrawer open={showInsights} closeHref={BASE} title="All findings" description={`${insights.length} this update · ${tiers.confirmed} confirmed · ${tiers.early} early · ${tiers.archive} below the bar`}>
+        <div className="space-y-5">
+          {confirmed.length > 0 && (
+            <DrawerSection label="Confirmed">
+              {confirmed.map((mi) => <InsightDrawerRow key={mi.id} mi={mi} tier="confirmed" themes={insightThemes(mi)} conversations={insightConversations(mi)} quote={keyQuotes.get(mi.id)?.[0]} />)}
+            </DrawerSection>
+          )}
+          {earlyInsights.length > 0 && (
+            <DrawerSection label="Early signals" hint="worth watching, not yet confirmed">
+              {earlyInsights.map((mi) => <InsightDrawerRow key={mi.id} mi={mi} tier="early_signal" themes={insightThemes(mi)} conversations={insightConversations(mi)} />)}
+            </DrawerSection>
+          )}
+          {singleSourceThemes.length > 0 && (
+            <DrawerSection label="Heard once" hint="each in a single conversation so far">
+              <div className="flex flex-wrap items-center gap-1">
+                {singleSourceThemes.map((t, i) => (
+                  <span key={i} title={t.description ?? undefined} className="rounded-full bg-muted px-2 py-px text-[10.5px] text-muted-foreground">{t.label}</span>
+                ))}
+                {singleSourceTotal > singleSourceThemes.length && <span className="text-[10.5px] text-muted-foreground">+{singleSourceTotal - singleSourceThemes.length} more</span>}
+              </div>
+            </DrawerSection>
+          )}
+          {archiveInsights.length > 0 && (
+            <DrawerSection label="Everything else" hint="below the evidence bar this update">
+              {archiveInsights.map((mi) => <InsightDrawerRow key={mi.id} mi={mi} tier="archive" themes={insightThemes(mi)} conversations={insightConversations(mi)} />)}
+            </DrawerSection>
+          )}
+        </div>
+      </DetailDrawer>
+
+      <DetailDrawer open={showAbout} closeHref={BASE} title="Said about you" description={glossaryRule('about_you')}>
+        <div className="space-y-4">
+          {aboutYou.map((e, i) => (
+            <div key={i} className="space-y-1.5 border-t border-border/70 pt-3 first:border-t-0 first:pt-0">
+              <Quote text={e.quote} clamp={false} />
+              <p className="text-[12px] text-muted-foreground">{e.claim}</p>
+              <p className="flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground">
+                <span className="font-medium text-foreground/80">{e.account}</span>
+                {e.platform && <span>{platformLabel(e.platform)}</span>}
+                {e.url && <a href={e.url} target="_blank" rel="noopener noreferrer" className="font-medium text-primary">Watch →</a>}
+              </p>
+            </div>
+          ))}
+        </div>
+      </DetailDrawer>
+
+      <DetailDrawer open={showNews} closeHref={BASE} title="In the news" description="coverage of your brand, competitors and category — context beside the conversation, not a cause of anything measured">
+        <div className="space-y-3">
+          {news.map((n) => {
+            const chip = newsRingChip(n.ring)
+            return (
+              <div key={n.url} className="flex items-start justify-between gap-3 border-t border-border/70 pt-2.5 first:border-t-0 first:pt-0">
+                <div className="min-w-0">
+                  <a href={n.url} target="_blank" rel="noopener noreferrer" className="text-[12.5px] font-medium leading-[1.35] hover:underline">{n.title}</a>
+                  <div className="mt-0.5 text-[11px] text-muted-foreground">{n.source_ref}{n.published_at ? ` · ${shortDate(n.published_at)}` : ''}</div>
+                </div>
+                <Chip tone={chip.tone}>{chip.label}</Chip>
+              </div>
+            )
+          })}
+        </div>
+      </DetailDrawer>
+    </PageFrame>
   )
 }
 
-function PageHeader({ showLegend }: { showLegend: boolean }) {
+/** One quadrant of the short read — a hued eyebrow and two honest bullets. */
+function Quadrant({ title, items, color, dot, className = '' }: { title: string; items: string[]; color: string; dot: string; className?: string }) {
   return (
-    <div className="flex items-start justify-between gap-4">
-      <h1 className="text-2xl font-bold">Market Intelligence</h1>
-      <HowToRead items={LEGEND_ITEMS} open={showLegend} basePath="/dashboard/market" />
+    <div className={`flex min-h-0 flex-col gap-0.5 overflow-hidden px-3.5 py-1.5 ${className}`}>
+      <span className={`text-[10.5px] font-semibold uppercase tracking-[0.07em] ${color}`}>{title}</span>
+      {items.length > 0 ? items.map((it, i) => (
+        <span key={i} className="flex items-start gap-1.5">
+          <span className={`mt-[6px] size-1.5 shrink-0 rounded-full ${dot}`} aria-hidden />
+          <span className="line-clamp-2 text-[11.5px] leading-[1.4] text-foreground/85">{it}</span>
+        </span>
+      )) : (
+        <span className="text-[11.5px] text-muted-foreground">— nothing stood out here this update</span>
+      )}
     </div>
   )
 }
 
-function SectionHeading({ label, hint }: { label: string; hint?: string }) {
+function DrawerSection({ label, hint, children }: { label: string; hint?: string; children: ReactNode }) {
   return (
-    <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
-      {label}
-      {hint && <span className="ml-2 normal-case font-normal tracking-normal text-xs opacity-70">{hint}</span>}
-    </h2>
-  )
-}
-
-/** Native details/summary — collapsed archives without client JS. */
-function CollapsedSection({ label, count, children }: { label: string; count: number; children: React.ReactNode }) {
-  return (
-    <details className="group">
-      <summary className="flex cursor-pointer list-none items-center gap-2 text-sm font-semibold uppercase tracking-wide text-muted-foreground [&::-webkit-details-marker]:hidden">
-        <span className="text-[10px] transition-transform group-open:rotate-90" aria-hidden>▶</span>
-        {label} <span className="opacity-60">· {count}</span>
-      </summary>
-      <div className="mt-4">{children}</div>
-    </details>
-  )
-}
-
-/** §3.1 — the "someone already read everything for you" headline block. */
-function ShortRead({ s }: { s: CiSummary }) {
-  // A tight "at a glance" digest — four equal icon-anchored cards, no dead space.
-  // The woven read lives on the dashboard; this page shows the specifics behind
-  // the recommendations, not a second narrative. ("Who stands out" not "Your
-  // differentiators": the list includes competitor standouts.)
-  const facets = [
-    { label: 'Unmet needs', items: s.top_unmet_needs, Icon: Target, fg: 'text-clay', bg: 'bg-clay/10' },
-    { label: 'Buying triggers', items: s.top_buying_triggers, Icon: TrendingUp, fg: 'text-pine', bg: 'bg-pine/10' },
-    { label: 'Who stands out', items: s.top_differentiators, Icon: Sparkles, fg: 'text-plum', bg: 'bg-plum/10' },
-    { label: 'Threats to watch', items: s.threats, Icon: AlertTriangle, fg: 'text-warning', bg: 'bg-warning/15' },
-  ].filter((f) => (f.items?.length ?? 0) > 0)
-  if (facets.length === 0) return null
-  return (
-    <section className="space-y-3">
-      <h2 className="text-base font-semibold">The short read</h2>
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        {facets.map((f) => (
-          <Card key={f.label} className={f.label === 'Threats to watch' ? 'rounded-lg ring-1 ring-warning/25' : 'rounded-lg'}>
-            <CardContent className="space-y-3 py-5">
-              {/* Colored icon badge + hued label so each facet reads distinctly */}
-              <div className="flex items-center gap-2.5">
-                <span className={`inline-flex size-7 shrink-0 items-center justify-center rounded-md ${f.bg}`}>
-                  <f.Icon className={`size-4 ${f.fg}`} aria-hidden />
-                </span>
-                <span className={`text-xs font-semibold uppercase tracking-wide ${f.fg}`}>{f.label}</span>
-              </div>
-              <ul className="space-y-2">
-                {f.items.slice(0, 3).map((item, i) => (
-                  <li key={i} className="text-sm leading-snug text-foreground/85">{item}</li>
-                ))}
-              </ul>
-            </CardContent>
-          </Card>
-        ))}
-      </div>
+    <section className="space-y-2.5">
+      <h3 className="text-[10.5px] font-semibold uppercase tracking-[0.07em] text-muted-foreground">
+        {label}{hint && <span className="ml-1.5 font-normal normal-case tracking-normal opacity-80">· {hint}</span>}
+      </h3>
+      {children}
     </section>
   )
 }
 
-/** Shared "see the voices" pill used by both rec card variants. */
-function VoicesLink({ voices }: { voices: string[] }) {
-  if (voices.length === 0) return null
+function RecDrawerRow({ item, index, themes, conversations }: { item: AgendaItem<Recommendation>; index: number; themes: string[]; conversations: number }) {
+  const { rec, tier } = item
   return (
-    <Link
-      href={`/dashboard/voice?themes=${encodeURIComponent(voices.join(','))}#grounding`}
-      className="inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-medium text-primary ring-1 ring-primary/25 transition-colors hover:bg-primary/5"
-    >
-      See the voices behind this <span aria-hidden>→</span>
-    </Link>
-  )
-}
-
-/** The #1 action — a featured two-panel card: recommendation on the left, an
- *  "In their words" quote satellite on the right (Meltwater main-plus-satellite).
- *  The one place raw voices lead a rec, so the secondary cards stay quiet. */
-function FeaturedRec({ rec, word, voices, quotes }: {
-  rec: Recommendation
-  word: string
-  voices: string[]
-  quotes: string[]
-}) {
-  return (
-    <Card className="ring-1 ring-primary/15">
-      <CardContent className="space-y-4 py-6 sm:px-8">
-        <div className="flex flex-wrap items-center gap-2">
-          <PriorityChip word={word} />
-          <CategoryChip>{rec.type}</CategoryChip>
-          <EvidenceChip tier="confirmed" />
-        </div>
-        <div className="grid gap-6 lg:grid-cols-[1.7fr_1fr]">
-          <div className="space-y-2">
-            <h3 className="text-lg font-semibold leading-snug">{rec.title}</h3>
-            <p className="text-sm leading-relaxed text-muted-foreground">{rec.reasoning}</p>
-            <div className="pt-1"><VoicesLink voices={voices} /></div>
-          </div>
-          {quotes.length > 0 && (
-            <div className="space-y-2 rounded-xl bg-muted/50 p-4">
-              <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">In their words</div>
-              <Quotes items={quotes} />
-            </div>
-          )}
-        </div>
-      </CardContent>
-    </Card>
-  )
-}
-
-function RecCard({ rec, word, voices, gatePassed, compact, quotes = [], className, clamp }: {
-  rec: Recommendation
-  /** Calibrated priority word — positional (Act now / Plan next / Worth considering). */
-  word: string
-  voices: string[]
-  gatePassed?: boolean
-  compact?: boolean
-  /** Verbatim voices that lead the card (evidence-led); empty on compact/archive. */
-  quotes?: string[]
-  /** Grid placement / sizing from the caller. */
-  className?: string
-  /** Clamp the reasoning so a secondary card never becomes a wall of text. */
-  clamp?: boolean
-}) {
-  return (
-    <Card className={className}>
-      <CardHeader className="pb-2">
-        <div className="flex flex-wrap items-center gap-2">
-          <PriorityChip word={word} />
-          <CategoryChip>{rec.type}</CategoryChip>
-          {gatePassed && <EvidenceChip tier="confirmed" />}
-        </div>
-      </CardHeader>
-      <CardContent className="space-y-3">
-        {!compact && quotes.length > 0 && <Quotes items={quotes} />}
-        <div className="space-y-1">
-          <h3 className={`font-semibold ${compact ? 'text-sm' : 'text-base'}`}>{rec.title}</h3>
-          <p className={`text-muted-foreground ${compact ? 'text-xs' : 'text-sm'} ${clamp ? 'line-clamp-6' : ''}`}>{rec.reasoning}</p>
-        </div>
-        <VoicesLink voices={voices} />
-      </CardContent>
-    </Card>
-  )
-}
-
-// Icon per insight type for the Meltwater-style eyebrow (safe lucide names).
-const INSIGHT_ICON = {
-  unmet_need: Target,
-  sentiment_trajectory: TrendingUp,
-  sentiment_differential: TrendingUp,
-  industry_signal: Sparkles,
-  platform_pattern: Sparkles,
-  cross_platform_synthesis: Sparkles,
-} as const
-
-function InsightCard({ mi, tier, themes, conversations, quotes = [] }: {
-  mi: MarketInsight
-  tier: GateTier
-  themes: string[]
-  /** Measured: distinct conversations behind this insight's evidence. */
-  conversations: number
-  /** Verbatim voices that lead the card (evidence-led); empty in the archive. */
-  quotes?: string[]
-}) {
-  const Icon = INSIGHT_ICON[mi.insight_type as keyof typeof INSIGHT_ICON] ?? Lightbulb
-  return (
-    <Card>
-      <CardContent className="space-y-4 py-6 sm:px-7">
-        {/* Icon eyebrow + evidence chip */}
-        <div className="flex items-center justify-between gap-3">
-          <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-            <Icon className="size-4 text-primary" aria-hidden />
-            {prettyType(mi.insight_type)}
-          </div>
+    <li className="flex gap-2.5 border-t border-border/70 pt-3 first:border-t-0 first:pt-0">
+      <span className="w-4 shrink-0 font-mono text-[12px] font-semibold text-[#9AA39A]">{index + 1}</span>
+      <div className="min-w-0 flex-1 space-y-1.5">
+        <div className="flex flex-wrap items-center gap-1">
+          <PriorityDot priority={rec.priority} />
+          <PriorityChip word={priorityWord(index)} />
           <EvidenceChip tier={tier} />
+          <Chip>{prettyType(rec.type)}</Chip>
         </div>
-        {/* The finding — the headline — then the read */}
-        <div className="space-y-1.5">
-          <h3 className="text-lg font-semibold leading-snug">{mi.title}</h3>
-          <p className="text-sm leading-relaxed text-muted-foreground">{mi.description}</p>
-        </div>
-        {/* One voice */}
-        {quotes.length > 0 && <Quotes items={quotes.slice(0, 1)} />}
-        {themes.length > 0 && (
-          <div className="space-y-3 border-t pt-4">
-            <div className="flex flex-wrap items-end justify-between gap-3">
-              {/* The grounded-in count, promoted to the card's number-anchor */}
-              {conversations > 0 ? (
-                <div className="flex items-baseline gap-1.5">
-                  <span className="text-2xl font-bold tabular-nums">{conversations}</span>
-                  <span className="text-xs text-muted-foreground">conversation{conversations === 1 ? '' : 's'} grounding this</span>
-                </div>
-              ) : (
-                <span className="text-xs font-medium text-muted-foreground">Grounded in supporting themes</span>
-              )}
-              <Link
-                href={`/dashboard/voice?themes=${encodeURIComponent(themes.join(','))}#grounding`}
-                className="inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-medium text-primary ring-1 ring-primary/25 transition-colors hover:bg-primary/5"
-              >
-                See supporting voices <span aria-hidden>→</span>
-              </Link>
-            </div>
-            <div className="flex flex-wrap gap-1.5">
-              {themes.map((theme, i) => (
-                <span key={i} className={`px-2 py-0.5 rounded-full text-xs capitalize ${categoryTint(theme)}`}>{theme.replace(/_/g, ' ')}</span>
-              ))}
-            </div>
-          </div>
-        )}
-      </CardContent>
-    </Card>
+        <p className="text-[13px] font-semibold leading-[1.35]">{rec.title}</p>
+        <p className="text-[12.5px] text-foreground/85">{rec.reasoning}</p>
+        <p className="text-[11px] text-muted-foreground">
+          {conversations > 0 ? `${fmtInt(conversations)} ${plural(conversations, 'conversation')} behind this` : 'Grounded in its supporting insights'}
+          {themes.length > 0 && <> · <Link href={voiceHref(themes)} className="font-medium text-primary">See the voices →</Link></>}
+        </p>
+        <ThemeChips themes={themes} />
+      </div>
+    </li>
   )
 }
 
-function EmptyState() {
+function InsightDrawerRow({ mi, tier, themes, conversations, quote }: { mi: MarketInsight; tier: GateTier; themes: string[]; conversations: number; quote?: string }) {
   return (
-    <Card>
-      <CardContent className="py-10 text-center text-sm text-muted-foreground">
-        Your market intelligence lands with your first update — check back then.
-      </CardContent>
-    </Card>
+    <div className="space-y-1.5 border-t border-border/70 pt-2.5 first:border-t-0 first:pt-0">
+      <div className="flex items-start justify-between gap-2">
+        <p className="text-[13px] font-semibold leading-[1.35]">{mi.title}</p>
+        <EvidenceChip tier={tier} />
+      </div>
+      <p className="text-[12.5px] text-foreground/85">{mi.description}</p>
+      {quote && <Quote text={quote} clamp={false} />}
+      <p className="text-[11px] text-muted-foreground">
+        <span className="capitalize">{prettyType(mi.insight_type)}</span>
+        {conversations > 0 && <> · {fmtInt(conversations)} {plural(conversations, 'conversation')} grounding this</>}
+        {themes.length > 0 && <> · <Link href={voiceHref(themes)} className="font-medium text-primary">See supporting voices →</Link></>}
+      </p>
+      <ThemeChips themes={themes} />
+    </div>
   )
 }

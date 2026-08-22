@@ -1,22 +1,37 @@
-import { Zap, Film, Megaphone, Play, Captions, LayoutGrid, Timer, Music } from 'lucide-react'
+import Link from 'next/link'
+import { Captions } from 'lucide-react'
 import { selectAll } from '@/lib/supabase-admin'
 import { getSessionContext } from '@/lib/auth'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { ProportionBar } from '@/components/proportion-bar'
+import { HowToRead } from '@/components/how-to-read'
 import { SENTIMENT_BADGE } from '@/lib/ui-colors'
-import { EngageSection } from './engage-section'
+import { fmtInt, fmtCompact, fmtPct, weekdayDate, platformLabel } from '@/lib/format'
+import { accountSeries } from '@/lib/dashboard-tiles'
+import {
+  perfVsMedian, fmtMultiple, bestDuration, fieldSentence, topVoices, roleByAccount, initials, handleKey, isIntent,
+  type FieldRow, type VoiceRole, type DurationBandPerf,
+} from '@/lib/content-tiles'
+import { PageFrame, PageGrid, PageBar, BarPill } from '@/components/shell/page-grid'
+import { Tile, TileEmpty } from '@/components/shell/tile'
+import { DetailDrawer } from '@/components/shell/detail-drawer'
+import { Sparkline } from '@/components/charts/sparkline'
+import { Delta } from '@/components/charts/stat'
+import { RankedBar } from '@/components/charts/ranked-bar'
+import { PlatformIcon } from '@/components/charts/platform-icon'
+import { loadEngageDigest, shapeInbox, EngageInboxTile, EngageDrawers } from './engage-section'
 
-// Content — "What content works in this niche?" (Redesign Spec §6). Four
-// layers over the latest update's videos: hook intelligence (hook_style ranked
-// by engagement with real hook_text examples), content-type performance, top
-// voices (the accounts driving the category conversation — strategy content
-// pillar #5), and the full catalog as the evidence layer at the bottom.
-// Demo-layout ranked tables with inline single-hue bars (magnitude, not
-// identity — dataviz rules; values always labelled). Anchored on the newest
-// gather with data, excluding in-flight runs, like the dashboard. Honesty
-// rule (positioning): hooks are read from captions + comments — and, since
-// Pass A v4 (TRANSCRIPTS_ENABLED), from the video's transcript when one was
-// captured; still never the footage itself.
+// Content — "what content works, and who to answer?", on one screen (one-screen
+// redesign, 2026-08-22: the reply inbox + the playbook). "Worth a reply" is the
+// hero inbox · what works right now (hooks + formats as multiples of the median
+// video, best length, top sound) · the field this update (entity scoreboard +
+// one grounded sentence) · top voices · your own accounts (moved here from
+// Trends: follower sparklines + the top explained movement). Every tile gates
+// on its data and shows an honest empty line at its size. Numbers rule: counts,
+// views and measured engagement — hook styles, formats and insight categories
+// only group and order. Video tiles anchor on the newest update WITH videos,
+// excluding in-flight ones; the inbox anchors on the latest completed analysis
+// (engage-section.tsx), so the two can differ while an update is mid-flight.
+// Hooks are read from captions + comments — and the speech transcript when one
+// was captured — never the footage itself.
 
 interface VideoRow {
   id: string
@@ -41,64 +56,13 @@ interface VideoRow {
   topics: string[] | null
 }
 
-const fmt = (n: number) =>
-  n >= 1_000_000 ? `${(n / 1_000_000).toFixed(1)}M`
-  : n >= 1_000   ? `${(n / 1_000).toFixed(0)}K`
-  : String(n)
-
 const pretty = (s: string) => s.replace(/[-_]/g, ' ')
 
-/** Max catalog rows rendered (the query stays run-scoped but uncapped — the
- *  aggregates above the table need the full update). */
+/** Max catalog rows rendered in the "All videos" drawer (the query stays
+ *  uncapped — the tiles need the full update). */
 const CATALOG_CAP = 100
-/** Accounts shown in Top voices. */
-const VOICES_SHOWN = 10
-
-interface PerfRow {
-  k: string
-  count: number
-  avgEng: number | null
-  topExample: string | null
-}
-
-// Aggregate avg engagement + count by a classification field; the example is
-// the hook_text of the group's highest-engagement video.
-function perfBy(videos: VideoRow[], key: 'hook_style' | 'classified_type'): PerfRow[] {
-  const map = new Map<string, { count: number; eng: number; engN: number; best: VideoRow | null }>()
-  for (const v of videos) {
-    const k = v[key]
-    if (!k) continue
-    const g = map.get(k) ?? { count: 0, eng: 0, engN: 0, best: null }
-    g.count++
-    if (Number(v.engagement_rate) > 0) {
-      g.eng += Number(v.engagement_rate)
-      g.engN++
-      if (!g.best || Number(v.engagement_rate) > Number(g.best.engagement_rate)) g.best = v
-    }
-    map.set(k, g)
-  }
-  return [...map.entries()]
-    .map(([k, { count, eng, engN, best }]) => ({
-      k, count,
-      avgEng: engN > 0 ? eng / engN : null,
-      topExample: best?.hook_text ?? null,
-    }))
-    .sort((a, b) => (b.avgEng ?? -1) - (a.avgEng ?? -1))
-}
-
-// Literal Tailwind classes (ProportionBar rule — never interpolate).
-const PLATFORM_COLOR: Record<string, string> = {
-  tiktok: 'bg-chart-1',
-  youtube: 'bg-chart-2',
-  instagram: 'bg-chart-3',
-}
-
-const median = (nums: number[]): number | null => {
-  if (nums.length === 0) return null
-  const s = [...nums].sort((a, b) => a - b)
-  const mid = Math.floor(s.length / 2)
-  return s.length % 2 ? s[mid] : (s[mid - 1] + s[mid]) / 2
-}
+/** Accounts in the "All voices" drawer. */
+const VOICES_ALL = 12
 
 const durationLabel = (secs: number) => {
   const m = Math.floor(secs / 60)
@@ -106,49 +70,56 @@ const durationLabel = (secs: number) => {
   return m > 0 ? `${m}:${String(s).padStart(2, '0')} min` : `${s}s`
 }
 
-/** One scoreboard row per entity: You / each competitor / the wider category. */
-interface EntityRow {
-  label: string
-  videos: number
-  platforms: Map<string, number>
+type EntityKind = FieldRow['kind']
+const entityKey = (v: VideoRow): { label: string; kind: EntityKind } =>
+  v.is_client ? { label: 'You', kind: 'you' }
+  : v.is_competitor ? { label: v.competitor_name ?? 'Competitor', kind: 'competitor' }
+  : { label: 'Category creators', kind: 'category' }
+
+/** One scoreboard row per entity: You / each competitor / category creators. */
+interface EntityRow extends FieldRow {
   medianDuration: number | null
-  avgEng: number | null
   engN: number
-  views: number
+}
+
+const medianOf = (nums: number[]): number | null => {
+  if (nums.length === 0) return null
+  const s = [...nums].sort((a, b) => a - b)
+  const mid = Math.floor(s.length / 2)
+  return s.length % 2 ? s[mid] : (s[mid - 1] + s[mid]) / 2
 }
 
 function entityScoreboard(all: VideoRow[]): EntityRow[] {
-  const groups = new Map<string, VideoRow[]>()
+  const groups = new Map<string, { kind: EntityKind; vids: VideoRow[] }>()
   for (const v of all) {
-    const key = v.is_client ? 'You' : v.is_competitor ? (v.competitor_name ?? 'Competitor') : 'Wider category'
-    groups.set(key, [...(groups.get(key) ?? []), v])
+    const { label, kind } = entityKey(v)
+    const g = groups.get(label) ?? { kind, vids: [] }
+    g.vids.push(v)
+    groups.set(label, g)
   }
-  const rows = [...groups.entries()].map(([label, vids]) => {
-    const platforms = new Map<string, number>()
-    for (const v of vids) platforms.set(v.platform, (platforms.get(v.platform) ?? 0) + 1)
+  const rows = [...groups.entries()].map(([label, { kind, vids }]) => {
     const withEng = vids.filter((v) => Number(v.engagement_rate) > 0)
     return {
-      label,
+      label, kind,
       videos: vids.length,
-      platforms,
-      medianDuration: median(vids.map((v) => Number(v.duration_seconds)).filter((d) => d > 0)),
+      medianDuration: medianOf(vids.map((v) => Number(v.duration_seconds)).filter((d) => d > 0)),
       avgEng: withEng.length > 0 ? withEng.reduce((s, v) => s + Number(v.engagement_rate), 0) / withEng.length : null,
       engN: withEng.length,
       views: vids.reduce((s, v) => s + Number(v.views ?? 0), 0),
     }
   })
-  const order = (r: EntityRow) => (r.label === 'You' ? 0 : r.label === 'Wider category' ? 2 : 1)
+  const order = (r: EntityRow) => (r.kind === 'you' ? 0 : r.kind === 'category' ? 2 : 1)
   return rows.sort((a, b) => order(a) - order(b) || b.videos - a.videos)
 }
 
 const DURATION_BANDS: { label: string; min: number; max: number }[] = [
-  { label: 'Under 15s', min: 0, max: 15 },
-  { label: '15–30s', min: 15, max: 30 },
-  { label: '30–60s', min: 30, max: 60 },
-  { label: 'Over 1 min', min: 60, max: Infinity },
+  { label: 'Under 15 s', min: 0, max: 15 },
+  { label: '15–30 s', min: 15, max: 30 },
+  { label: '30–60 s', min: 30, max: 60 },
+  { label: '60 s+', min: 60, max: Infinity },
 ]
 
-function durationPerf(all: VideoRow[]) {
+function durationPerf(all: VideoRow[]): DurationBandPerf[] {
   return DURATION_BANDS.map((band) => {
     const vids = all.filter((v) => {
       const d = Number(v.duration_seconds)
@@ -165,10 +136,10 @@ function durationPerf(all: VideoRow[]) {
 }
 
 /** Per-entity content playbook: top formats + hook style, with classification
- *  coverage stated per row (the batch classifier covers most of a corpus, but
- *  never all — "n of m" keeps thin slices honest). */
+ *  coverage stated per row ("n of m" keeps thin slices honest). */
 interface EntityPlaybook {
   label: string
+  kind: EntityKind
   total: number
   classified: number
   topFormats: { k: string; count: number }[]
@@ -176,10 +147,12 @@ interface EntityPlaybook {
 }
 
 function entityPlaybooks(all: VideoRow[]): EntityPlaybook[] {
-  const groups = new Map<string, VideoRow[]>()
+  const groups = new Map<string, { kind: EntityKind; vids: VideoRow[] }>()
   for (const v of all) {
-    const key = v.is_client ? 'You' : v.is_competitor ? (v.competitor_name ?? 'Competitor') : 'Wider category'
-    groups.set(key, [...(groups.get(key) ?? []), v])
+    const { label, kind } = entityKey(v)
+    const g = groups.get(label) ?? { kind, vids: [] }
+    g.vids.push(v)
+    groups.set(label, g)
   }
   const top = (vids: VideoRow[], key: 'classified_type' | 'hook_style') => {
     const counts = new Map<string, number>()
@@ -189,14 +162,14 @@ function entityPlaybooks(all: VideoRow[]): EntityPlaybook[] {
     }
     return [...counts.entries()].map(([k, count]) => ({ k, count })).sort((a, b) => b.count - a.count)
   }
-  const rows = [...groups.entries()].map(([label, vids]) => ({
-    label,
+  const rows = [...groups.entries()].map(([label, { kind, vids }]) => ({
+    label, kind,
     total: vids.length,
     classified: vids.filter((v) => v.classified_type != null).length,
     topFormats: top(vids, 'classified_type').slice(0, 3),
     topHook: top(vids, 'hook_style')[0] ?? null,
   }))
-  const order = (r: EntityPlaybook) => (r.label === 'You' ? 0 : r.label === 'Wider category' ? 2 : 1)
+  const order = (r: EntityPlaybook) => (r.kind === 'you' ? 0 : r.kind === 'category' ? 2 : 1)
   return rows.sort((a, b) => order(a) - order(b) || b.total - a.total)
 }
 
@@ -218,36 +191,78 @@ function trendingSounds(all: VideoRow[]) {
     .slice(0, 6)
 }
 
+// Colour jobs: you = green, a competitor = clay (then ochre, plum), category = slate.
+const KIND_COLOR: Record<EntityKind, string> = { you: 'var(--positive)', competitor: 'var(--accent-clay)', category: 'var(--accent-slate)' }
+const COMPETITOR_COLORS = ['var(--accent-clay)', 'var(--accent-ochre)', 'var(--accent-plum)', 'var(--accent-slate)']
+const ROLE_COLOR: Record<VoiceRole, string> = { you: 'var(--positive)', competitor: 'var(--accent-clay)', creator: 'var(--accent-slate)' }
+const ROLE_WORD: Record<VoiceRole, string> = { you: 'you', competitor: 'competitor', creator: 'creator' }
+// Literal Tailwind classes (never interpolated).
+const KIND_CHIP: Record<EntityKind, string> = {
+  you: 'bg-positive/12 text-positive',
+  competitor: 'bg-clay/10 text-clay',
+  category: 'bg-slate/12 text-slate',
+}
+const ROLE_CHIP: Record<VoiceRole, string> = {
+  you: 'bg-positive/12 text-positive',
+  competitor: 'bg-clay/10 text-clay',
+  creator: 'bg-slate/12 text-slate',
+}
+
 export default async function ContentPage({
   searchParams,
 }: {
-  searchParams?: Promise<{ detail?: string }>
+  searchParams?: Promise<{ detail?: string; intent?: string }>
 }) {
   const sp = (await searchParams) ?? {}
+  const intentFilter = isIntent(sp.intent) ? sp.intent : null
   // Auth + tenant via the RLS-enforced session client. See lib/auth.ts.
   const { supabase, clientId } = await getSessionContext()
 
-  // Anchor on the newest gather WITH data, excluding in-flight runs (the
+  // Anchor on the newest update WITH videos, excluding in-flight ones (the
   // dashboard's videoRunId pattern) — the page keeps serving the previous
   // update while a new one is collecting.
   const { data: runningRuns } = await supabase.from('pipeline_runs').select('id')
     .eq('client_id', clientId).eq('status', 'running')
   const runningIds = ((runningRuns ?? []) as { id: string }[]).map((r) => r.id)
-  let vidQ = supabase.from('videos').select('run_id').eq('client_id', clientId)
+  let vidQ = supabase.from('videos').select('run_id, scraped_at').eq('client_id', clientId)
   if (runningIds.length) vidQ = vidQ.not('run_id', 'in', `(${runningIds.join(',')})`)
-  const { data: latestVid } = await vidQ.order('scraped_at', { ascending: false }).limit(1).maybeSingle()
+
+  const [{ data: latestVid }, { data: tc }, digest, snapRows, { data: eventData }] = await Promise.all([
+    vidQ.order('scraped_at', { ascending: false }).limit(1).maybeSingle(),
+    supabase.from('tracking_configs').select('own_handles').eq('client_id', clientId).maybeSingle(),
+    loadEngageDigest(supabase, clientId),
+    // Daily follower snapshots (three platforms cross the 1000-row cap in ~11 months).
+    selectAll<{ platform: string; snapshot_date: string; followers: number | null }>(() =>
+      supabase.from('account_snapshots').select('platform, snapshot_date, followers').eq('client_id', clientId).order('snapshot_date', { ascending: true }),
+    ),
+    // Measured movements on the client's own accounts, newest first (Trends' logic).
+    supabase.from('account_events')
+      .select('platform, metric, event_date, severity, magnitude_label, explained, explanation')
+      .eq('client_id', clientId).order('event_date', { ascending: false }),
+  ])
+
+  const ownHandles = new Set(
+    Object.values(((tc as { own_handles?: Record<string, string> } | null)?.own_handles ?? {}) as Record<string, string>)
+      .filter((h): h is string => typeof h === 'string' && h.length > 0)
+      .map(handleKey),
+  )
 
   if (!latestVid) {
     return (
-      <div className="space-y-6">
-        <PageHeader sub={null} />
-        <EmptyState>Your content intelligence lands with your first update — check back then.</EmptyState>
-      </div>
+      <PageFrame>
+        <PageBar title="Content" context="What content works, and who to answer?" />
+        <PageGrid>
+          <Tile col={12} row={2} eyebrow="Your first update">
+            <TileEmpty>Your content intelligence lands with your first update — check back then.</TileEmpty>
+          </Tile>
+        </PageGrid>
+      </PageFrame>
     )
   }
   const videoRunId = latestVid.run_id as string
+  const updateDate = latestVid.scraped_at as string | null
 
-  // Discovered corpus only — the client's own posts are a different segment
+  // Discovered videos only — the client's own posts are a different segment
   // (Owned-Data-Plan: "segment, never blend") and never mix into market content
   // intelligence.
   const all = await selectAll<VideoRow>(() => supabase.from('videos')
@@ -255,422 +270,340 @@ export default async function ContentPage({
     .eq('client_id', clientId).eq('run_id', videoRunId).eq('source', 'discovered')
     .order('views', { ascending: false }).order('id', { ascending: true }))
 
-  const analysed = all.filter((v) => v.classified_type != null)
-  const hookPerf = perfBy(analysed, 'hook_style')
-  const typePerf = perfBy(analysed, 'classified_type')
-  const maxHookEng = Math.max(...hookPerf.map((h) => h.avgEng ?? 0), 0)
-  const maxTypeEng = Math.max(...typePerf.map((t) => t.avgEng ?? 0), 0)
+  // ── the inbox ──────────────────────────────────────────────────────────
+  const roles = roleByAccount(all)
+  const inbox = digest ? shapeInbox(digest, { now: new Date().toISOString(), ownHandles, roleByAccount: roles }) : []
 
-  const scoreboard = entityScoreboard(all)
+  // ── what works right now ───────────────────────────────────────────────
+  const analysed = all.filter((v) => v.classified_type != null)
+  const hooks = perfVsMedian(analysed, 'hook_style')
+  const formats = perfVsMedian(analysed, 'classified_type')
+  const hookMax = hooks[0]?.multiple ?? 0
+  const formatMax = formats[0]?.multiple ?? 0
   const durations = durationPerf(all)
-  const maxDurEng = Math.max(...durations.map((d) => d.avgEng ?? 0), 0)
+  const duration = bestDuration(durations)
   const sounds = trendingSounds(all)
+  const topSound = sounds[0] ?? null
   const playbooks = entityPlaybooks(all).filter((p) => p.classified > 0)
 
-  // ---- Top voices: the accounts driving the category conversation ----
-  const byAccount = new Map<string, { videos: number; views: number; eng: number; engN: number; followers: number; entity: string }>()
-  for (const v of all) {
-    const g = byAccount.get(v.account_name) ?? { videos: 0, views: 0, eng: 0, engN: 0, followers: 0, entity: 'industry' }
-    g.videos++
-    g.views += Number(v.views ?? 0)
-    if (Number(v.engagement_rate) > 0) { g.eng += Number(v.engagement_rate); g.engN++ }
-    g.followers = Math.max(g.followers, Number(v.account_followers ?? 0))
-    if (v.is_client) g.entity = 'brand'
-    else if (v.is_competitor && g.entity === 'industry') g.entity = v.competitor_name ?? 'competitor'
-    byAccount.set(v.account_name, g)
-  }
-  const voices = [...byAccount.entries()]
-    .map(([name, g]) => ({ name, ...g, avgEng: g.engN > 0 ? g.eng / g.engN : null }))
-    .sort((a, b) => b.views - a.views)
-    .slice(0, VOICES_SHOWN)
+  // ── the field ──────────────────────────────────────────────────────────
+  const scoreboard = entityScoreboard(all)
+  const fieldRows = [
+    ...scoreboard.filter((r) => r.kind === 'you'),
+    ...scoreboard.filter((r) => r.kind === 'competitor').slice(0, 2),
+    ...scoreboard.filter((r) => r.kind === 'category'),
+  ]
+  const fieldEngMax = Math.max(...fieldRows.map((r) => r.avgEng ?? 0), 0)
+  const sentence = fieldSentence(scoreboard)
+  let compIdx = 0
+  const rowColor = (r: EntityRow) => r.kind === 'competitor' ? COMPETITOR_COLORS[Math.min(compIdx++, COMPETITOR_COLORS.length - 1)] : KIND_COLOR[r.kind]
+  const fieldColors = new Map(fieldRows.map((r) => [r.label, rowColor(r)]))
 
-  const roleChip = (entity: string) =>
-    entity === 'brand' ? 'bg-positive/12 text-positive'
-    : entity === 'industry' ? 'bg-muted text-muted-foreground'
-    : 'bg-clay/10 text-clay'
+  // ── top voices ─────────────────────────────────────────────────────────
+  const voices = topVoices(all, 4)
+  const voicesAll = topVoices(all, VOICES_ALL)
+  const voiceMax = voices[0]?.views ?? 0
+  const voiceLine = (v: { role: VoiceRole; competitorName: string | null; topFormat: string | null; videos: number }) =>
+    [
+      v.role === 'competitor' && v.competitorName ? `competitor · ${v.competitorName}` : ROLE_WORD[v.role],
+      v.topFormat ? pretty(v.topFormat) : null,
+      `${v.videos} ${v.videos === 1 ? 'video' : 'videos'} this update`,
+    ].filter(Boolean).join(' · ')
 
-  const roleOf = (v: VideoRow) =>
-    v.is_client ? 'brand' : v.is_competitor ? (v.competitor_name ?? 'competitor') : 'industry'
+  // ── your accounts (Trends' logic: snapshots → series; events newest first,
+  // the first explained one speaks) ──────────────────────────────────────
+  const accounts = accountSeries(snapRows, 30)
+  const events = (eventData ?? []) as { platform: string; metric: string; event_date: string; severity: number; explained: boolean; magnitude_label: string; explanation: string | null }[]
+  const sortedEvents = [...events].sort((a, b) => b.event_date.localeCompare(a.event_date) || b.severity - a.severity)
+  const topEvent = sortedEvents.find((e) => e.explained && e.explanation) ?? sortedEvents[0] ?? null
+  const explainedPlatforms = new Set(sortedEvents.filter((e) => e.explained && e.metric === 'followers').map((e) => e.platform))
+
+  // ── overlays ───────────────────────────────────────────────────────────
+  const basePath = '/dashboard/videos'
+  const closeHref = intentFilter ? `${basePath}?intent=${intentFilter}` : basePath
+  const showLegend = sp.detail === 'legend'
+  const showPlaybooks = sp.detail === 'playbooks'
+  const showVideos = sp.detail === 'videos'
+  const showVoices = sp.detail === 'voices'
+
+  const context = `What content works, and who to answer?${updateDate ? ` · ${weekdayDate(updateDate)}` : ''}`
 
   return (
-    <div className="space-y-6">
-      <PageHeader
-        sub={`${all.length} videos in this update · ${analysed.length} analysed for hooks & format`}
-      />
+    <PageFrame>
+      <PageBar title="Content" context={context}>
+        <BarPill>This update</BarPill>
+        <BarPill>All platforms</BarPill>
+        <HowToRead items={['conversations']} open={showLegend} basePath={basePath} />
+      </PageBar>
 
-      {all.length === 0 && <EmptyState>No videos in this update yet — the next one lands soon.</EmptyState>}
+      <PageGrid>
+        {/* ── hero: the reply inbox ───────────────────────────────────── */}
+        <EngageInboxTile digest={digest} rows={inbox} filter={intentFilter} />
 
-      {/* Entity scoreboard — who posted what this update, side by side */}
-      {scoreboard.length > 1 && (
-        <Card>
-          <CardHeader className="pb-3">
-            <CardTitle className="flex items-center gap-2 text-base"><LayoutGrid className="size-4 text-primary" aria-hidden /> The field this update</CardTitle>
-            <p className="text-xs text-muted-foreground">Your posting compared with competitors and the wider category conversation. Views are as platforms report them — Instagram doesn&rsquo;t share view counts, so Instagram-heavy rows undercount.</p>
-          </CardHeader>
-          <CardContent className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="text-muted-foreground text-xs uppercase border-b">
-                  <th className="pb-2 pr-3 text-left font-medium">Who</th>
-                  <th className="pb-2 pr-3 text-right font-medium">Videos</th>
-                  <th className="pb-2 pr-3 text-left font-medium">Where they post</th>
-                  <th className="pb-2 pr-3 text-right font-medium">Typical length</th>
-                  <th className="pb-2 pr-3 text-right font-medium">Avg engagement</th>
-                  <th className="pb-2 text-right font-medium">Views</th>
-                </tr>
-              </thead>
-              <tbody>
-                {scoreboard.map((r) => {
-                  const segments = [...r.platforms.entries()].map(([platform, count]) => ({
-                    label: platform,
-                    count,
-                    pct: Math.round((count / r.videos) * 100),
-                    color: PLATFORM_COLOR[platform] ?? 'bg-muted-foreground',
-                  }))
-                  return (
-                    <tr key={r.label} className="border-b last:border-0">
-                      <td className="py-2.5 pr-3">
-                        <span className={`inline-block rounded-full px-2 py-0.5 text-xs font-medium ${
-                          r.label === 'You' ? 'bg-positive/12 text-positive'
-                          : r.label === 'Wider category' ? 'bg-muted text-muted-foreground'
-                          : 'bg-clay/10 text-clay'
-                        }`}>{r.label}</span>
-                      </td>
-                      <td className="py-2.5 pr-3 text-right font-medium">{r.videos}</td>
-                      <td className="py-2.5 pr-3 min-w-40">
-                        <ProportionBar segments={segments} of="videos" />
-                        <div className="mt-1 text-[11px] text-muted-foreground capitalize">
-                          {segments.map((s) => `${s.label} ${s.pct}%`).join(' · ')}
-                        </div>
-                      </td>
-                      <td className="py-2.5 pr-3 text-right text-muted-foreground">{r.medianDuration != null ? durationLabel(r.medianDuration) : '—'}</td>
-                      <td className="py-2.5 pr-3 text-right">
-                        {r.avgEng != null ? (
-                          <span title={`across ${r.engN} of ${r.videos} videos with engagement data`}>
-                            {r.avgEng.toFixed(1)}% <span className="text-[11px] text-muted-foreground">({r.engN} videos)</span>
-                          </span>
-                        ) : '—'}
-                      </td>
-                      <td className="py-2.5 text-right text-muted-foreground">{r.views > 0 ? fmt(r.views) : '—'}</td>
-                    </tr>
-                  )
-                })}
-              </tbody>
-            </table>
-          </CardContent>
-        </Card>
-      )}
-
-      {/* Worth a reply — the engagement digest (own run anchor; see engage-section.tsx) */}
-      <EngageSection supabase={supabase} clientId={clientId} detail={sp.detail} />
-
-      {/* Hook intelligence + content-type performance */}
-      {(hookPerf.length > 0 || typePerf.length > 0) && (
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-          {hookPerf.length > 0 && (
-            <Card>
-              <CardHeader className="pb-3">
-                <CardTitle className="flex items-center gap-2 text-base"><Zap className="size-4 text-primary" aria-hidden /> What hooks are working</CardTitle>
-                <p className="text-xs text-muted-foreground">
-                  Opening styles ranked by the engagement they earn — read from each video&rsquo;s caption, its speech transcript when captured, and the conversation it sparked; never the footage.
-                </p>
-              </CardHeader>
-              <CardContent className="overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="text-muted-foreground text-xs uppercase border-b">
-                      <th className="pb-2 pr-2 text-left font-medium w-8">#</th>
-                      <th className="pb-2 pr-3 text-left font-medium">Hook</th>
-                      <th className="pb-2 pr-3 text-left font-medium">Engagement</th>
-                      <th className="pb-2 text-right font-medium">Videos</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {hookPerf.map((h, i) => (
-                      <tr key={h.k} className="border-b last:border-0 align-top">
-                        <td className="py-2.5 pr-2">
-                          <span className={`inline-grid size-5 place-items-center rounded text-[11px] font-semibold ${
-                            i === 0 ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground'
-                          }`}>{i + 1}</span>
-                        </td>
-                        <td className="py-2.5 pr-3">
-                          <div className="capitalize font-medium">{pretty(h.k)}</div>
-                          {h.topExample && (
-                            <div className="mt-0.5 max-w-64 truncate text-xs italic text-muted-foreground" title={h.topExample}>
-                              &ldquo;{h.topExample}&rdquo;
-                            </div>
-                          )}
-                        </td>
-                        <td className="py-2.5 pr-3">
-                          <EngBar value={h.avgEng} max={maxHookEng} />
-                        </td>
-                        <td className="py-2.5 text-right text-muted-foreground">{h.count}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </CardContent>
-            </Card>
+        {/* ── what works right now ───────────────────────────────────── */}
+        <Tile col={5} row={2} eyebrow="What works right now" meta="engagement vs the median video · this update"
+          bodyClassName="gap-1.5"
+          footer={playbooks.length > 1 ? <Link href={`${basePath}?detail=playbooks`} scroll={false}>Playbooks side by side →</Link> : undefined}
+          footerNote={hooks.length + formats.length > 0 ? 'styles with 2+ videos' : undefined}
+        >
+          {hooks.length > 0 || formats.length > 0 ? (
+            <>
+              <div className="grid grid-cols-2 gap-x-4">
+                <div className="flex min-w-0 flex-col gap-[4px]">
+                  <span className="text-[10px] font-semibold uppercase tracking-[0.07em] text-muted-foreground">Hooks</span>
+                  {hooks.length > 0 ? hooks.map((h) => (
+                    <RankedBar key={h.k} label={<span className="capitalize text-[12px]" title={`${h.count} videos · ${fmtPct(h.avgEng)} average engagement`}>{pretty(h.k)}</span>} pct={(h.multiple / hookMax) * 100} color="var(--primary)" count={fmtMultiple(h.multiple)} barWidth={56} />
+                  )) : <TileEmpty>Hooks land once 2+ videos share a style.</TileEmpty>}
+                </div>
+                <div className="flex min-w-0 flex-col gap-[4px]">
+                  <span className="text-[10px] font-semibold uppercase tracking-[0.07em] text-muted-foreground">Formats</span>
+                  {formats.length > 0 ? formats.map((f) => (
+                    <RankedBar key={f.k} label={<span className="capitalize text-[12px]" title={`${f.count} videos · ${fmtPct(f.avgEng)} average engagement`}>{pretty(f.k)}</span>} pct={(f.multiple / formatMax) * 100} color="var(--primary)" count={fmtMultiple(f.multiple)} barWidth={56} />
+                  )) : <TileEmpty>Formats land once 2+ videos share one.</TileEmpty>}
+                </div>
+              </div>
+              {(duration || topSound) && (
+                <div className="flex flex-col gap-[3px] pt-0.5">
+                  {duration && (
+                    <div className="flex items-baseline gap-2 text-[11.5px]">
+                      <span className="w-[72px] shrink-0 font-mono text-[13px] font-semibold tabular-nums">{duration.best.label}</span>
+                      <span className="truncate text-muted-foreground">
+                        {duration.against && duration.multiple != null
+                          ? `earns ${fmtMultiple(duration.multiple)} the engagement of ${duration.against.label} · ${fmtInt(duration.best.count)} videos`
+                          : `${fmtPct(duration.best.avgEng ?? 0)} average engagement · ${fmtInt(duration.best.count)} videos`}
+                      </span>
+                    </div>
+                  )}
+                  {topSound && (
+                    <div className="flex items-baseline gap-2 text-[11.5px]">
+                      <span className="w-[72px] shrink-0 font-mono text-[13px] font-semibold tabular-nums">{topSound.count}</span>
+                      <span className="truncate text-muted-foreground" title={topSound.name}>videos on “{topSound.name}” · {fmtCompact(topSound.views)} views</span>
+                    </div>
+                  )}
+                </div>
+              )}
+            </>
+          ) : (
+            <TileEmpty>Hooks and formats land once this update’s videos are analysed.</TileEmpty>
           )}
+        </Tile>
 
-          {typePerf.length > 0 && (
-            <Card>
-              <CardHeader className="pb-3">
-                <CardTitle className="flex items-center gap-2 text-base"><Film className="size-4 text-primary" aria-hidden /> What formats are working</CardTitle>
-                <p className="text-xs text-muted-foreground">Video formats ranked by average engagement across this update.</p>
-              </CardHeader>
-              <CardContent className="overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="text-muted-foreground text-xs uppercase border-b">
-                      <th className="pb-2 pr-3 text-left font-medium">Format</th>
-                      <th className="pb-2 pr-3 text-left font-medium">Engagement</th>
-                      <th className="pb-2 text-right font-medium">Videos</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {typePerf.map((t) => (
-                      <tr key={t.k} className="border-b last:border-0">
-                        <td className="py-2.5 pr-3 capitalize font-medium">{pretty(t.k)}</td>
-                        <td className="py-2.5 pr-3"><EngBar value={t.avgEng} max={maxTypeEng} /></td>
-                        <td className="py-2.5 text-right text-muted-foreground">{t.count}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </CardContent>
-            </Card>
-          )}
-        </div>
-      )}
-
-      {/* Per-entity content playbook — needs classification coverage */}
-      {playbooks.length > 1 && (
-        <Card>
-          <CardHeader className="pb-3">
-            <CardTitle className="flex items-center gap-2 text-base"><Film className="size-4 text-primary" aria-hidden /> Content playbooks, side by side</CardTitle>
-            <p className="text-xs text-muted-foreground">What each player leans on this update — coverage shown per row, because not every video can be read confidently.</p>
-          </CardHeader>
-          <CardContent className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="text-muted-foreground text-xs uppercase border-b">
-                  <th className="pb-2 pr-3 text-left font-medium">Who</th>
-                  <th className="pb-2 pr-3 text-left font-medium">Leans on</th>
-                  <th className="pb-2 pr-3 text-left font-medium">Favourite hook</th>
-                  <th className="pb-2 text-right font-medium">Read from</th>
-                </tr>
-              </thead>
-              <tbody>
-                {playbooks.map((p) => (
-                  <tr key={p.label} className="border-b last:border-0 align-top">
-                    <td className="py-2.5 pr-3">
-                      <span className={`inline-block rounded-full px-2 py-0.5 text-xs font-medium ${
-                        p.label === 'You' ? 'bg-positive/12 text-positive'
-                        : p.label === 'Wider category' ? 'bg-muted text-muted-foreground'
-                        : 'bg-clay/10 text-clay'
-                      }`}>{p.label}</span>
-                    </td>
-                    <td className="py-2.5 pr-3">
-                      {p.topFormats.length > 0 ? (
-                        <span className="flex flex-wrap gap-1.5">
-                          {p.topFormats.map((f) => (
-                            <span key={f.k} className="inline-block rounded-full bg-muted px-2 py-0.5 text-xs capitalize">
-                              {pretty(f.k)} <span className="text-muted-foreground">×{f.count}</span>
-                            </span>
-                          ))}
+        {/* ── the field this update ──────────────────────────────────── */}
+        <Tile col={5} row={2} eyebrow="The field this update" meta={`${fmtInt(all.length)} videos · ${fmtInt(analysed.length)} analysed`}
+          bodyClassName="gap-1.5"
+          footer={all.length > 0 ? <Link href={`${basePath}?detail=videos`} scroll={false}>All {fmtInt(all.length)} videos →</Link> : undefined}
+          footerNote={scoreboard.length > fieldRows.length ? `${scoreboard.length - fieldRows.length} more in the playbooks` : undefined}
+        >
+          {scoreboard.length > 1 ? (
+            <>
+              <table className="w-full border-collapse text-[12px] leading-[1.3]">
+                <thead>
+                  <tr className="text-[10px] uppercase tracking-[0.06em] text-muted-foreground">
+                    <th className="pb-1 text-left font-semibold">Who</th>
+                    <th className="pb-1 text-right font-semibold">Videos</th>
+                    <th className="pb-1 text-right font-semibold">Views</th>
+                    <th className="pb-1 pl-3 text-left font-semibold">Engagement</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {fieldRows.map((r) => (
+                    <tr key={r.label} className="border-t border-border/70">
+                      <td className="py-[5px] pr-2">
+                        <span className="flex items-center gap-1.5 truncate">
+                          <span className="size-1.5 shrink-0 rounded-full" style={{ background: fieldColors.get(r.label) }} aria-hidden />
+                          <span className="truncate">{r.label}</span>
                         </span>
-                      ) : <span className="text-muted-foreground">—</span>}
-                    </td>
-                    <td className="py-2.5 pr-3 capitalize text-muted-foreground">
-                      {p.topHook ? `${pretty(p.topHook.k)} (${p.topHook.count})` : '—'}
-                    </td>
-                    <td className="py-2.5 text-right text-xs text-muted-foreground whitespace-nowrap">{p.classified} of {p.total} videos</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </CardContent>
-        </Card>
-      )}
-
-      {/* Duration sweet-spots + trending sounds */}
-      {(durations.length > 0 || sounds.length > 0) && (
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-          {durations.length > 0 && (
-            <Card>
-              <CardHeader className="pb-3">
-                <CardTitle className="flex items-center gap-2 text-base"><Timer className="size-4 text-primary" aria-hidden /> Video length that earns attention</CardTitle>
-                <p className="text-xs text-muted-foreground">Engagement by video length across this update — videos without a known length excluded.</p>
-              </CardHeader>
-              <CardContent className="overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="text-muted-foreground text-xs uppercase border-b">
-                      <th className="pb-2 pr-3 text-left font-medium">Length</th>
-                      <th className="pb-2 pr-3 text-left font-medium">Engagement</th>
-                      <th className="pb-2 text-right font-medium">Videos</th>
+                      </td>
+                      <td className="py-[5px] text-right font-mono tabular-nums">{fmtInt(r.videos)}</td>
+                      <td className="py-[5px] text-right font-mono tabular-nums text-muted-foreground">{r.views > 0 ? fmtCompact(r.views) : '—'}</td>
+                      <td className="py-[5px] pl-3">
+                        {r.avgEng != null ? (
+                          <span className="flex items-center gap-1.5" title={`across ${r.engN} of ${r.videos} videos with engagement data`}>
+                            <span className="h-1.5 w-[64px] shrink-0 overflow-hidden rounded-full bg-muted" aria-hidden>
+                              <span className="block h-full rounded-full" style={{ width: `${Math.max(2, (r.avgEng / (fieldEngMax || 1)) * 100)}%`, background: fieldColors.get(r.label) }} />
+                            </span>
+                            <span className="font-mono text-[11.5px] tabular-nums">{fmtPct(r.avgEng)}</span>
+                          </span>
+                        ) : <span className="text-muted-foreground">—</span>}
+                      </td>
                     </tr>
-                  </thead>
-                  <tbody>
-                    {durations.map((d) => (
-                      <tr key={d.label} className="border-b last:border-0">
-                        <td className="py-2.5 pr-3 font-medium">{d.label}</td>
-                        <td className="py-2.5 pr-3"><EngBar value={d.avgEng} max={maxDurEng} /></td>
-                        <td className="py-2.5 text-right text-muted-foreground">{d.count}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </CardContent>
-            </Card>
-          )}
-
-          {sounds.length > 0 && (
-            <Card>
-              <CardHeader className="pb-3">
-                <CardTitle className="flex items-center gap-2 text-base"><Music className="size-4 text-primary" aria-hidden /> Sounds gaining traction</CardTitle>
-                <p className="text-xs text-muted-foreground">Audio used by two or more videos this update — TikTok &amp; Instagram only; YouTube doesn&rsquo;t share sound data.</p>
-              </CardHeader>
-              <CardContent className="overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="text-muted-foreground text-xs uppercase border-b">
-                      <th className="pb-2 pr-3 text-left font-medium">Sound</th>
-                      <th className="pb-2 pr-3 text-right font-medium">Videos</th>
-                      <th className="pb-2 text-right font-medium">Views</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {sounds.map((s) => (
-                      <tr key={s.name} className="border-b last:border-0">
-                        <td className="py-2.5 pr-3 max-w-64 truncate" title={s.name}>{s.name}</td>
-                        <td className="py-2.5 pr-3 text-right font-medium">{s.count}</td>
-                        <td className="py-2.5 text-right text-muted-foreground">{fmt(s.views)}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </CardContent>
-            </Card>
-          )}
-        </div>
-      )}
-
-      {/* Top voices */}
-      {voices.length > 0 && (
-        <Card>
-          <CardHeader className="pb-3">
-            <CardTitle className="flex items-center gap-2 text-base"><Megaphone className="size-4 text-primary" aria-hidden /> Top voices</CardTitle>
-            <p className="text-xs text-muted-foreground">The accounts driving the category conversation this update, by reach.</p>
-          </CardHeader>
-          <CardContent className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="text-muted-foreground text-xs uppercase border-b">
-                  <th className="pb-2 pr-3 text-left font-medium">Account</th>
-                  <th className="pb-2 pr-3 text-left font-medium">Who</th>
-                  <th className="pb-2 pr-3 text-right font-medium">Videos</th>
-                  <th className="pb-2 pr-3 text-right font-medium">Views</th>
-                  <th className="pb-2 text-right font-medium">Avg engagement</th>
-                </tr>
-              </thead>
-              <tbody>
-                {voices.map((a) => (
-                  <tr key={a.name} className="border-b last:border-0">
-                    <td className="py-2.5 pr-3">
-                      <div className="font-medium">@{a.name}</div>
-                      {a.followers > 0 && <div className="text-xs text-muted-foreground">{fmt(a.followers)} followers</div>}
-                    </td>
-                    <td className="py-2.5 pr-3">
-                      <span className={`inline-block rounded-full px-2 py-0.5 text-xs font-medium capitalize ${roleChip(a.entity)}`}>{a.entity}</span>
-                    </td>
-                    <td className="py-2.5 pr-3 text-right text-muted-foreground">{a.videos}</td>
-                    <td className="py-2.5 pr-3 text-right font-medium">{fmt(a.views)}</td>
-                    <td className="py-2.5 text-right text-muted-foreground">{a.avgEng != null ? `${a.avgEng.toFixed(1)}%` : '—'}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </CardContent>
-        </Card>
-      )}
-
-      {/* All videos — the evidence layer */}
-      {all.length > 0 && (
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2 text-base"><Play className="size-4 text-primary" aria-hidden /> All videos</CardTitle>
-            {all.length > CATALOG_CAP && (
-              <p className="text-xs text-muted-foreground mt-1">Top {CATALOG_CAP} of {all.length} by views.</p>
-            )}
-          </CardHeader>
-          <CardContent className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="text-muted-foreground text-xs uppercase border-b">
-                  {['Platform', 'Account', 'Who', 'Posted', 'Length', 'Views', 'Likes', 'Eng.', 'Sentiment', 'Format', 'Hook', 'Topics'].map((h) => (
-                    <th key={h} className={`pb-2 font-medium ${['Views', 'Likes', 'Eng.'].includes(h) ? 'text-right' : 'text-left'}`}>{h}</th>
                   ))}
-                </tr>
-              </thead>
-              <tbody>
-                {all.slice(0, CATALOG_CAP).map((v) => (
-                  <tr key={v.id} className="border-b last:border-0 align-top">
-                    <td className="py-2 capitalize">{v.platform}</td>
-                    <td className="py-2">
+                </tbody>
+              </table>
+              {sentence && <p className="line-clamp-2 text-[11.5px] leading-[1.4] text-muted-foreground">{sentence}</p>}
+            </>
+          ) : all.length > 0 ? (
+            <TileEmpty>The field fills in once a competitor or your own posts are tracked — this update has {fmtInt(all.length)} category videos.</TileEmpty>
+          ) : (
+            <TileEmpty>No videos in this update yet — the next one lands soon.</TileEmpty>
+          )}
+        </Tile>
+
+        {/* ── top voices ─────────────────────────────────────────────── */}
+        <Tile col={7} row={2} eyebrow="Top voices this update" meta="by views · who shapes the conversation"
+          bodyClassName="gap-0"
+          footer={voicesAll.length > voices.length ? <Link href={`${basePath}?detail=voices`} scroll={false}>All voices →</Link> : undefined}
+          footerNote="views as platforms report them — Instagram shares none"
+        >
+          {voices.length > 0 ? (
+            <div className="flex flex-col">
+              {voices.map((v) => (
+                <div key={v.name} className="flex items-center gap-2.5 border-t border-border/70 py-[5px] first:border-t-0">
+                  <span className="grid size-[26px] shrink-0 place-items-center rounded-full text-[10px] font-semibold text-[#F5F1E6]" style={{ background: ROLE_COLOR[v.role] }} aria-hidden>{initials(v.name)}</span>
+                  <div className="min-w-0 flex-1 truncate text-[12.5px] font-semibold">
+                    @{v.name} <span className="font-normal text-muted-foreground">· {voiceLine(v)}</span>
+                  </div>
+                  <span className="h-1.5 w-[90px] shrink-0 overflow-hidden rounded-full bg-muted" aria-hidden>
+                    <span className="block h-full rounded-full" style={{ width: `${Math.max(2, voiceMax > 0 ? (v.views / voiceMax) * 100 : 0)}%`, background: ROLE_COLOR[v.role] }} />
+                  </span>
+                  <span className="w-11 shrink-0 text-right font-mono text-[11.5px] font-semibold tabular-nums">{v.views > 0 ? fmtCompact(v.views) : '—'}</span>
+                </div>
+              ))}
+            </div>
+          ) : <TileEmpty>Voices land with the first update that finds videos.</TileEmpty>}
+        </Tile>
+
+        {/* ── your accounts ──────────────────────────────────────────── */}
+        <Tile col={5} row={2} eyebrow="On your accounts" meta={accounts.length > 0 ? 'followers · daily · 30 days' : undefined}
+          bodyClassName="gap-2"
+        >
+          {accounts.length > 0 ? (
+            <>
+              <div className="flex flex-col gap-[6px]">
+                {accounts.slice(0, 3).map((a) => (
+                  <div key={a.platform} className="flex items-center gap-2.5">
+                    <PlatformIcon platform={a.platform} size={14} className="shrink-0 text-[#55605A]" />
+                    <span className="sr-only">{platformLabel(a.platform)}</span>
+                    <div className="min-w-0 flex-1"><Sparkline values={a.values} width={190} height={24} fill /></div>
+                    <div className="flex min-w-[96px] flex-col items-end">
+                      <span className="font-mono text-[12.5px] font-semibold tabular-nums">{fmtCompact(a.latest)}</span>
+                      <span className="whitespace-nowrap">
+                        <Delta value={a.delta} good="up" />
+                        {explainedPlatforms.has(a.platform) && <span className="font-mono text-[11px] text-muted-foreground"> · explained</span>}
+                      </span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+              {topEvent && (
+                <p className="flex items-start gap-2 text-[11.5px] leading-[1.4]">
+                  <span className="mt-[5px] size-1.5 shrink-0 rounded-full bg-warning" aria-hidden />
+                  <span className="line-clamp-2">
+                    {topEvent.explained && topEvent.explanation
+                      ? topEvent.explanation
+                      : `${topEvent.magnitude_label} on ${platformLabel(topEvent.platform)} — the conversation we track doesn’t account for it, so it stays unexplained.`}
+                  </span>
+                </p>
+              )}
+            </>
+          ) : <TileEmpty>Add your own handles in Settings to follow your accounts here.</TileEmpty>}
+        </Tile>
+      </PageGrid>
+
+      {/* ── drawers: one click deeper ────────────────────────────────── */}
+      <EngageDrawers digest={digest} rows={inbox} detail={sp.detail} filter={intentFilter} />
+
+      <DetailDrawer open={showPlaybooks} closeHref={closeHref} title="Content playbooks, side by side" description="what each player leans on this update — coverage shown per row, because not every video can be read confidently">
+        <table className="w-full text-[12px]">
+          <thead>
+            <tr className="border-b text-[10px] uppercase tracking-[0.06em] text-muted-foreground">
+              <th className="pb-1.5 pr-3 text-left font-semibold">Who</th>
+              <th className="pb-1.5 pr-3 text-left font-semibold">Leans on</th>
+              <th className="pb-1.5 pr-3 text-left font-semibold">Favourite hook</th>
+              <th className="pb-1.5 text-right font-semibold">Read from</th>
+            </tr>
+          </thead>
+          <tbody>
+            {playbooks.map((p) => (
+              <tr key={p.label} className="border-b align-top last:border-0">
+                <td className="py-2 pr-3">
+                  <span className={`inline-block whitespace-nowrap rounded-full px-2 py-0.5 text-[11px] font-medium ${KIND_CHIP[p.kind]}`}>{p.label}</span>
+                </td>
+                <td className="py-2 pr-3">
+                  {p.topFormats.length > 0 ? (
+                    <span className="flex flex-wrap gap-1">
+                      {p.topFormats.map((f) => (
+                        <span key={f.k} className="inline-block rounded-full bg-muted px-2 py-0.5 text-[11px] capitalize">
+                          {pretty(f.k)} <span className="text-muted-foreground">×{f.count}</span>
+                        </span>
+                      ))}
+                    </span>
+                  ) : <span className="text-muted-foreground">—</span>}
+                </td>
+                <td className="py-2 pr-3 capitalize text-muted-foreground">{p.topHook ? `${pretty(p.topHook.k)} (${p.topHook.count})` : '—'}</td>
+                <td className="whitespace-nowrap py-2 text-right text-[11px] text-muted-foreground">{p.classified} of {p.total} videos</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        <p className="mt-3 text-[11px] text-muted-foreground">Hooks are read from each video’s caption, its speech transcript when captured, and the conversation it sparked — never the footage.</p>
+      </DetailDrawer>
+
+      <DetailDrawer open={showVoices} closeHref={closeHref} title="Top voices this update" description="the accounts driving the category conversation, by views">
+        <table className="w-full text-[12px]">
+          <thead>
+            <tr className="border-b text-[10px] uppercase tracking-[0.06em] text-muted-foreground">
+              <th className="pb-1.5 pr-3 text-left font-semibold">Account</th>
+              <th className="pb-1.5 pr-3 text-left font-semibold">Who</th>
+              <th className="pb-1.5 pr-3 text-right font-semibold">Videos</th>
+              <th className="pb-1.5 text-right font-semibold">Views</th>
+            </tr>
+          </thead>
+          <tbody>
+            {voicesAll.map((v) => (
+              <tr key={v.name} className="border-b last:border-0">
+                <td className="py-1.5 pr-3">
+                  <div className="font-medium">@{v.name}</div>
+                  {v.topFormat && <div className="text-[11px] capitalize text-muted-foreground">{pretty(v.topFormat)}</div>}
+                </td>
+                <td className="py-1.5 pr-3"><span className={`inline-block whitespace-nowrap rounded-full px-2 py-0.5 text-[11px] font-medium ${ROLE_CHIP[v.role]}`}>{v.role === 'competitor' && v.competitorName ? v.competitorName : ROLE_WORD[v.role]}</span></td>
+                <td className="py-1.5 pr-3 text-right font-mono tabular-nums text-muted-foreground">{v.videos}</td>
+                <td className="py-1.5 text-right font-mono tabular-nums font-semibold">{v.views > 0 ? fmtCompact(v.views) : '—'}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </DetailDrawer>
+
+      <DetailDrawer open={showVideos} closeHref={closeHref} title="All videos" description={all.length > CATALOG_CAP ? `top ${CATALOG_CAP} of ${fmtInt(all.length)} by views` : `${fmtInt(all.length)} videos this update, by views`}>
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[860px] text-[11.5px]">
+            <thead>
+              <tr className="border-b text-[10px] uppercase tracking-[0.06em] text-muted-foreground">
+                {['Platform', 'Account', 'Who', 'Posted', 'Length', 'Views', 'Likes', 'Eng.', 'Sentiment', 'Format', 'Hook', 'Topics'].map((h) => (
+                  <th key={h} className={`pb-1.5 pr-2 font-semibold ${['Views', 'Likes', 'Eng.'].includes(h) ? 'text-right' : 'text-left'}`}>{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {all.slice(0, CATALOG_CAP).map((v) => {
+                const { label, kind } = entityKey(v)
+                return (
+                  <tr key={v.id} className="border-b align-top last:border-0">
+                    <td className="py-1.5 pr-2 capitalize">{platformLabel(v.platform)}</td>
+                    <td className="py-1.5 pr-2">
                       <a href={v.video_url} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">@{v.account_name}</a>
                       {v.transcript_status === 'ok' && (
                         <Captions className="ml-1 inline size-3 align-[-1px] text-muted-foreground" aria-label="Speech transcript captured" />
                       )}
                     </td>
-                    <td className="py-2">
-                      <span className={`inline-block rounded-full px-2 py-0.5 text-xs font-medium capitalize ${roleChip(roleOf(v))}`}>{roleOf(v)}</span>
-                    </td>
-                    <td className="py-2 text-xs text-muted-foreground whitespace-nowrap">{v.upload_date ?? '—'}</td>
-                    <td className="py-2 text-xs text-muted-foreground whitespace-nowrap">{Number(v.duration_seconds) > 0 ? durationLabel(Number(v.duration_seconds)) : '—'}</td>
-                    <td className="py-2 text-right">{Number(v.views) > 0 ? fmt(Number(v.views)) : '—'}</td>
-                    <td className="py-2 text-right text-muted-foreground">{v.likes != null ? fmt(Number(v.likes)) : '—'}</td>
-                    <td className="py-2 text-right">{v.engagement_rate != null ? `${v.engagement_rate}%` : '—'}</td>
-                    <td className="py-2">{v.sentiment ? <span className={`inline-block px-2 py-0.5 rounded-full text-xs font-medium capitalize ${SENTIMENT_BADGE[v.sentiment] ?? 'bg-muted text-muted-foreground'}`}>{v.sentiment}</span> : <span className="text-muted-foreground">—</span>}</td>
-                    <td className="py-2 capitalize text-xs">{v.classified_type ? pretty(v.classified_type) : <span className="text-muted-foreground">—</span>}</td>
-                    <td className="py-2 capitalize text-xs">{v.hook_style ? pretty(v.hook_style) : <span className="text-muted-foreground">—</span>}</td>
-                    <td className="py-2 text-xs text-muted-foreground">{(v.topics ?? []).slice(0, 3).join(', ') || '—'}</td>
+                    <td className="py-1.5 pr-2"><span className={`inline-block whitespace-nowrap rounded-full px-2 py-0.5 text-[10.5px] font-medium ${KIND_CHIP[kind]}`}>{label}</span></td>
+                    <td className="whitespace-nowrap py-1.5 pr-2 text-muted-foreground">{v.upload_date ?? '—'}</td>
+                    <td className="whitespace-nowrap py-1.5 pr-2 text-muted-foreground">{Number(v.duration_seconds) > 0 ? durationLabel(Number(v.duration_seconds)) : '—'}</td>
+                    <td className="py-1.5 pr-2 text-right font-mono tabular-nums">{Number(v.views) > 0 ? fmtCompact(Number(v.views)) : '—'}</td>
+                    <td className="py-1.5 pr-2 text-right font-mono tabular-nums text-muted-foreground">{v.likes != null ? fmtCompact(Number(v.likes)) : '—'}</td>
+                    <td className="py-1.5 pr-2 text-right font-mono tabular-nums">{v.engagement_rate != null ? `${v.engagement_rate}%` : '—'}</td>
+                    <td className="py-1.5 pr-2">{v.sentiment ? <span className={`inline-block rounded-full px-2 py-0.5 text-[10.5px] font-medium capitalize ${SENTIMENT_BADGE[v.sentiment] ?? 'bg-muted text-muted-foreground'}`}>{v.sentiment}</span> : <span className="text-muted-foreground">—</span>}</td>
+                    <td className="py-1.5 pr-2 capitalize">{v.classified_type ? pretty(v.classified_type) : <span className="text-muted-foreground">—</span>}</td>
+                    <td className="py-1.5 pr-2 capitalize">{v.hook_style ? pretty(v.hook_style) : <span className="text-muted-foreground">—</span>}</td>
+                    <td className="py-1.5 text-muted-foreground">{(v.topics ?? []).slice(0, 3).join(', ') || '—'}</td>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </CardContent>
-        </Card>
-      )}
-    </div>
-  )
-}
-
-function PageHeader({ sub }: { sub: string | null }) {
-  return (
-    <div>
-      <h1 className="text-2xl font-bold">Content</h1>
-      {sub && <p className="text-sm text-muted-foreground mt-1">{sub}</p>}
-    </div>
-  )
-}
-
-/** Thin single-hue engagement bar with the value always labelled. */
-function EngBar({ value, max }: { value: number | null; max: number }) {
-  if (value == null || max <= 0) return <span className="text-muted-foreground">—</span>
-  return (
-    <span className="flex items-center gap-2" title={`${value.toFixed(1)}% average engagement`}>
-      <span className="h-1.5 max-w-28 rounded-full bg-chart-2" style={{ width: `${Math.max(4, (value / max) * 100)}%` }} aria-hidden />
-      <span className="text-xs font-medium">{value.toFixed(1)}%</span>
-    </span>
-  )
-}
-
-function EmptyState({ children }: { children: React.ReactNode }) {
-  return (
-    <Card>
-      <CardContent className="py-10 text-center text-sm text-muted-foreground">{children}</CardContent>
-    </Card>
+                )
+              })}
+            </tbody>
+          </table>
+        </div>
+      </DetailDrawer>
+    </PageFrame>
   )
 }

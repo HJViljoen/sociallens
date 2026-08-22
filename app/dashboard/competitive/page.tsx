@@ -1,23 +1,39 @@
+import Link from 'next/link'
+import { selectAll } from '@/lib/supabase-admin'
 import { getSessionContext } from '@/lib/auth'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { categoryTint, levelBadge, accentSolid } from '@/lib/ui-colors'
 import { HowToRead } from '@/components/how-to-read'
-import type { GlossaryKey } from '@/lib/calibration'
 import { Quotes } from '@/components/quotes'
 import { rankByTheme, fetchQuotesByAudience, fetchInsightsByIds, createQuotePicker, bucketByAudienceId, scopeToCompetitor, type ThemeBucketRow } from '@/lib/quotes'
-import { COMPETITIVE_MIN_VIDEOS } from '@/lib/config'
+import type { GlossaryKey } from '@/lib/calibration'
+import { fmtInt, fmtPct, fmtDelta, round1, weekdayDate, shortDate, cap } from '@/lib/format'
+import { shareBreakdown, pointDelta, type Sov } from '@/lib/dashboard-tiles'
+import {
+  leadCompetitor, competitorShares, competitorBucket, bucketStats, themeCounts, faceOffRows, praisedFor, shareSeries,
+  kindOf, orderInsights, groupByKind, coverageOf, coverageText, competitiveHref, SENTIMENT_MIN_JUDGED,
+  type VideoStatRow, type KindTone,
+} from '@/lib/competitive-tiles'
+import { PageFrame, PageGrid, PageBar, BarPill } from '@/components/shell/page-grid'
+import { Tile, TileEmpty } from '@/components/shell/tile'
+import { DetailDrawer } from '@/components/shell/detail-drawer'
+import { LineChart } from '@/components/charts/line-chart'
+import { FaceOff, FaceOffHeader, YOU_COLOR, THEM_COLOR } from './face-off'
 
-// Competitive Intelligence — renders Pass C's competitive_insights for the latest
-// run: qualitative cross-bucket intelligence drawn from competitors' customers'
-// voices (topic ownership, content gaps, threats, sentiment differentials), each
-// grounded in supporting themes + verbatim quotes. Leads with the qualitative
-// 4th-paradigm intelligence; Share of Tracked Conversation (per-bucket video
-// share — scoped, NOT comprehensive web SOV) is the supporting context.
-//
-// Honest empty-state: Pass C SKIPS when the corpus has <2 entity buckets with
-// analysable content (e.g. competitor accounts are comment-deserts). The SOV
-// breakdown is always shown — it explains *why* a run is single-bucket.
-// Read-only server component; same auth/data pattern as Market Intelligence.
+// Competitive Intelligence — "where do we stand vs <competitor>?", on one screen
+// (one-screen redesign, 2026-08-22). The face-off is the hero: you on the left,
+// the faced competitor on the right, six counted metrics down the centre, each
+// row grounded or dropped. Beneath it the share-of-tracked-conversation line
+// across every update (one layer, ≥2 updates) and the cross-brand findings as
+// one divided column. Every figure is a stored count or share (run_summary
+// share_of_voice, this update's videos, themes); model judgments only gate,
+// order and word. Client copy: no run / pass / gather / pipeline / corpus.
+
+interface SummaryRow {
+  run_id: string
+  run_date: string
+  total_videos: number | null
+  share_of_voice: Sov | null
+  period_share_of_voice: Sov | null
+}
 
 interface CompetitiveInsight {
   id: string
@@ -30,314 +46,379 @@ interface CompetitiveInsight {
   hero_quote: string | null
 }
 
-interface AudienceInsight { id: string; category: string; theme: string; description: string }
-
-/** The share fields of run_summary — the page's only number source. */
-interface SummaryShareRow {
-  total_videos: number | null
-  share_of_voice: Record<string, { videos: number; pct_videos: number; analysed_videos?: number }> | null
+interface ThemeRow extends ThemeBucketRow {
+  run_id: string
+  category: string
+  label: string
+  evidence_count: number | null
+  strength_score: number | null
+  rank_score: number | null
 }
 
-// Category presentation. Order = the lead-with-strength reading order.
-const CATEGORY_ORDER = ['topic_ownership', 'content_gap', 'competitive_threat', 'sentiment_differential'] as const
-const CATEGORY_META: Record<string, { label: string; blurb: string }> = {
-  topic_ownership: { label: 'Topic Ownership', blurb: 'Themes this brand owns vs competitors' },
-  content_gap: { label: 'Content Gaps', blurb: 'What competitors’ audiences care about that this brand under-serves' },
-  competitive_threat: { label: 'Competitive Threats', blurb: 'Where a competitor has an edge, momentum, or controversy' },
-  sentiment_differential: { label: 'Sentiment Differentials', blurb: 'Where sentiment diverges between brands' },
+const LEGEND_ITEMS: GlossaryKey[] = ['conversations', 'sentiment']
+const VISIBLE_FINDINGS = 4
+
+// Kind chips — class strings written out in full so Tailwind v4 sees them.
+const KIND_CHIP: Record<KindTone, string> = {
+  lead: 'bg-[#E3EEE3] text-positive',
+  threat: 'bg-[#F3DFD5] text-[#8B3A22]',
+  gap: 'bg-[#F6E7D2] text-[#8A5A1B]',
+  tone: 'bg-[#E8E3EE] text-[#5E3F6A]',
+  other: 'bg-muted text-muted-foreground',
 }
-const prettyType = (s: string) => s.replace(/_/g, ' ')
+const impactWord = (l: string | null) => (l === 'high' ? 'high impact' : l === 'medium' ? 'medium impact' : l === 'low' ? 'low impact' : null)
 
-const chipBase = 'px-2 py-0.5 rounded-full text-xs font-medium capitalize'
+function KindChip({ category }: { category: string }) {
+  const k = kindOf(category)
+  return <span className={`inline-flex shrink-0 items-center rounded-full px-2 py-px text-[10.5px] font-semibold ${KIND_CHIP[k.tone]}`}>{k.label}</span>
+}
 
-const LEGEND_ITEMS: GlossaryKey[] = ['conversations']
-
-export default async function CompetitiveIntelligencePage({
-  searchParams,
-}: {
-  searchParams?: Promise<{ detail?: string }>
-}) {
-  const showLegend = ((await searchParams) ?? {}).detail === 'legend'
-  // Auth + tenant via the RLS-enforced session client. See lib/auth.ts.
+export default async function CompetitiveIntelligencePage({ searchParams }: { searchParams?: Promise<{ detail?: string; vs?: string }> }) {
+  const sp = (await searchParams) ?? {}
+  const vsParam = sp.vs?.trim() || null
   const { supabase, clientId } = await getSessionContext()
 
-  // Latest COMPLETED run — an in-flight run has no competitive rows yet, so the
-  // page keeps serving the previous run's findings until the new one closes.
-  const { data: latestRun } = await supabase
-    .from('pipeline_runs').select('id, started_at')
-    .eq('client_id', clientId).in('status', ['completed', 'partial'])
-    .order('started_at', { ascending: false }).limit(1).maybeSingle()
-  if (!latestRun) return <Shell showLegend={showLegend}><EmptyRun /></Shell>
-  const runId = latestRun.id as string
-
-  // Insights + grounding themes for this run; Share of Tracked Conversation
-  // comes from run_summary (the pipeline's corpus-computed snapshot — the
-  // numbers rule: never recounted per page, and owned-account posts stay out).
-  const [{ data: ciData }, { data: summaryData }, { data: bucketData }, { data: clientRow }] = await Promise.all([
-    supabase.from('competitive_insights').select('*').eq('client_id', clientId).eq('run_id', runId),
-    supabase.from('run_summary').select('total_videos, share_of_voice').eq('client_id', clientId).eq('run_id', runId).maybeSingle(),
-    // Entity buckets per audience insight — a card about a competitor quotes
-    // THAT competitor's audience, never the client's own customers.
-    supabase.from('themes').select('bucket, supporting_insight_ids').eq('client_id', clientId).eq('run_id', runId),
+  // Anchor on the newest update WITH analysis; an in-flight one has no
+  // findings yet and would blank the page for the duration of every update.
+  const [{ data: client }, { data: tc }, { data: latestRun }, runningRes] = await Promise.all([
     supabase.from('clients').select('company_name').eq('id', clientId).maybeSingle(),
+    supabase.from('tracking_configs').select('report_day, report_period').eq('client_id', clientId).maybeSingle(),
+    supabase.from('pipeline_runs').select('id, started_at')
+      .eq('client_id', clientId).in('status', ['completed', 'partial'])
+      .order('started_at', { ascending: false }).limit(1).maybeSingle(),
+    supabase.from('pipeline_runs').select('id').eq('client_id', clientId).eq('status', 'running'),
   ])
-  const brand = (clientRow?.company_name as string | undefined) ?? 'Your brand'
+  const runningIds = ((runningRes.data ?? []) as { id: string }[]).map((r) => r.id)
+  const notRunning = runningIds.length ? `(${runningIds.join(',')})` : null
+  const brand = client?.company_name ?? 'Your brand'
+  const brandShort = brand.split(/[—–-]/)[0].trim() || brand
+  const runId = latestRun?.id as string | undefined
+  const nextUpdate = tc?.report_period === 'weekly' && tc?.report_day ? `${cap(tc.report_day)}’s update` : 'the next update'
 
-  const insights = (ciData ?? []) as CompetitiveInsight[]
-  // Grounding slugs for the ids THIS run's insights/themes cite — read by id
-  // from the base table (fetchInsightsByIds), not the current view: a newer
-  // in-flight run may already have superseded some of those videos' rows
-  // (incremental Pass A, 2026-08-17).
+  if (!runId) {
+    return (
+      <PageFrame>
+        <PageBar title="Competitive Intelligence" context={brand} />
+        <PageGrid>
+          <Tile col={12} row={2} eyebrow="The face-off">
+            <TileEmpty>Your first comparison lands with {nextUpdate} — check back then.</TileEmpty>
+          </Tile>
+        </PageGrid>
+      </PageFrame>
+    )
+  }
+
+  // ── the update's state + its history + this update's videos, in parallel ──
+  let themedQ = supabase.from('themes').select('run_id').eq('client_id', clientId)
+  if (notRunning) themedQ = themedQ.not('run_id', 'in', notRunning)
+  let latestVidQ = supabase.from('videos').select('run_id').eq('client_id', clientId)
+  if (notRunning) latestVidQ = latestVidQ.not('run_id', 'in', notRunning)
+  const [historyRaw, ciRes, latestThemedRes, latestVidRes] = await Promise.all([
+    selectAll<SummaryRow>(() =>
+      supabase.from('run_summary').select('run_id, run_date, total_videos, share_of_voice, period_share_of_voice')
+        .eq('client_id', clientId).order('run_date', { ascending: true }),
+    ),
+    supabase.from('competitive_insights').select('id, category, competitor_name, title, finding, evidence, impact_level, hero_quote')
+      .eq('client_id', clientId).eq('run_id', runId),
+    themedQ.order('created_at', { ascending: false }).limit(1).maybeSingle(),
+    // The newest update that gathered videos (an analysis-only update re-reads
+    // old videos and gathers none) — comments, engagement and sentiment per
+    // bucket are counted across its rows.
+    latestVidQ.order('scraped_at', { ascending: false }).limit(1).maybeSingle(),
+  ])
+  const themedRunId = (latestThemedRes.data?.run_id as string | undefined) ?? null
+  const videoRunId = (latestVidRes.data?.run_id as string | undefined) ?? null
+  const [themeRows, videoRows] = await Promise.all([
+    themedRunId
+      ? selectAll<ThemeRow>(() =>
+          supabase.from('themes').select('run_id, bucket, category, label, evidence_count, strength_score, rank_score, supporting_insight_ids')
+            .eq('client_id', clientId).eq('run_id', themedRunId).order('id'),
+        )
+      : Promise.resolve([] as ThemeRow[]),
+    videoRunId
+      ? selectAll<VideoStatRow>(() =>
+          supabase.from('videos').select('is_client, is_competitor, competitor_name, comments_count, engagement_rate, sentiment, sentiment_source, analyzed_lane')
+            .eq('client_id', clientId).eq('run_id', videoRunId).eq('source', 'discovered').order('id'),
+        )
+      : Promise.resolve([] as VideoStatRow[]),
+  ])
+
+  // A summary is written before its update closes, so an in-flight update can
+  // already have a row — keep it out of everything the page draws.
+  const history = historyRaw.filter((s) => s.run_id && !runningIds.includes(s.run_id))
+  const summary = history.find((s) => s.run_id === runId) ?? history[history.length - 1] ?? null
+  const summaryIdx = summary ? history.indexOf(summary) : -1
+  const prev = summaryIdx > 0 ? history[summaryIdx - 1] : null
+  const runDate = summary?.run_date ?? (latestRun?.started_at as string)
+  const updatesCount = history.length
+
+  // ── who we face, and on which layer ────────────────────────────────────
+  // This update's share when the row has the period layer, else cumulative —
+  // and if the period layer tracked no competitor at all, fall back to the
+  // cumulative map so a quiet week still has a face-off (labelled as all-time).
+  const hasKeys = (o: Sov | null | undefined) => !!o && Object.keys(o).length > 0
+  let faceLayer: 'period' | 'cumulative' = hasKeys(summary?.period_share_of_voice) ? 'period' : 'cumulative'
+  let faceSov = faceLayer === 'period' ? summary?.period_share_of_voice : summary?.share_of_voice
+  let lead = leadCompetitor(faceSov, vsParam)
+  if (!lead && faceLayer === 'period' && leadCompetitor(summary?.share_of_voice, vsParam)) {
+    faceLayer = 'cumulative'
+    faceSov = summary?.share_of_voice
+    lead = leadCompetitor(faceSov, vsParam)
+  }
+  const prevSov = faceLayer === 'period' ? prev?.period_share_of_voice : prev?.share_of_voice
+  const competitors = competitorShares(faceSov)
+  const vs = lead && vsParam && lead.toLowerCase() === vsParam.toLowerCase() ? lead : null
+  const base = competitiveHref(vs)
+
+  const stats = videoRows.length > 0 ? bucketStats(videoRows) : null
+  const themesByBucket = themeRows.length > 0 ? themeCounts(themeRows) : null
+  const rows = lead ? faceOffRows({ sov: faceSov, layer: faceLayer, competitor: lead, stats, themes: themesByBucket, fmtInt, fmtPct }) : []
+  const youPraise = praisedFor(themeRows, 'client')
+  const themPraise = lead ? praisedFor(themeRows, competitorBucket(lead)) : null
+  const share = shareBreakdown(faceSov)
+  const sharePrev = shareBreakdown(prevSov)
+  const youDelta = pointDelta(share?.client?.pct, sharePrev?.client?.pct)
+  const themDelta = lead ? pointDelta(share?.competitors.find((c) => c.name === lead)?.pct, sharePrev?.competitors.find((c) => c.name === lead)?.pct) : null
+  const shareNote = youDelta != null && themDelta != null && lead
+    ? `${brandShort} ${fmtDelta(youDelta, 'pt', 1)} · ${lead} ${fmtDelta(themDelta, 'pt', 1)} vs last update`
+    : 'comments and engagement as platforms report them'
+
+  // ── share over time ────────────────────────────────────────────────────
+  const series = shareSeries(history, lead)
+
+  // ── the findings + the voices behind them (shared lib/quotes) ──────────
+  const insights = orderInsights((ciRes.data ?? []) as CompetitiveInsight[])
+  // Grounding slugs for the ids these findings cite — read by id from the base
+  // table, not the current view: a newer in-flight update may already have
+  // superseded some of those videos' rows (incremental analysis, 2026-08-17).
   const citedIds = new Set<string>()
   for (const ci of insights) for (const id of ci.evidence?.supporting_theme_ids ?? []) citedIds.add(id)
-  for (const t of (bucketData ?? []) as ThemeBucketRow[]) for (const id of t.supporting_insight_ids ?? []) citedIds.add(id)
-  const audienceInsights = await fetchInsightsByIds<AudienceInsight>(supabase, [...citedIds], 'id, category, theme, description')
-  const aiById = new Map(audienceInsights.map((a) => [a.id, a]))
-
-  // Supporting themes (deduped) per competitive insight — grounding shown as chips.
-  function supportFor(ci: CompetitiveInsight): string[] {
-    const themes = new Set<string>()
-    for (const id of ci.evidence?.supporting_theme_ids ?? []) {
-      const ai = aiById.get(id)
-      if (ai) themes.add(ai.theme)
-    }
-    return [...themes].slice(0, 4)
-  }
-
-  // Share of Tracked Conversation — per-bucket video share from run_summary.
-  const sov = shareFromSummary((summaryData ?? null) as SummaryShareRow | null)
-
-  // ---- verbatim quotes for the evidence-led cards (shared lib/quotes) ----
-  // Each card's pool is scoped to the competitor it names (falling back to
-  // non-client buckets for cross-bucket findings) — presenting one brand's
-  // audience as another's is the run-1 misattribution defect.
+  for (const t of themeRows) for (const id of t.supporting_insight_ids ?? []) citedIds.add(id)
+  const audienceInsights = insights.length > 0
+    ? await fetchInsightsByIds<{ id: string; theme: string }>(supabase, [...citedIds], 'id, theme')
+    : []
   const themeSlugById = new Map(audienceInsights.map((a) => [a.id, a.theme]))
-  const bucketById = bucketByAudienceId((bucketData ?? []) as ThemeBucketRow[])
-  const cardAudienceIds = (ci: CompetitiveInsight) =>
-    scopeToCompetitor(ci.evidence?.supporting_theme_ids ?? [], bucketById, ci.competitor_name)
+  // A finding about a competitor quotes THAT competitor's audience, never your
+  // own customers — presenting one brand's voices as another's is the defect.
+  const bucketById = bucketByAudienceId(themeRows)
+  const audienceIdsFor = (ci: CompetitiveInsight) => scopeToCompetitor(ci.evidence?.supporting_theme_ids ?? [], bucketById, ci.competitor_name)
   const claimOf = (ci: CompetitiveInsight) => `${ci.title} ${ci.finding}`
-  const poolIds = new Set<string>()
-  for (const ci of insights) {
-    for (const id of rankByTheme(cardAudienceIds(ci), claimOf(ci), themeSlugById).slice(0, 80)) {
-      if (poolIds.size < 600) poolIds.add(id)
+  const quotesFor = new Map<string, string[]>()
+  if (insights.length > 0) {
+    const poolIds = new Set<string>()
+    for (const ci of insights) {
+      for (const id of rankByTheme(audienceIdsFor(ci), claimOf(ci), themeSlugById).slice(0, 80)) {
+        if (poolIds.size < 600) poolIds.add(id)
+      }
     }
+    const quotesByAudience = await fetchQuotesByAudience(supabase, [...poolIds])
+    const pick = createQuotePicker(quotesByAudience, themeSlugById)
+    for (const ci of insights) quotesFor.set(ci.id, pick(audienceIdsFor(ci), 2, claimOf(ci), ci.hero_quote))
   }
-  const quotesByAudience = await fetchQuotesByAudience(supabase, [...poolIds])
-  const pick = createQuotePicker(quotesByAudience, themeSlugById)
-  const quotesFor = (ci: CompetitiveInsight) => pick(cardAudienceIds(ci), 2, claimOf(ci), ci.hero_quote)
+  const supportFor = (ci: CompetitiveInsight) => [...new Set((ci.evidence?.supporting_theme_ids ?? []).map((id) => themeSlugById.get(id)).filter((s): s is string => !!s))].slice(0, 4)
+  // Coverage against the all-time map — the one the findings were drawn from.
+  const coverageFor = (ci: CompetitiveInsight) => coverageText(coverageOf(summary?.share_of_voice, ci.competitor_name))
+  const emptyFindingsReason = competitors.length === 0
+    ? 'No competitor videos drew enough comments this update — the consumer voice about them mostly lives in creator and category content not yet tied to a competitor.'
+    : 'Competitor videos were tracked, but not enough of them drew comments to form a comparable theme — so there was only one brand to read, and the cross-brand analysis waited.'
 
-  const byCategory = CATEGORY_ORDER
-    .map((cat) => ({ cat, items: insights.filter((c) => c.category === cat) }))
-    .filter((g) => g.items.length > 0)
-  // Any insights with an unrecognised category still get shown under "Other".
-  const otherItems = insights.filter((c) => !CATEGORY_ORDER.includes(c.category as typeof CATEGORY_ORDER[number]))
+  // ── the three-way field (drawer) ───────────────────────────────────────
+  const fieldRows = share
+    ? [
+        ...(share.client ? [{ key: 'client', label: `${brandShort} · you`, color: YOU_COLOR, videos: share.client.videos, pct: share.client.pct }] : []),
+        ...share.competitors.map((c) => ({ key: competitorBucket(c.name), label: c.name, color: c.name === lead ? THEM_COLOR : 'var(--accent-ochre)', videos: c.videos, pct: c.pct })),
+        ...(share.rest ? [{ key: 'industry-other', label: 'Wider category', color: 'var(--accent-slate)', videos: share.rest.videos, pct: share.rest.pct }] : []),
+      ].map((r) => {
+        const s = stats?.get(r.key)
+        return {
+          ...r,
+          comments: s ? s.comments : null,
+          engagement: s?.avgEngagement ?? null,
+          positive: s && s.judged >= SENTIMENT_MIN_JUDGED ? (s.positive / s.judged) * 100 : null,
+          judged: s?.judged ?? 0,
+          themes: themesByBucket?.get(r.key) ?? null,
+        }
+      })
+    : []
 
-  // How much conversation a card's named competitor actually has. Pass C is now
-  // told not to rest a finding on a thin bucket (lib/pipeline/pass-c
-  // thinBuckets); this shows the reader the same number, so a comparison drawn
-  // from four videos reads as the hint it is.
-  const coverageFor = (ci: CompetitiveInsight): number | null => {
-    if (!ci.competitor_name) return null
-    const match = sov.competitors.find(
-      (c) => c.name.toLowerCase() === ci.competitor_name!.toLowerCase(),
-    )
-    // NULL, not 0, when the name does not match a tracked bucket.
-    // competitive_insights.competitor_name is unvalidated model prose, so
-    // "Ottobock GmbH" against a bucket called "Ottobock" would otherwise
-    // render "thin: 0 videos · We analysed only 0 videos about Ottobock",
-    // which is worse than saying nothing.
-    return match ? match.count : null
-  }
-
-  return (
-    <Shell showLegend={showLegend}>
-      <ShareOfVoice sov={sov} brand={brand} />
-
-      {insights.length === 0 ? (
-        <EmptyInsights sov={sov} />
-      ) : (
-        <>
-          {byCategory.map(({ cat, items }) => (
-            <section key={cat} className="space-y-3">
-              <div>
-                <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">{CATEGORY_META[cat].label}</h2>
-                <p className="text-xs text-muted-foreground">{CATEGORY_META[cat].blurb}</p>
-              </div>
-              {items.map((ci) => <InsightCard key={ci.id} ci={ci} support={supportFor(ci)} quotes={quotesFor(ci)} coverage={coverageFor(ci)} />)}
-            </section>
-          ))}
-          {otherItems.length > 0 && (
-            <section className="space-y-3">
-              <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Other</h2>
-              {otherItems.map((ci) => <InsightCard key={ci.id} ci={ci} support={supportFor(ci)} quotes={quotesFor(ci)} coverage={coverageFor(ci)} />)}
-            </section>
-          )}
-        </>
-      )}
-    </Shell>
-  )
-}
-
-function InsightCard({ ci, support, quotes, coverage }: {
-  ci: CompetitiveInsight; support: string[]; quotes: string[]
-  /** Videos we analysed in the named competitor's bucket. A reader cannot judge
-   *  a comparison without knowing how much conversation it rests on, and a
-   *  thin bucket says so rather than reading as a finding about the brand
-   *  (Tier 1). Null when the card names no competitor. */
-  coverage: number | null
-}) {
-  const thin = coverage !== null && coverage < COMPETITIVE_MIN_VIDEOS
-  return (
-    <Card>
-      <CardHeader className="pb-2">
-        <div className="flex items-start justify-between gap-4">
-          <div className="flex flex-wrap items-center gap-2">
-            {ci.competitor_name && <span className={`${chipBase} ${categoryTint(ci.competitor_name)}`}>vs {ci.competitor_name}</span>}
-            <span className={`${chipBase} ${categoryTint(ci.category)}`}>{prettyType(ci.category)}</span>
-            {coverage !== null && (
-              <span
-                className={`${chipBase} ${thin ? 'bg-warning/15 text-warning-foreground' : 'bg-muted text-muted-foreground'}`}
-                title={thin
-                  ? `Only ${coverage} video${coverage === 1 ? '' : 's'} about ${ci.competitor_name} produced anything we could read. Treat this as a hint, not a finding.`
-                  : `Drawn from ${coverage} videos about ${ci.competitor_name} that produced readable signal.`}
-              >
-                {thin ? `thin: ${coverage} videos` : `${coverage} videos`}
-              </span>
-            )}
-          </div>
-          {ci.impact_level && (
-            <span
-              title="The analysis's judgment of likely effect on your position — a read on the finding, not a counted measure."
-              className={`${chipBase} shrink-0 ${levelBadge(ci.impact_level)}`}
-            >{ci.impact_level} impact</span>
-          )}
-        </div>
-      </CardHeader>
-      <CardContent className="space-y-3">
-        <Quotes items={quotes} />
-        <div className="space-y-1">
-          <h3 className="text-base font-semibold">{ci.title}</h3>
-          <p className="text-sm text-muted-foreground">{ci.finding}</p>
-        </div>
-        {support.length > 0 && (
-          <div className="border-t pt-3 space-y-2">
-            <div className="text-xs font-medium text-muted-foreground">Grounded in</div>
-            <div className="flex flex-wrap gap-1.5">
-              {support.map((theme, i) => (
-                <span key={i} className={`px-2 py-0.5 rounded-full text-xs capitalize ${categoryTint(theme)}`}>{theme.replace(/_/g, ' ')}</span>
-              ))}
-            </div>
-          </div>
-        )}
-      </CardContent>
-    </Card>
-  )
-}
-
-// --- Share of Tracked Conversation -----------------------------------------
-
-interface Share {
-  total: number
-  client: number
-  industry: number
-  competitors: { name: string; count: number }[]
-  competitorCount: number
-}
-
-function shareFromSummary(summary: SummaryShareRow | null): Share {
-  const sov = summary?.share_of_voice ?? {}
-  const client = sov.client?.videos ?? 0
-  const industry = sov['industry-other']?.videos ?? 0
-  const competitors = Object.entries(sov)
-    .filter(([key]) => key.startsWith('competitor:'))
-    // count = videos that produced an insight, which is what a card's claim
-    // rests on. The gathered count overstated coverage 8-11x on live data.
-    .map(([key, e]) => ({ name: key.slice('competitor:'.length), count: e.analysed_videos ?? e.videos }))
-    .sort((a, b) => b.count - a.count)
-  return {
-    total: Number(summary?.total_videos ?? 0),
-    client,
-    industry,
-    competitors,
-    competitorCount: competitors.length,
-  }
-}
-
-function ShareOfVoice({ sov, brand }: { sov: Share; brand: string }) {
-  const pct = (n: number) => (sov.total ? Math.round((n / sov.total) * 1000) / 10 : 0)
-  const segments = [
-    { label: brand, count: sov.client, color: 'bg-primary' },
-    ...sov.competitors.map((c, i) => ({ label: c.name, count: c.count, color: accentSolid(i) })),
-    { label: 'Rest of category', count: sov.industry, color: 'bg-muted-foreground/40' },
-  ].filter((s) => s.count > 0)
+  // ── overlays ───────────────────────────────────────────────────────────
+  const showLegend = sp.detail === 'legend'
+  const showField = sp.detail === 'field'
+  const showFindings = sp.detail === 'findings'
+  const context = `${lead ? `Where do we stand vs ${lead}?` : 'Where do we stand?'} · ${weekdayDate(runDate)}`
+  const layerWord = faceLayer === 'period' ? 'this update' : 'all updates'
 
   return (
-    <Card>
-      <CardHeader className="pb-2">
-        <CardTitle className="text-sm">Share of Tracked Conversation</CardTitle>
-        <p className="text-xs text-muted-foreground">
-          Share of {sov.total.toLocaleString()} tracked conversations by brand. Scoped to your tracked keywords — not comprehensive web share of voice.
-        </p>
-      </CardHeader>
-      <CardContent className="space-y-3">
-        <div className="flex h-3 w-full overflow-hidden rounded-full bg-muted">
-          {segments.map((s, i) => (
-            <div key={i} className={s.color} style={{ width: `${pct(s.count)}%` }} title={`${s.label}: ${pct(s.count)}%`} />
-          ))}
-        </div>
-        <div className="flex flex-wrap gap-x-4 gap-y-1.5">
-          {segments.map((s, i) => (
-            <div key={i} className="flex items-center gap-1.5 text-xs">
-              <span className={`inline-block h-2.5 w-2.5 rounded-sm ${s.color}`} />
-              <span className="font-medium">{s.label}</span>
-              <span className="text-muted-foreground">{pct(s.count)}% ({s.count})</span>
-            </div>
-          ))}
-        </div>
-      </CardContent>
-    </Card>
-  )
-}
-
-// --- Shell + empty states ---------------------------------------------------
-
-function Shell({ children, showLegend }: { children: React.ReactNode; showLegend: boolean }) {
-  return (
-    <div className="space-y-6">
-      <div className="flex items-start justify-between gap-4">
-        <h1 className="text-2xl font-bold">Competitive Intelligence</h1>
+    <PageFrame>
+      <PageBar title="Competitive Intelligence" context={context}>
+        {competitors.length > 1 ? (
+          competitors.slice(0, 4).map((c) => (
+            <Link key={c.name} href={competitiveHref(c.name)} scroll={false} className="rounded-full">
+              <BarPill active={c.name === lead}>vs {c.name}</BarPill>
+            </Link>
+          ))
+        ) : lead ? <BarPill active>vs {lead}</BarPill> : null}
+        {updatesCount > 1 && <BarPill>Last {updatesCount} updates</BarPill>}
         <HowToRead items={LEGEND_ITEMS} open={showLegend} basePath="/dashboard/competitive" />
-      </div>
-      {children}
-    </div>
-  )
-}
+      </PageBar>
 
-function EmptyRun() {
-  return (
-    <Card>
-      <CardContent className="py-10 text-center text-sm text-muted-foreground">
-        Your competitive intelligence lands with your first update.
-      </CardContent>
-    </Card>
-  )
-}
+      <PageGrid>
+        {/* ── hero: the face-off ─────────────────────────────────────── */}
+        <Tile col={12} row={2} bodyClassName="gap-1"
+          footer={lead && share ? (
+            <Link href={competitiveHref(vs, 'field')} scroll={false}>
+              Full comparison, incl. the wider category{share.rest ? ` (${fmtInt(share.rest.videos)} videos · ${fmtPct(share.rest.pct)})` : ''} →
+            </Link>
+          ) : undefined}
+          footerNote={lead && rows.length > 0 ? shareNote : undefined}
+        >
+          {lead && rows.length > 0 ? (
+            <>
+              <FaceOffHeader
+                you={`${brandShort} · you`} youLine={youPraise ? `Praised for ${youPraise.toLowerCase()}` : undefined}
+                centre={faceLayer === 'period' ? 'This update' : 'All updates'}
+                them={lead} themLine={themPraise ? `Praised for ${themPraise.toLowerCase()}` : undefined}
+              />
+              <FaceOff rows={rows} />
+            </>
+          ) : lead ? (
+            <TileEmpty>Nothing to compare against {lead} yet — the face-off fills in as their videos are tracked and analysed.</TileEmpty>
+          ) : (
+            <TileEmpty>The face-off starts once a competitor’s videos are tracked — add competitors in Settings, and the next update compares you side by side.</TileEmpty>
+          )}
+        </Tile>
 
-function EmptyInsights({ sov }: { sov: Share }) {
-  const reason = sov.competitorCount === 0
-    ? 'No competitor-tagged content cleared analysis this update — competitor accounts typically attract few comments, so the consumer voice about them lives in creator and category content that isn’t yet attributed to a competitor.'
-    : 'Competitor content was tracked, but not enough of it drew comments to form a comparable theme — so there was only one brand group to read, and cross-brand analysis was skipped this update.'
-  return (
-    <Card>
-      <CardContent className="py-8 space-y-2 text-sm text-muted-foreground">
-        <p className="font-medium text-foreground">No cross-brand insights this update.</p>
-        <p>
-          Competitive intelligence compares your brand against tracked competitors using their customers’ comments.
-          It needs at least two brands’ audiences with enough comment-bearing content.
-        </p>
-        <p>{reason}</p>
-        <p className="text-xs">The Share of Tracked Conversation above shows the current bucket balance.</p>
-      </CardContent>
-    </Card>
+        {/* ── share of tracked conversation over time ────────────────── */}
+        <Tile col={7} row={4} eyebrow="Share of tracked conversation over time"
+          meta={series ? `by videos · ${updatesCount} updates${series.layer === 'cumulative' ? ' · all-time share' : ''} · rest of the category not drawn` : undefined}
+          footer={series ? (
+            <span className="font-normal text-muted-foreground">
+              Since your first update: {brandShort} {fmtDelta(series.youDelta, 'pt', 1)}{lead && series.themDelta != null ? ` · ${lead} ${fmtDelta(series.themDelta, 'pt', 1)}` : ''}
+            </span>
+          ) : undefined}
+          footerNote="share of tracked volume, not web share of voice"
+        >
+          {series ? (
+            <div className="flex min-h-0 flex-1 flex-col justify-center">
+              <LineChart
+                series={[
+                  { label: brandShort, values: series.you, color: YOU_COLOR },
+                  ...(lead && series.them ? [{ label: lead, values: series.them, color: THEM_COLOR }] : []),
+                ]}
+                labels={series.dates.map(shortDate)}
+                format={(v) => `${round1(v)}%`}
+                width={620} height={300} padL={40} padR={110}
+              />
+            </div>
+          ) : (
+            <TileEmpty>Your first comparison lands with the next update — two updates are needed to draw a line.</TileEmpty>
+          )}
+        </Tile>
+
+        {/* ── what the voices say about the match-up ─────────────────── */}
+        <Tile col={5} row={4} eyebrow="What the voices say about the match-up"
+          meta={insights.length > 0 ? `${insights.length} finding${insights.length === 1 ? '' : 's'}` : undefined}
+          bodyClassName="gap-0"
+          footer={insights.length > 0 ? <Link href={competitiveHref(vs, 'findings')} scroll={false}>All {insights.length} findings →</Link> : undefined}
+        >
+          {insights.length > 0 ? (
+            <div className="flex min-h-0 flex-col divide-y divide-border/70 overflow-hidden">
+              {insights.slice(0, VISIBLE_FINDINGS).map((ci) => {
+                const cov = coverageFor(ci)
+                const quote = quotesFor.get(ci.id)?.[0]
+                return (
+                  <div key={ci.id} className="flex flex-col gap-1 py-2 first:pt-0.5">
+                    <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+                      <KindChip category={ci.category} />
+                      {ci.competitor_name && <span className="truncate">vs {ci.competitor_name}</span>}
+                      {cov && <span className={`shrink-0 ${cov.thin ? 'text-warning' : ''}`} title={cov.thin ? `Only ${cov.text.replace(' · thin', '')} about ${ci.competitor_name} produced anything we could read — a hint, not a finding.` : `Drawn from ${cov.text} about ${ci.competitor_name} that produced readable signal.`}>· {cov.text}</span>}
+                    </div>
+                    <p className="line-clamp-1 text-[13px] font-semibold leading-[1.3] tracking-[-0.01em]">{ci.title}</p>
+                    <p className="line-clamp-2 text-[11.5px] leading-[1.4] text-foreground/80">{ci.finding}</p>
+                    {quote && <blockquote className="line-clamp-1 border-l-2 border-clay pl-2 text-[11.5px] italic leading-[1.4] text-foreground/85">“{quote}”</blockquote>}
+                  </div>
+                )
+              })}
+            </div>
+          ) : (
+            <TileEmpty>No cross-brand findings this update. {emptyFindingsReason}</TileEmpty>
+          )}
+        </Tile>
+      </PageGrid>
+
+      {/* ── drawers: one click deeper ────────────────────────────────── */}
+      <DetailDrawer open={showField} closeHref={base} title="The full comparison" description={`${brand}${lead ? ` vs ${lead}` : ''} · ${layerWord} · ${weekdayDate(runDate)}`}>
+        {fieldRows.length > 0 ? (
+          <div className="space-y-4">
+            <div className="overflow-x-auto">
+              <table className="w-full text-[12px]">
+                <thead>
+                  <tr className="border-b text-[10.5px] uppercase tracking-[0.05em] text-muted-foreground">
+                    <th className="pb-1.5 pr-2 text-left font-semibold">Who</th>
+                    <th className="pb-1.5 pr-2 text-right font-semibold">Videos</th>
+                    <th className="pb-1.5 pr-2 text-right font-semibold">Share</th>
+                    <th className="pb-1.5 pr-2 text-right font-semibold">Comments</th>
+                    <th className="pb-1.5 pr-2 text-right font-semibold">Engagement</th>
+                    <th className="pb-1.5 pr-2 text-right font-semibold">Positive</th>
+                    <th className="pb-1.5 text-right font-semibold">Themes</th>
+                  </tr>
+                </thead>
+                <tbody className="font-mono tabular-nums">
+                  {fieldRows.map((r) => (
+                    <tr key={r.key} className="border-b last:border-0">
+                      <td className="py-1.5 pr-2 font-sans"><span className="flex items-center gap-1.5"><span className="size-1.5 shrink-0 rounded-full" style={{ background: r.color }} aria-hidden />{r.label}</span></td>
+                      <td className="py-1.5 pr-2 text-right">{fmtInt(r.videos)}</td>
+                      <td className="py-1.5 pr-2 text-right">{fmtPct(r.pct)}</td>
+                      <td className="py-1.5 pr-2 text-right">{r.comments != null ? fmtInt(r.comments) : '—'}</td>
+                      <td className="py-1.5 pr-2 text-right">{r.engagement != null ? fmtPct(r.engagement) : '—'}</td>
+                      <td className="py-1.5 pr-2 text-right">{r.positive != null ? fmtPct(r.positive, 0) : '—'}</td>
+                      <td className="py-1.5 text-right">{r.themes != null ? fmtInt(r.themes) : '—'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <p className="text-[11px] leading-[1.45] text-muted-foreground">
+              Videos and share are {faceLayer === 'period' ? 'this update’s' : 'all-time'} tracked conversation by who posted. Comments are as platforms report them and engagement is the mean rate across this update’s videos that carry one. Positive is the share of rated videos (how commenters received them), shown only with {SENTIMENT_MIN_JUDGED} or more rated{fieldRows.some((r) => r.judged > 0) ? ` — ${fieldRows.filter((r) => r.judged > 0).map((r) => `${r.label.replace(' · you', '')} ${fmtInt(r.judged)}`).join(', ')} rated` : ''}. Themes are those heard under each group’s videos in the latest analysed update.
+            </p>
+          </div>
+        ) : <p className="text-[12px] text-muted-foreground">Nothing to compare yet.</p>}
+      </DetailDrawer>
+
+      <DetailDrawer open={showFindings} closeHref={base} title="What the voices say about the match-up" description={`${insights.length} finding${insights.length === 1 ? '' : 's'} · ${weekdayDate(runDate)}`}>
+        <div className="space-y-5">
+          {groupByKind(insights).map((g) => (
+            <section key={g.category} className="space-y-3">
+              <div>
+                <h3 className="text-[10.5px] font-semibold uppercase tracking-[0.07em] text-muted-foreground">{g.kind.label}</h3>
+                {g.kind.blurb && <p className="text-[11px] text-muted-foreground">{g.kind.blurb}</p>}
+              </div>
+              {g.items.map((ci) => {
+                const cov = coverageFor(ci)
+                const support = supportFor(ci)
+                const impact = impactWord(ci.impact_level)
+                return (
+                  <div key={ci.id} className="space-y-1.5 rounded-lg bg-muted/40 p-3">
+                    <div className="flex flex-wrap items-center gap-1.5 text-[11px] text-muted-foreground">
+                      <KindChip category={ci.category} />
+                      {ci.competitor_name && <span>vs {ci.competitor_name}</span>}
+                      {cov && <span className={cov.thin ? 'text-warning' : ''}>· {cov.text}</span>}
+                      {impact && <span className="ml-auto" title="The analysis’s judgment of likely effect on your position — a read on the finding, not a counted measure.">{impact}</span>}
+                    </div>
+                    <p className="text-[13.5px] font-semibold leading-[1.3]">{ci.title}</p>
+                    <p className="text-[12.5px] leading-[1.45] text-foreground/85">{ci.finding}</p>
+                    {(quotesFor.get(ci.id)?.length ?? 0) > 0 && <Quotes items={quotesFor.get(ci.id) ?? []} />}
+                    {support.length > 0 && (
+                      <p className="text-[11px] text-muted-foreground">Grounded in {support.map((s) => s.replace(/_/g, ' ')).join(' · ')}</p>
+                    )}
+                  </div>
+                )
+              })}
+            </section>
+          ))}
+          {insights.length === 0 && <p className="text-[12px] text-muted-foreground">No cross-brand findings this update. {emptyFindingsReason}</p>}
+        </div>
+      </DetailDrawer>
+    </PageFrame>
   )
 }

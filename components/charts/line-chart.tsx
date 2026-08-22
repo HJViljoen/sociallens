@@ -49,7 +49,11 @@ export function LineChart({
         )
       })}
       {labels?.map((l, i) => (
-        <text key={i} x={x(i)} y={height - 4} textAnchor="middle" fontSize={10} fontFamily="var(--font-jetbrains), monospace" fill="var(--muted-foreground)">{l}</text>
+        // Several updates on one day (re-analyses) would repeat the label —
+        // print a date once, at its first point.
+        i > 0 && labels[i - 1] === l ? null : (
+          <text key={i} x={x(i)} y={height - 4} textAnchor="middle" fontSize={10} fontFamily="var(--font-jetbrains), monospace" fill="var(--muted-foreground)">{l}</text>
+        )
       ))}
       {markers.map((m, k) => series[0]?.values[m.i] != null && (
         <circle key={k} cx={x(m.i)} cy={y(series[0].values[m.i])} r={8} fill="none" stroke="var(--warning)" strokeWidth={2}>
