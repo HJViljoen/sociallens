@@ -603,7 +603,7 @@ function renderReportHtml(d: ReportData, subject: string): string {
         <div style="font-size:14px;font-weight:600;color:${INK};margin-top:${e.heroQuote ? '8px' : '0'}">${escapeHtml(e.magnitudeLabel)}</div>
         <div style="font-size:13px;color:${MUTED};line-height:1.5;margin-top:2px">${escapeHtml(e.explanation ?? '')}</div>
         <div style="margin-top:4px">
-          <a href="${d.appUrl}/dashboard/trends" style="color:${GREEN};font-size:12px;font-weight:600;text-decoration:none">See what moved →</a>
+          <a href="${d.appUrl}/dashboard/videos" style="color:${GREEN};font-size:12px;font-weight:600;text-decoration:none">See what moved →</a>
         </div>
       </div>`).join('')
     : d.ownedEvents.length

@@ -6,18 +6,10 @@ import { billingAccess, type BillingClient } from "@/lib/billing"
 import { askEnabled, agentEnabled } from "@/lib/config"
 
 export default async function DashboardLayout({ children }: { children: React.ReactNode }) {
-  // Trends needs ≥2 comparable updates (run_summary snapshots) before it has
-  // anything to chart; only then does it earn a nav slot.
   const { supabase, clientId } = await getSessionContext()
-  const [{ count }, { data: clientRow }] = await Promise.all([
-    supabase.from("run_summary")
-      .select("id", { head: true, count: "exact" })
-      .eq("client_id", clientId),
-    // select('*'): the billing columns are optional on older rows, and this
-    // must render whether or not a given migration has landed.
-    supabase.from("clients").select("*").eq("id", clientId).maybeSingle(),
-  ])
-  const showTrends = (count ?? 0) >= 2
+  // select('*'): the billing columns are optional on older rows, and this
+  // must render whether or not a given migration has landed.
+  const { data: clientRow } = await supabase.from("clients").select("*").eq("id", clientId).maybeSingle()
   // No row (RLS hiccup, transient failure) is NOT the same as "no access":
   // billingAccess would read the missing approved_at as pending and tell a
   // comped design partner their workspace was never switched on. Say nothing
@@ -29,7 +21,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
 
   return (
     <SidebarProvider>
-      <AppSidebar showTrends={showTrends} showAsk={askEnabled()} showAgent={agentEnabled()} />
+      <AppSidebar showAsk={askEnabled()} showAgent={agentEnabled()} />
       {/* min-w-0: without it this flex item refuses to shrink below the
           intrinsic width of wide children (the Content page's 9-column table),
           so the whole page overflows the phone viewport instead of the table

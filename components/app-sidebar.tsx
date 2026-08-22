@@ -5,14 +5,14 @@ import {
   SidebarHeader, SidebarMenu, SidebarMenuButton, SidebarMenuItem,
   useSidebar,
 } from "@/components/ui/sidebar"
-import { LayoutDashboard, Target, MessageCircle, Swords, Play, TrendingUp, FileText, Users, UserRound, MessageSquareQuote, Sparkles, CreditCard, Settings, LogOut } from "lucide-react"
+import { LayoutDashboard, Target, MessageCircle, Swords, Play, FileText, Users, UserRound, MessageSquareQuote, Sparkles, CreditCard, Settings, LogOut } from "lucide-react"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { signOut } from "@/app/login/actions"
 
-// Trends only appears once the tenant has ≥2 comparable updates on record (the
-// layout computes `showTrends`) — otherwise the page has nothing to chart and is
-// still reachable by URL. It's always the page's own /dashboard/trends fallback.
+// Trends was dissolved into the pages it served (2026-08-22 redesign): share
+// over time lives on Competitive, theme movers on Voice, movement since the
+// first update on the Dashboard, your accounts on Content.
 const baseNav = [
   { href: "/dashboard",           label: "Dashboard",          icon: LayoutDashboard },
   { href: "/dashboard/market",    label: "Market Intelligence",icon: Target },
@@ -26,7 +26,6 @@ const baseNav = [
   { href: "/dashboard/settings",  label: "Settings",           icon: Settings },
 ]
 
-const TRENDS_ITEM = { href: "/dashboard/trends", label: "Trends", icon: TrendingUp }
 // Ask is gated on the same flag as its route (/api/ask 404s without it) — an
 // entry point to an endpoint that refuses is worse than no entry point.
 const ASK_ITEM = { href: "/dashboard/ask", label: "Ask", icon: MessageSquareQuote }
@@ -34,16 +33,12 @@ const ASK_ITEM = { href: "/dashboard/ask", label: "Ask", icon: MessageSquareQuot
 // not light up Pass E and the weekly re-evaluation inside a pipeline run.
 const AGENT_ITEM = { href: "/dashboard/agent", label: "Verbatim Agent", icon: Sparkles }
 
-export function AppSidebar({ showTrends = false, showAsk = false, showAgent = false }: { showTrends?: boolean; showAsk?: boolean; showAgent?: boolean }) {
+export function AppSidebar({ showAsk = false, showAgent = false }: { showAsk?: boolean; showAgent?: boolean }) {
   const pathname = usePathname()
-  // Slot Trends just above Reports when the tenant has history to show, and Ask
-  // just after the profile it reads from.
-  const withTrends = showTrends
-    ? baseNav.flatMap((item) => (item.href === "/dashboard/reports" ? [TRENDS_ITEM, item] : [item]))
-    : baseNav
+  // Ask sits just after the profile it reads from.
   const withAsk = showAsk
-    ? withTrends.flatMap((item) => (item.href === "/dashboard/profile" ? [item, ASK_ITEM] : [item]))
-    : withTrends
+    ? baseNav.flatMap((item) => (item.href === "/dashboard/profile" ? [item, ASK_ITEM] : [item]))
+    : baseNav
   // The agent sits directly under the profile it reads from, above Ask.
   const navItems = showAgent
     ? withAsk.flatMap((item) => (item.href === "/dashboard/profile" ? [item, AGENT_ITEM] : [item]))

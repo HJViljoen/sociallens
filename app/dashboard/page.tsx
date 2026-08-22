@@ -492,7 +492,7 @@ export default async function DashboardPage({ searchParams }: { searchParams?: P
         {/* ── movement since the first update ────────────────────────── */}
         <Tile col={4} row={2} eyebrow="Since your first update"
           meta={mv ? `${updatesCount} updates · ${shortDate(mv.dates[0])} → ${shortDate(mv.dates[mv.dates.length - 1])}` : undefined}
-          footer={mv ? <Link href="/dashboard/trends">Open movement →</Link> : undefined}
+          footer={mv ? <Link href="/dashboard/competitive">Where you stand over time →</Link> : undefined}
           footerNote={mv ? 'deltas vs last update' : undefined}
         >
           {mv ? (
@@ -516,7 +516,7 @@ export default async function DashboardPage({ searchParams }: { searchParams?: P
 
         {/* ── your accounts ──────────────────────────────────────────── */}
         <Tile col={3} row={1} eyebrow="On your accounts" meta={accounts.length > 0 ? 'followers · 30 days' : undefined}
-          footer={topEvent ? <Link href="/dashboard/trends">{topEvent.magnitude_label} →</Link> : undefined}
+          footer={topEvent ? <Link href="/dashboard/videos">{topEvent.magnitude_label} →</Link> : undefined}
         >
           {accounts.length > 0 ? (
             <div className="flex flex-col gap-[3px]">
