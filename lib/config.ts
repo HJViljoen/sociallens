@@ -658,6 +658,11 @@ export const AGENT_INSIGHTS_TOTAL = 60
  *  Starting value — revisit on real use rather than on a guess. */
 export const AGENT_DAILY_LIMIT = 50
 
+/** Real comments attached to one grounded point. Enough that the reader sees
+ *  the voices rather than a claim about them, few enough that the answer stays
+ *  an answer. A point that cannot muster one is not grounded. */
+export const AGENT_QUOTES_PER_POINT = 3
+
 /** Runs of history shown to the agent. Twelve weekly readings is a quarter —
  *  enough to see a movement, short enough that the model is not handed a year
  *  of numbers to find a pattern in. */
