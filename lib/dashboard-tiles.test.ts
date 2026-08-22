@@ -137,11 +137,15 @@ describe('accountSeries', () => {
     expect(out[0].delta).toBe(1234)
     expect(Math.round(out[0].deltaPct * 10) / 10).toBe(2.1)
   })
-  it('respects the window', () => {
-    const snaps = Array.from({ length: 40 }, (_, i) => ({ platform: 'x', snapshot_date: `2026-07-${String(i + 1).padStart(2, '0')}`, followers: 100 + i }))
+  it('windows by date, not by count', () => {
+    const day = (i: number) => { const d = new Date('2026-07-01T00:00:00Z'); d.setUTCDate(d.getUTCDate() + i); return d.toISOString().slice(0, 10) }
+    const snaps = Array.from({ length: 40 }, (_, i) => ({ platform: 'x', snapshot_date: day(i), followers: 100 + i }))
     const out = accountSeries(snaps, 30)
     expect(out[0].values.length).toBe(30)
     expect(out[0].values[0]).toBe(110)
+    // a gap in collection narrows the line instead of reaching further back
+    const gappy = [{ platform: 'x', snapshot_date: '2026-05-01', followers: 1 }, { platform: 'x', snapshot_date: '2026-08-10', followers: 5 }, { platform: 'x', snapshot_date: '2026-08-12', followers: 7 }]
+    expect(accountSeries(gappy, 30)[0].values).toEqual([5, 7])
   })
 })
 

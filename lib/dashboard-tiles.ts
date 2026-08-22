@@ -203,8 +203,9 @@ export interface AccountSeries {
   deltaPct: number
 }
 
-/** Per-platform follower series over the last `windowDays` snapshots (one per
- *  day), platforms with ≥2 points only, most followers first. */
+/** Per-platform follower series over the last `windowDays` DAYS (by snapshot
+ *  date, so a gap in collection narrows the line rather than stretching the
+ *  window), platforms with ≥2 points only, most followers first. */
 export function accountSeries(snaps: SnapshotRow[], windowDays = 30): AccountSeries[] {
   const by = new Map<string, SnapshotRow[]>()
   for (const s of snaps) {
@@ -215,7 +216,12 @@ export function accountSeries(snaps: SnapshotRow[], windowDays = 30): AccountSer
   }
   const out: AccountSeries[] = []
   for (const [platform, rows] of by) {
-    const sorted = [...rows].sort((a, b) => a.snapshot_date.localeCompare(b.snapshot_date)).slice(-windowDays)
+    const all = [...rows].sort((a, b) => a.snapshot_date.localeCompare(b.snapshot_date))
+    const latestDate = all[all.length - 1].snapshot_date
+    const cutoff = new Date(latestDate)
+    cutoff.setUTCDate(cutoff.getUTCDate() - windowDays)
+    const cutoffIso = cutoff.toISOString().slice(0, 10)
+    const sorted = all.filter((r) => r.snapshot_date.slice(0, 10) > cutoffIso)
     if (sorted.length < 2) continue
     const values = sorted.map((r) => Number(r.followers))
     const first = values[0], latest = values[values.length - 1]

@@ -29,9 +29,9 @@ export function Ring({
   return (
     <svg viewBox={`0 0 ${size} ${size}`} width={size} height={size} className={className} style={{ flex: 'none' }} role="img" aria-label={segments.map((s) => `${s.label} ${s.value}`).join(', ')}>
       {total === 0 && <circle cx={c} cy={c} r={r} fill="none" stroke="var(--muted)" strokeWidth={thickness} />}
-      {arcs.map((a) => (
+      {arcs.map((a, i) => (
         <circle
-          key={a.label}
+          key={`${i}-${a.label}`}
           cx={c} cy={c} r={r}
           fill="none"
           stroke={a.color}

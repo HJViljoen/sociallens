@@ -4,7 +4,7 @@ import { getSessionContext } from '@/lib/auth'
 import { HowToRead } from '@/components/how-to-read'
 import { Quotes } from '@/components/quotes'
 import { ProportionBar, type Segment } from '@/components/proportion-bar'
-import { proportionDelta, SENTIMENT_BAND, type DeltaVerdict } from '@/lib/report-bands'
+import { proportionDelta, SENTIMENT_BAND, SHARE_BAND, type DeltaVerdict } from '@/lib/report-bands'
 import { composeDashboardNarrative, type NarrativeFigures } from '@/lib/dashboard-narrative'
 import type { ExecutiveBrief } from '@/lib/pipeline/schemas'
 import { rankByTheme, fetchQuotesByAudience, fetchInsightsByIds, createQuotePicker, bucketByAudienceId, scopeToClientVoices, type ThemeBucketRow } from '@/lib/quotes'
@@ -125,6 +125,10 @@ export default async function DashboardPage({ searchParams }: { searchParams?: P
   let themedQ = supabase.from('themes').select('run_id').eq('client_id', clientId)
   if (notRunning) themedQ = themedQ.not('run_id', 'in', notRunning)
   const SUMMARY_COLS = 'run_id, run_date, total_videos, total_comments, period_videos, period_comments, share_of_voice, period_share_of_voice, period_sentiment_positive, audience_sentiment, period_audience_sentiment'
+  let latestVidQ = supabase.from('videos').select('run_id').eq('client_id', clientId)
+  if (notRunning) latestVidQ = latestVidQ.not('run_id', 'in', notRunning)
+  let earlierThemesQ = supabase.from('themes').select('run_id').eq('client_id', clientId)
+  if (notRunning) earlierThemesQ = earlierThemesQ.not('run_id', 'in', notRunning)
   const [historyRaw, recRes, latestThemedRes, miRes, latestVidRes, snapRows, eventsRes, tierRows] = await Promise.all([
     selectAll<SummaryRow>(() =>
       supabase.from('run_summary').select(`${SUMMARY_COLS}, executive_brief`).eq('client_id', clientId).order('run_date', { ascending: true }),
@@ -134,7 +138,7 @@ export default async function DashboardPage({ searchParams }: { searchParams?: P
     supabase.from('market_insights').select('id, evidence').eq('client_id', clientId).eq('run_id', runId),
     // The newest update that gathered videos (an analysis-only update re-reads
     // old videos and gathers none) — anchors the platform split below.
-    supabase.from('videos').select('run_id').eq('client_id', clientId).order('scraped_at', { ascending: false }).limit(1).maybeSingle(),
+    latestVidQ.order('scraped_at', { ascending: false }).limit(1).maybeSingle(),
     // Daily follower snapshots (three platforms cross the 1000-row cap in ~11 months).
     selectAll<{ platform: string; snapshot_date: string; followers: number | null }>(() =>
       supabase.from('account_snapshots').select('platform, snapshot_date, followers').eq('client_id', clientId).order('snapshot_date', { ascending: true }),
@@ -143,7 +147,7 @@ export default async function DashboardPage({ searchParams }: { searchParams?: P
       .eq('client_id', clientId).eq('run_id', runId).order('severity', { ascending: false }).limit(3),
     // Themes confirmed per update (for the movement row) + tiers for the strip.
     selectAll<{ run_id: string; single_source: boolean | null; strength_score: number | null }>(() =>
-      supabase.from('themes').select('run_id, single_source, strength_score').eq('client_id', clientId),
+      supabase.from('themes').select('run_id, single_source, strength_score').eq('client_id', clientId).order('run_id').order('id'),
     ),
   ])
 
@@ -154,7 +158,9 @@ export default async function DashboardPage({ searchParams }: { searchParams?: P
   )
 
   // The latest update = the run we anchored on; everything before it is history.
-  const history = historyRaw.filter((s) => s.run_id)
+  // A run's summary is written before the run closes, so an in-flight run can
+  // already have a row — keep it out of the history every series is drawn from.
+  const history = historyRaw.filter((s) => s.run_id && !runningIds.includes(s.run_id))
   const summary = history.find((s) => s.run_id === runId) ?? history[history.length - 1] ?? null
   const summaryIdx = summary ? history.indexOf(summary) : -1
   const prev = summaryIdx > 0 ? history[summaryIdx - 1] : null
@@ -167,8 +173,10 @@ export default async function DashboardPage({ searchParams }: { searchParams?: P
   const periodComments = summary?.period_comments ? Number(summary.period_comments) : null
   const commentsNow = periodComments ?? (summary?.total_comments != null ? Number(summary.total_comments) : null)
   const commentsPrev = periodComments ? (prev?.period_comments ? Number(prev.period_comments) : null) : (prev?.total_comments != null ? Number(prev.total_comments) : null)
-  const videoSeries = history.map((s) => Number(s.period_videos ?? s.total_videos ?? 0)).filter((n) => n > 0)
-  const commentSeries = history.map((s) => Number(s.period_comments ?? s.total_comments ?? 0)).filter((n) => n > 0)
+  // Sparklines follow the layer the big number is on — period when this update
+  // gathered, else the cumulative totals — one layer per series, zeros kept.
+  const videoSeries = history.map((s) => Number((periodVideos ? s.period_videos : s.total_videos) ?? 0))
+  const commentSeries = history.map((s) => Number((periodComments ? s.period_comments : s.total_comments) ?? 0))
   const platforms = platformSplit(platformRows)
   const platformMax = platforms[0]?.count ?? 0
 
@@ -204,12 +212,18 @@ export default async function DashboardPage({ searchParams }: { searchParams?: P
   const sharePrevSov = usePeriodShare ? prev?.period_share_of_voice : prev?.share_of_voice
   const share = shareBreakdown(shareNowSov)
   const sharePrev = shareBreakdown(sharePrevSov)
+  const briefShare = shareBreakdown(summary?.share_of_voice)
+  // Your share moves only when it clears the band (T0-8): arrows are earned.
+  const shareVerdict = share?.client && sharePrev?.client
+    ? proportionDelta({ nowPct: share.client.pct, nowN: share.tracked, nowK: share.client.videos, prevPct: sharePrev.client.pct, prevN: sharePrev.tracked, prevK: sharePrev.client.videos }, SHARE_BAND)
+    : null
+  const clientShareDelta = shareVerdict?.state === 'moved' ? shareVerdict.change : null
   const shareSegments = share
     ? [
-        ...(share.client ? [{ label: brandShort, value: share.client.videos, pct: share.client.pct, color: 'var(--primary)', delta: pointDelta(share.client.pct, sharePrev?.client?.pct), good: 'up' as const }] : []),
+        ...(share.client ? [{ label: brandShort, value: share.client.videos, pct: share.client.pct, color: 'var(--primary)', delta: clientShareDelta, good: 'up' as const }] : []),
         ...share.competitors.map((c, i) => ({
           label: c.name, value: c.videos, pct: c.pct, color: COMPETITOR_COLORS[Math.min(i, COMPETITOR_COLORS.length - 1)],
-          delta: pointDelta(c.pct, sharePrev?.competitors.find((p) => p.name === c.name)?.pct), good: 'down' as const,
+          delta: pointDelta(c.pct, sharePrev?.competitors.find((p) => p.name === c.name)?.pct), good: 'neutral' as const,
         })),
         ...(share.rest ? [{ label: 'Rest of the category', value: share.rest.videos, pct: share.rest.pct, color: REST_COLOR, delta: pointDelta(share.rest.pct, sharePrev?.rest?.pct), good: 'neutral' as const }] : []),
       ].filter((s) => s.value > 0)
@@ -224,7 +238,7 @@ export default async function DashboardPage({ searchParams }: { searchParams?: P
       supabase.from('themes')
         .select('label, description, category, bucket, member_themes, evidence_count, strength_score, rank_score, first_seen')
         .eq('client_id', clientId).eq('run_id', themedRunId),
-      supabase.from('themes').select('id').eq('client_id', clientId).neq('run_id', themedRunId).limit(1),
+      earlierThemesQ.neq('run_id', themedRunId).limit(1),
     ])
     themes = topThemes((themeRows ?? []) as ThemeRankRow[], 8, (earlier?.length ?? 0) > 0)
     analysedConversations = Object.values(summary?.share_of_voice ?? {}).reduce((t, e) => t + Number(e?.analysed_videos ?? 0), 0)
@@ -260,7 +274,9 @@ export default async function DashboardPage({ searchParams }: { searchParams?: P
     brand,
     topTheme: themes[0] ? { label: themes[0].label, description: themes[0].description, conversations: themes[0].conversations } : null,
     sentiment: sent ? { positivePct: Math.round(sent.positivePct) } : null,
-    shareOfVoice: share?.client ? { clientPct: Math.round(share.client.pct), hasCompetitors: share.competitors.length > 0 } : null,
+    // Pass D authored the brief against the cumulative share_of_voice — substitute
+    // the same layer, whatever the ring shows.
+    shareOfVoice: briefShare?.client ? { clientPct: Math.round(briefShare.client.pct), hasCompetitors: briefShare.competitors.length > 0 } : null,
   }
   const narrative = composeDashboardNarrative(summary?.executive_brief, figures)
   const showHero = narrative.beats.length > 0 || !!oneThing || oneThingQuotes.length > 0
@@ -287,7 +303,7 @@ export default async function DashboardPage({ searchParams }: { searchParams?: P
   const legendItems: GlossaryKey[] = themes.some((t) => t.isNew) ? ['conversations', 'sentiment', 'new'] : ['conversations', 'sentiment']
   const funnel = [
     termTotal > 0 && tc?.platforms?.length ? { n: termTotal, label: `search terms tracked across ${tc.platforms.map(platformLabel).join(', ')}` } : null,
-    summary?.total_videos ? { n: Number(summary.total_videos), label: 'conversations gathered into what we track for you' } : null,
+    summary?.total_videos ? { n: Number(summary.total_videos), label: 'conversations now in your tracked set' } : null,
     summary?.total_comments ? { n: Number(summary.total_comments), label: 'comments read inside them' } : null,
     summary?.period_videos ? { n: Number(summary.period_videos), label: 'conversations from this update’s period' } : null,
     sent ? { n: sent.judged, label: 'videos rated on how their audience reacted' } : null,
@@ -324,7 +340,7 @@ export default async function DashboardPage({ searchParams }: { searchParams?: P
             {videosNow != null ? (
               <>
                 <span className="flex items-center gap-2"><StatValue>{fmtInt(videosNow)}</StatValue>{videoSeries.length > 1 && <Sparkline values={videoSeries} fill />}</span>
-                <Delta value={videosPrev != null ? videosNow - videosPrev : null} good="neutral" suffix="vs last update" />
+                <Delta value={videosPrev != null ? videosNow - videosPrev : null} good="neutral" suffix={periodVideos ? 'vs last update' : 'added since last update'} />
                 <span className="truncate text-[11.5px] text-muted-foreground">{periodVideos && summary?.total_videos != null ? `${fmtInt(summary.total_videos)} all-time` : 'all-time, across every update'}</span>
               </>
             ) : <TileEmpty>Counted with the first update.</TileEmpty>}
@@ -333,7 +349,7 @@ export default async function DashboardPage({ searchParams }: { searchParams?: P
             {commentsNow != null ? (
               <>
                 <span className="flex items-center gap-2"><StatValue>{fmtInt(commentsNow)}</StatValue>{commentSeries.length > 1 && <Sparkline values={commentSeries} fill />}</span>
-                <Delta value={commentsPrev ? ((commentsNow - commentsPrev) / commentsPrev) * 100 : null} unit="%" decimals={0} good="up" suffix="vs last update" />
+                <Delta value={commentsPrev != null ? commentsNow - commentsPrev : null} good="up" suffix={periodComments ? 'vs last update' : 'added since last update'} />
                 <span className="truncate text-[11.5px] text-muted-foreground">{periodComments && summary?.total_comments != null ? `${fmtInt(summary.total_comments)} all-time` : 'all-time, across every update'}</span>
               </>
             ) : <TileEmpty>Counted with the first update.</TileEmpty>}
@@ -343,7 +359,7 @@ export default async function DashboardPage({ searchParams }: { searchParams?: P
               <>
                 <StatValue unit="confirmed">{tiers.confirmed}</StatValue>
                 <span className="truncate font-mono text-[11.5px] tabular-nums text-[#3F4B44]">{tiers.early} early <span className="text-muted-foreground/70">·</span> {tiers.once} heard once</span>
-                {registryCount > 0 && <span className="text-[11.5px] text-muted-foreground">{fmtInt(registryCount)} in your theme registry</span>}
+                {registryCount > 0 && <span className="truncate text-[11.5px] text-muted-foreground">{fmtInt(registryCount)} themes followed over time</span>}
               </>
             ) : <TileEmpty>Themes land with the first analysed update.</TileEmpty>}
           </StripCell>
@@ -397,7 +413,7 @@ export default async function DashboardPage({ searchParams }: { searchParams?: P
         </Tile>
 
         {/* ── sentiment ──────────────────────────────────────────────── */}
-        <Tile col={5} row={1} eyebrow="Audience sentiment" meta={sent ? `${fmtInt(sent.judged)} judged · this update` : undefined}>
+        <Tile col={5} row={1} eyebrow="Audience sentiment" meta={sent ? `${fmtInt(sent.judged)} judged · to date` : undefined}>
           {sent ? (
             <>
               <div className="flex items-end gap-3">
@@ -418,7 +434,7 @@ export default async function DashboardPage({ searchParams }: { searchParams?: P
         </Tile>
 
         {/* ── share of tracked conversation ──────────────────────────── */}
-        <Tile col={5} row={2} eyebrow="Share of tracked conversation" meta="by videos · this update"
+        <Tile col={5} row={2} eyebrow="Share of tracked conversation" meta={usePeriodShare ? 'by videos · this update' : 'by videos · all updates'}
           footer={<Link href="/dashboard/competitive">Where you stand{topCompetitor ? ` vs ${topCompetitor.name}` : ''} →</Link>}
           footerNote="share of tracked volume, not the whole web"
         >
@@ -456,9 +472,9 @@ export default async function DashboardPage({ searchParams }: { searchParams?: P
         >
           {themes.length > 0 ? (
             <div className="flex flex-col gap-[5px]">
-              {themes.map((t) => (
+              {themes.map((t, i) => (
                 <RankedBar
-                  key={t.label}
+                  key={`${i}-${t.label}`}
                   label={t.label}
                   dot
                   color={BUCKET_COLOR[t.bucket]}
