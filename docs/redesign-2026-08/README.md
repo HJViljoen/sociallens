@@ -46,7 +46,7 @@ Research synthesis: `research-design-direction.md`.
 Real Össur content from the 16 Aug update (counts, share, sentiment, themes, recs, competitive insights, personas, agent check). Illustrative: 5-update sparkline history (only 2 updates exist), hook/format multipliers, audience-mood %, news items, account events, top voices, "worth a reply" rows, early-signal list.
 
 ## Build log
-- **Phase 1 — shell + Dashboard — BUILT 2026-08-22 evening** on `feat/redesign-one-screen` (`76d223d` tokens+formatters · `bb10ca8` shell+charts+tile shaping · `cdb5127` dashboard). Plan + status: `~/.claude/plans/verbatim-redesign-p1-plan.md`; research: `…-p1-research.md`. How the shell works: `design-system/verbatim/MASTER.md` §One-screen grid pages. Verified in dev on Sealand (numbers match the DB; one screen at 1440×900; phone stacks). Not merged, not deployed.
+- **Phase 1 — shell + Dashboard — BUILT 2026-08-22 evening** on `feat/redesign-one-screen` (`76d223d` tokens+formatters · `bb10ca8` shell+charts+tile shaping · `cdb5127` dashboard · `e0401a4` docs · `42d6edc` review fixes). Plan + status: `~/.claude/plans/verbatim-redesign-p1-plan.md`; research: `…-p1-research.md`. How the shell works: `design-system/verbatim/MASTER.md` §One-screen grid pages. Verified in dev on Sealand (numbers match the DB; one screen at 1440×900; phone stacks). Not merged, not deployed.
 - Next phases: Market (decision ledger) → Voice (theme map) → Competitive (face-off) → Content (reply inbox) → delete Trends + sidebar + report deep-links. Profile and Agent untouched.
 
 ## Next steps (APPROVED 2026-08-22 evening — build starts)
