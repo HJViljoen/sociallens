@@ -69,6 +69,34 @@ create index if not exists audience_insights_embedding_idx
   on public.audience_insights using hnsw (embedding vector_cosine_ops)
   where embedding is not null;
 
+-- THE VIEW MUST BE REPLACED, and this is not optional.
+--
+-- audience_insights_current is defined as `select ai.*`, and Postgres expands
+-- `*` ONCE, at view-creation time — the view's column list was frozen on
+-- 2026-08-18 and adding a column to the base table does not reach it. Without
+-- this, match_insights() below fails to create ("column ai.embedding does not
+-- exist") and scripts/embed-insights.ts fails the same way, because both read
+-- the population through the view as AGENTS.md requires.
+--
+-- Safe as a REPLACE: create or replace view may only APPEND columns, and
+-- `embedding` is the newest column on the base table, so every pre-existing
+-- column keeps its name, type and position. Verified before writing this that
+-- nothing was added to audience_insights between the view's creation and now,
+-- so exactly one column is appended.
+--
+-- Nothing starts pulling vectors by accident: every reader of this view in the
+-- codebase (pass-e, step-a2, engage, the prune counter) selects an explicit
+-- column list, and none of them names `embedding`. That was checked, not
+-- assumed — a `select('*')` reader would have started dragging 1,536 floats per
+-- row into Node the moment the backfill ran.
+--
+-- security_invoker is restated because a replace does not inherit it.
+create or replace view public.audience_insights_current
+  with (security_invoker = true) as
+  select ai.*
+  from public.audience_insights ai
+  join public.videos v on v.id = ai.source_video_id and ai.run_id = v.analyzed_run_id;
+
 -- Similarity search lives in SQL because the PostgREST client cannot express
 -- `<=>`, and because pulling the population into Node to compare it there is
 -- the very thing this migration exists to stop.
@@ -184,6 +212,11 @@ create policy "Users see their own agent_messages" on public.agent_messages
 
 -- Post-apply check (run by hand):
 --   select extname from pg_extension where extname = 'vector';          -- vector
+--   -- the view must now expose the column, or match_insights is dead:
+--   select column_name from information_schema.columns
+--    where table_name = 'audience_insights_current' and column_name = 'embedding';
+--   -- and the function must exist:
+--   select proname from pg_proc where proname = 'match_insights';
 --   select count(*) from public.agent_threads;                          -- 0
 --   select count(*) from public.agent_messages;                         -- 0
 --   select count(*) from public.audience_insights where embedding is not null;  -- 0 until the backfill
