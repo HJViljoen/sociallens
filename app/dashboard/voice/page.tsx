@@ -147,6 +147,7 @@ export default async function VoiceOfCustomerPage({ searchParams }: { searchPara
     supabase.from('language_samples_current')
       .select('phrase, platform', { count: 'exact' })
       .eq('client_id', clientId)
+      .order('phrase')
       .limit(detail === 'language' ? PHRASES_DRAWER : PHRASES_SHOWN),
     // Population read of the current analysis → the *_current view (AGENTS.md).
     selectAll<{ id: string; emotion: string | null }>(() =>
@@ -397,7 +398,7 @@ export default async function VoiceOfCustomerPage({ searchParams }: { searchPara
         </Tile>
 
         {/* ── gaining and fading ─────────────────────────────────────── */}
-        <Tile col={4} row={2} eyebrow="Gaining and fading" meta={updatesCount > 1 ? 'conversations · vs last update' : undefined}
+        <Tile col={4} row={2} eyebrow="Gaining and fading" meta={updatesCount > 1 ? 'conversations · vs previous appearance' : undefined}
           footer={movers.length > 0 ? <Link href={hrefWith({ detail: 'movers' })} scroll={false}>All movers →</Link> : undefined}
           footerNote={movers.length > 0 ? 'themes heard in ≥2 updates' : undefined}
         >

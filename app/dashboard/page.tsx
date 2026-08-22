@@ -95,7 +95,7 @@ export default async function DashboardPage({ searchParams }: { searchParams?: P
   const runningIds = ((runningRes.data ?? []) as { id: string }[]).map((r) => r.id)
   const notRunning = runningIds.length ? `(${runningIds.join(',')})` : null
   const brand = client?.company_name ?? 'Your brand'
-  const brandShort = brand.split(/[—–-]/)[0].trim() || brand
+  const brandShort = brand.split(/\s[—–-]\s/)[0].trim() || brand
   const runId = latestRun?.id as string | undefined
   const registryCount = registryRes.count ?? 0
 

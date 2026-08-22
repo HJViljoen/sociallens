@@ -166,7 +166,8 @@ export function perfVsMedian(
   key: 'hook_style' | 'classified_type',
   opts: { minCount?: number; top?: number } = {},
 ): PerfMultiple[] {
-  const minCount = opts.minCount ?? 2
+  // Three videos is the floor for a multiple — two can be one fluke twice.
+  const minCount = opts.minCount ?? 3
   const top = opts.top ?? 5
   const med = medianEngagement(videos)
   if (med == null || med <= 0) return []

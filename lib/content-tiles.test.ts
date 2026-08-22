@@ -89,7 +89,7 @@ describe('perfVsMedian', () => {
   it('reads each group against the update’s median video, best first', () => {
     // engagement rates > 0: 2,6,1,3,4,2 → median 2.5
     expect(medianEngagement(vids)).toBe(2.5)
-    const out = perfVsMedian(vids, 'hook_style')
+    const out = perfVsMedian(vids, 'hook_style', { minCount: 2 })
     expect(out.map((r) => r.k)).toEqual(['before_after', 'direct_question'])
     expect(out[0].multiple).toBeCloseTo(4 / 2.5)
     expect(out[0].count).toBe(2)

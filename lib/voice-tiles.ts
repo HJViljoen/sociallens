@@ -263,7 +263,7 @@ export function categoryTabs(counts: Map<string, number>): { category: string; l
 export function emotionTone(emotion: string): 'positive' | 'negative' | 'neutral' {
   const e = emotion.toLowerCase()
   if (['frustrated', 'angry', 'disappointed', 'confused', 'anxious', 'worried', 'sad', 'fearful', 'annoyed'].includes(e)) return 'negative'
-  if (e === 'neutral') return 'neutral'
+  if (e === 'neutral' || e === 'curious') return 'neutral'
   return 'positive'
 }
 

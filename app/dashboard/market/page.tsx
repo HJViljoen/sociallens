@@ -125,15 +125,6 @@ function Quote({ text, who, clamp = true }: { text: string; who?: ReactNode; cla
   )
 }
 
-/** Status pills — visual for now; status write-back is a later step. */
-function StatusPill({ children }: { children: ReactNode }) {
-  return (
-    <Link href={BASE} scroll={false} className="inline-flex h-5 items-center rounded-full px-2 text-[10.5px] font-medium text-[#3F4B44] ring-1 ring-border transition-colors hover:bg-muted">
-      {children}
-    </Link>
-  )
-}
-
 const voiceHref = (themes: string[]) => `/dashboard/voice?themes=${encodeURIComponent(themes.join(','))}#grounding`
 
 function ThemeChips({ themes }: { themes: string[] }) {
@@ -210,7 +201,7 @@ export default async function MarketIntelligencePage({ searchParams }: { searchP
     // first, the same read Trends had: context beside the conversation, never
     // a claimed cause.
     supabase.from('news_items')
-      .select('title, url, source_ref, published_at, ring')
+      .select('title, url, source_ref, published_at, ring', { count: 'exact' })
       .eq('client_id', clientId).lte('ring', 2)
       .order('published_at', { ascending: false, nullsFirst: false })
       .limit(NEWS_SHOWN),
@@ -226,6 +217,8 @@ export default async function MarketIntelligencePage({ searchParams }: { searchP
   const singleSourceThemes = (ssRes.data ?? []) as SingleSourceTheme[]
   const singleSourceTotal = ssRes.count ?? singleSourceThemes.length
   const news = (newsRes.data ?? []) as NewsRow[]
+  // The real total, not the fetch cap.
+  const newsTotal = newsRes.count ?? news.length
   const runDate = (summaryRes.data?.run_date as string | undefined) ?? (latestRun.started_at as string)
 
   const miById = new Map(insights.map((mi) => [mi.id, mi]))
@@ -384,8 +377,6 @@ export default async function MarketIntelligencePage({ searchParams }: { searchP
                     {recThemes(featured.rec).length > 0 && (
                       <Link href={voiceHref(recThemes(featured.rec))}>See the voices{featuredVoices > 0 ? ` (${fmtInt(featuredVoices)})` : ''} →</Link>
                     )}
-                    <StatusPill>Acknowledge</StatusPill>
-                    <StatusPill>Mark acted on</StatusPill>
                   </div>
                 </div>
               </div>
@@ -515,8 +506,8 @@ export default async function MarketIntelligencePage({ searchParams }: { searchP
         </Tile>
 
         {/* ── in the news ────────────────────────────────────────────── */}
-        <Tile col={3} row={1} eyebrow="In the news" meta={news.length > 0 ? `${news.length} · context, not cause` : undefined}
-          footer={news.length > 1 ? <Link href={`${BASE}?detail=news`} scroll={false}>{news.length - 1} more →</Link> : undefined}
+        <Tile col={3} row={1} eyebrow="In the news" meta={news.length > 0 ? `${fmtInt(newsTotal)} · context, not cause` : undefined}
+          footer={newsTotal > 1 ? <Link href={`${BASE}?detail=news`} scroll={false}>{fmtInt(newsTotal - 1)} more →</Link> : undefined}
           bodyClassName="overflow-hidden"
         >
           {news.length > 0 ? (

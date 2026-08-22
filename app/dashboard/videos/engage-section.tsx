@@ -167,7 +167,9 @@ export function EngageInboxTile({
   const shown = filter ? rows.filter((r) => r.intent === filter) : rows
   const visible = shown.slice(0, INBOX_SHOWN)
   const more = shown.length - visible.length
-  const meta = digest ? `${total} ${windowWord(digest.windowDays)} · evidence only · intent first` : undefined
+  // `total` is the digest's pick (capped per intent and overall), not a count
+  // of everything said — say so.
+  const meta = digest ? `top ${total} picked ${windowWord(digest.windowDays)} · evidence only · intent first` : undefined
   const chip = (active: boolean, href: string, label: string) => (
     <Link
       key={href}

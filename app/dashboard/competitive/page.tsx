@@ -91,7 +91,7 @@ export default async function CompetitiveIntelligencePage({ searchParams }: { se
   const runningIds = ((runningRes.data ?? []) as { id: string }[]).map((r) => r.id)
   const notRunning = runningIds.length ? `(${runningIds.join(',')})` : null
   const brand = client?.company_name ?? 'Your brand'
-  const brandShort = brand.split(/[—–-]/)[0].trim() || brand
+  const brandShort = brand.split(/\s[—–-]\s/)[0].trim() || brand
   const runId = latestRun?.id as string | undefined
   const nextUpdate = tc?.report_period === 'weekly' && tc?.report_day ? `${cap(tc.report_day)}’s update` : 'the next update'
 
@@ -170,7 +170,10 @@ export default async function CompetitiveIntelligencePage({ searchParams }: { se
   const vs = lead && vsParam && lead.toLowerCase() === vsParam.toLowerCase() ? lead : null
   const base = competitiveHref(vs)
 
-  const stats = videoRows.length > 0 ? bucketStats(videoRows) : null
+  // Per-bucket comment/engagement/sentiment rows only when the videos belong
+  // to the SAME update as the share — an analysis-only update would otherwise
+  // mix this update's share with an older update's videos.
+  const stats = videoRows.length > 0 && videoRunId === runId ? bucketStats(videoRows) : null
   const themesByBucket = themeRows.length > 0 ? themeCounts(themeRows) : null
   const rows = lead ? faceOffRows({ sov: faceSov, layer: faceLayer, competitor: lead, stats, themes: themesByBucket, fmtInt, fmtPct }) : []
   const youPraise = praisedFor(themeRows, 'client')
