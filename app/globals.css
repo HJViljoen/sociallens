@@ -49,6 +49,9 @@
   --color-popover: var(--popover);
   --color-card-foreground: var(--card-foreground);
   --color-card: var(--card);
+  /* One-screen redesign (2026-08-22): solid tile surface — the card used by
+     the grid pages. Opaque on purpose: no backdrop-blur behind a dense grid. */
+  --color-tile: var(--tile);
   --radius-sm: calc(var(--radius) * 0.6);
   --radius-md: calc(var(--radius) * 0.8);
   --radius-lg: var(--radius);
@@ -67,6 +70,8 @@
 
   /* Glass surfaces — warm translucent white (needs backdrop-blur) */
   --card: rgba(253, 250, 244, 0.78);
+  /* Solid tile surface for the one-screen grid pages (same warm white, opaque) */
+  --tile: #FDFAF3;
   --card-foreground: #14291F;
   --popover: #FDFAF3;
   --popover-foreground: #14291F;
@@ -125,6 +130,7 @@
   --background: #0B1F17;
   --foreground: #EAF2EC;
   --card: rgba(255, 255, 255, 0.05);
+  --tile: #1B2A22;
   --card-foreground: #EAF2EC;
   --popover: #10281E;
   --popover-foreground: #EAF2EC;
@@ -161,6 +167,10 @@
   }
   body {
     @apply bg-background text-foreground;
+    /* One-screen redesign density: 13px base, 1.45 leading. rem stays 16px so
+       spacing utilities are unaffected; only default prose shrinks. */
+    font-size: 13px;
+    line-height: 1.45;
   }
   html {
     @apply font-sans;
