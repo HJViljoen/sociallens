@@ -73,6 +73,35 @@ A full dark theme exists (`.dark` block); every new surface must read in both.
   evidence tiers show "Strong evidence" (positive tint) / "Early signal" (warning tint) — never numeric scores.
 - **Voice links** — pill outline in primary: `text-primary ring-1 ring-primary/25 hover:bg-primary/5`.
 
+## One-screen grid pages (2026-08-22 redesign — Dashboard first)
+
+The redesign spec is `docs/redesign-2026-08/README.md` (+ the approved canvas linked there). Grid pages are
+built from `components/shell/` and `components/charts/`, not from `Card`:
+
+- **Density tokens:** body `13px / 1.45` (rem stays 16px, so spacing utilities are unchanged). Tile surface
+  `--tile: #FDFAF3` → `bg-tile` (solid; no backdrop-blur behind a dense grid). `Card` keeps the glass look on
+  pages that haven't moved yet.
+- **Frame:** `PageFrame` (flex column, `h = max(100dvh − 6rem, 776px)` on ≥xl) → `PageBar` (title · context ·
+  right controls · How-to-read) → `PageGrid` (12 cols × 6 equal rows on ≥xl, one screen at 1440×900; single
+  stacked column below xl). A 1280×800 laptop scrolls ~70px by design rather than crushing tiles.
+- **Tile** (`col`, `row` spans; `variant` default | hero (`.stat-hero`) | warm (clay ring, for the top
+  recommendation) | strip): eyebrow 10.5px caps + meta 11px · body · footer (link deeper, left; quiet note,
+  right). Tiles clamp their own content (`overflow-hidden`, `min-h-0`); long lists scroll or truncate inside.
+  `StripCell` = one counted receipt; `TileEmpty` = the honest one-line empty state — a tile keeps its size.
+- **Drawer:** `DetailDrawer` (client, on `ui/sheet`, right, ~480px) is the universal one-click-deeper surface,
+  URL-driven like `DetailOverlay` (`?detail=<id>`; closing navigates to `closeHref`). Pages stay server
+  components; only the drawer shell is client code.
+- **Charts** (server SVG, no libraries): `Sparkline`, `StatValue` (mono 24/30/18, tabular) + `Delta`
+  (favourability-coloured, `good: up|down|neutral`), `RankedBar` (dot · label · bar · count; bar colour follows
+  the entity, never the rank), `Mover` (label · spark · value · delta), `LineChart` (end labels, no legend box
+  for ≤4 series), `Ring` (the ONE circle allowed: share of something, ≤4 slices, your number in the centre),
+  `PlatformIcon`. `ProportionBar`/`BarLegend` stay for splits.
+- **Colour jobs on tiles:** you / positive = green (`--positive`, `--primary`); wider category = slate; a
+  competitor = clay (first), ochre, plum, slate; rest-of-field = `--input` sand; mixed / early = warning gold;
+  the verbatim rule stays the signature (clay/primary left rule).
+- **Numbers:** counts of real voices, videos, themes and shares are shown big and in mono; model confidence is
+  never a number. Formatters in `lib/format.ts` are hydration-safe (UTC dates, hand-rolled separators).
+
 ## Rules
 
 1. Write Tailwind class strings out in full — never interpolated — so v4 detects them (see `lib/ui-colors.ts` header).
