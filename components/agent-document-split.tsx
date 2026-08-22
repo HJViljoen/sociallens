@@ -96,7 +96,7 @@ export function AgentDocumentSplit({
 
         <div
           ref={docRef}
-          className={`min-h-0 overflow-y-auto rounded-2xl border border-border/60 bg-card p-6 ${
+          className={`min-h-0 overflow-y-auto rounded-2xl border border-border/60 bg-popover p-6 ${
             pane === 'document' ? '' : 'hidden'
           } lg:block`}
         >
@@ -104,7 +104,7 @@ export function AgentDocumentSplit({
           {/* whitespace-pre-wrap: the extracted text carries the document's own
               line and paragraph breaks, and they are the only structure that
               survived extraction. Losing them would turn a brief into a wall. */}
-          <div className="whitespace-pre-wrap text-[15px] leading-relaxed text-foreground/90">
+          <div className="whitespace-pre-wrap text-[15px] leading-relaxed text-foreground">
             {segments.map((seg, i) =>
               seg.ref && verdictMark[verdictOf.get(seg.ref) ?? ''] ? (
                 <mark

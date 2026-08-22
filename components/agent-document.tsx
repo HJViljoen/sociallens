@@ -63,8 +63,10 @@ export function AgentDocumentView({
               key={c.ref}
               data-ref={c.ref}
               onClick={onSelect ? () => onSelect(c.ref) : undefined}
-              className={`space-y-3 rounded-2xl border p-4 transition-colors ${
-                activeRef === c.ref ? 'border-primary/50 bg-primary/5' : 'border-border/60'
+              // bg-popover, not bg-card: --card is 78% opaque and the ambient
+              // crowd shows straight through it. These panes are for reading.
+              className={`space-y-3 rounded-2xl border bg-popover p-4 transition-colors ${
+                activeRef === c.ref ? 'border-primary/50 ring-1 ring-primary/40' : 'border-border/60'
               } ${onSelect ? 'cursor-pointer' : ''}`}
             >
               <div className="flex items-start gap-3">
@@ -115,7 +117,7 @@ export function AgentDocumentView({
       {judgement.length > 0 && (
         <section className="space-y-2">
           <h3 className="text-sm font-semibold">What I&rsquo;d take from that</h3>
-          <div className="space-y-3 rounded-lg bg-muted/40 p-4">
+          <div className="space-y-3 rounded-lg bg-muted p-4">
             {judgement.map((j, i) => {
               const cites = (j.basedOnRefs ?? [])
                 .map((ref) => numberOf.get(ref))

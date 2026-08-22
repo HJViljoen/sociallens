@@ -158,7 +158,7 @@ export default async function AgentThreadPage({ params }: { params: Promise<{ id
               {m.content}
             </p>
           ) : (
-            <Card key={m.id}>
+            <Card key={m.id} className="bg-popover">
               <CardContent className="py-5">
                 {m.result ? (
                   <AgentAnswerView answer={m.result} />

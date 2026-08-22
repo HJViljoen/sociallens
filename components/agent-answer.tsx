@@ -32,7 +32,7 @@ export function AgentAnswerView({ answer }: { answer: AgentAnswer }) {
   return (
     <div className="space-y-6">
       {answer.notice && (
-        <p className="rounded-lg border border-dashed border-border/60 px-4 py-3 text-sm text-muted-foreground">
+        <p className="rounded-lg border border-dashed border-border/60 bg-popover px-4 py-3 text-sm text-muted-foreground">
           {answer.notice}
         </p>
       )}
@@ -43,7 +43,7 @@ export function AgentAnswerView({ answer }: { answer: AgentAnswer }) {
         <section className="space-y-4">
           <h3 className="text-sm font-semibold">What your customers said</h3>
           {answer.grounded.map((point, i) => (
-            <div key={point.id} className="space-y-2 rounded-lg border border-border/60 p-4">
+            <div key={point.id} className="space-y-2 rounded-lg border border-border/60 bg-popover p-4">
               {/* Not flex-wrap: a finding that runs to two lines was dropping
                   its count onto a third, where it read as a stray number
                   rather than as the measure of the line above it. */}
@@ -69,7 +69,7 @@ export function AgentAnswerView({ answer }: { answer: AgentAnswer }) {
         <section className="space-y-3">
           <h3 className="text-sm font-semibold">Not what you asked, but close</h3>
           {answer.nearest.map((n, i) => (
-            <div key={i} className="flex items-baseline justify-between gap-3 rounded-lg border border-dashed border-border/60 p-4">
+            <div key={i} className="flex items-baseline justify-between gap-3 rounded-lg border border-dashed border-border/60 bg-popover p-4">
               <p className="min-w-0 flex-1 text-[15px] leading-snug text-foreground/90">{n.text}</p>
               <ConversationCount n={n.conversationCount} />
             </div>
@@ -83,7 +83,7 @@ export function AgentAnswerView({ answer }: { answer: AgentAnswer }) {
           {/* Visually distinct from the evidence above on purpose. A reader
               skimming must never mistake this column for the one their
               customers stand behind. */}
-          <div className="space-y-3 rounded-lg bg-muted/40 p-4">
+          <div className="space-y-3 rounded-lg bg-muted p-4">
             {answer.judgement.map((j, i) => {
               const cites = j.basedOn.map((ref) => numberOf.get(ref)).filter((n): n is number => Boolean(n))
               return (
