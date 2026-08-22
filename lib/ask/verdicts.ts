@@ -177,6 +177,9 @@ export function validateVerdicts(
         (t): ThemeRef => ({ themeId: t.themeId, registryId: t.registryId, label: t.label }),
       ),
       insightIds: quotable,
+      // Carried through untouched. The verdict pass has no business editing
+      // where a claim came from.
+      source: claim.source ?? null,
     })
   }
 
@@ -193,6 +196,7 @@ function silentResult(claim: ExtractedClaim): ClaimResult {
     conversationCount: 0,
     themeRefs: [],
     insightIds: [],
+    source: claim.source ?? null,
   }
 }
 

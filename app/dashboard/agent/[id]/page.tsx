@@ -5,7 +5,8 @@ import { getSessionContext } from '@/lib/auth'
 import { Card, CardContent } from '@/components/ui/card'
 import { AgentComposer } from '@/components/agent-composer'
 import { AgentAnswerView } from '@/components/agent-answer'
-import { AgentDocumentView } from '@/components/agent-document'
+import { AgentDocumentSplit } from '@/components/agent-document-split'
+import { anchorClaims } from '@/lib/ask/anchor'
 import { createQuotePicker, fetchQuotesByAudience, fetchQuoteTextsByCommentId } from '@/lib/quotes'
 import { ASK_THEMES_PER_CLAIM } from '@/lib/config'
 import type { ClaimResult, Judgement, AskSummary } from '@/lib/ask/types'
@@ -47,11 +48,13 @@ export default async function AgentThreadPage({ params }: { params: Promise<{ id
     summary: AskSummary
     judgement: Judgement[]
     quotesByClaim: Map<string, string[]>
+    segments: import('@/lib/ask/anchor').Segment[]
+    anchored: string[]
   } | null = null
   if (thread.kind === 'document' && thread.plan_check_id) {
     const { data: check } = await supabase
       .from('plan_checks')
-      .select('claims, summary, judgement')
+      .select('claims, summary, judgement, input_text, source_filename')
       .eq('id', thread.plan_check_id as string)
       .eq('client_id', clientId)
       .maybeSingle()
@@ -67,11 +70,20 @@ export default async function AgentThreadPage({ params }: { params: Promise<{ id
         // loaded would quietly return fewer voices than exist.
         quotesByClaim.set(c.ref, pick(c.insightIds.slice(0, ASK_THEMES_PER_CLAIM), 2, `${c.claim}. ${c.theySay ?? ''}`))
       }
+      // Only claims we have something to SAY about get marked. Silence is
+      // clean space here too, and it makes each mark mean something: a
+      // document with three highlights has three places worth looking.
+      const { segments, anchored } = anchorClaims(
+        (check.input_text as string) ?? '',
+        claims.filter((c) => c.verdict !== 'silent'),
+      )
       doc = {
         claims,
         summary: (check.summary ?? { supported: 0, contradicted: 0, untested: 0 }) as AskSummary,
         judgement: (check.judgement ?? []) as Judgement[],
         quotesByClaim,
+        segments,
+        anchored: [...anchored],
       }
     }
   }
@@ -100,6 +112,28 @@ export default async function AgentThreadPage({ params }: { params: Promise<{ id
     }
   }
 
+  // A document thread takes over the pane: the check on the left, their
+  // document on the right, each scrolling independently. Same shape as an
+  // artifact panel, and the reason Heinrich's idea works — the annotation is
+  // markup over text WE rendered, so their file is never stored or edited.
+  if (doc) {
+    return (
+      <div className="agent-fixed relative flex min-h-0 flex-1 flex-col gap-4">
+        <div>
+          <Link
+            href="/dashboard/agent"
+            className="inline-flex items-center gap-1.5 text-xs text-muted-foreground transition-colors hover:text-foreground"
+          >
+            <ArrowLeft className="size-3.5" aria-hidden />
+            All questions
+          </Link>
+          <h1 className="mt-2 text-xl font-semibold">{thread.title as string}</h1>
+        </div>
+        <AgentDocumentSplit {...doc} notice={null} />
+      </div>
+    )
+  }
+
   return (
     <div className="space-y-6">
       <div>
@@ -113,13 +147,6 @@ export default async function AgentThreadPage({ params }: { params: Promise<{ id
         <h1 className="mt-2 text-xl font-semibold">{thread.title as string}</h1>
       </div>
 
-      {doc && (
-        <Card>
-          <CardContent className="py-5">
-            <AgentDocumentView {...doc} />
-          </CardContent>
-        </Card>
-      )}
 
       <div className="space-y-5">
         {messages.map((m, i) =>

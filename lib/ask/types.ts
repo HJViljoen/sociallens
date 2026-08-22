@@ -40,6 +40,10 @@ export interface ClaimResult {
   themeRefs: ThemeRef[]
   /** Grounding for live quote resolution. No quote text is stored. */
   insightIds: string[]
+  /** The document sentence this claim came from, verbatim. Null when the claim
+   *  is implied rather than written — which the annotated view says out loud,
+   *  because "your plan rests on this and never states it" is worth knowing. */
+  source?: string | null
 }
 
 export interface Judgement {
@@ -67,4 +71,8 @@ export interface AskResult {
 export interface ExtractedClaim {
   ref: string
   claim: string
+  /** The sentence in the document this was drawn from, verbatim — or null when
+   *  the claim is implied rather than stated. Never trusted: it is checked
+   *  against the document text before it is used to highlight anything. */
+  source?: string | null
 }

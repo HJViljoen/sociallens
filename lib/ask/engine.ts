@@ -31,7 +31,18 @@ const PROMPT_VERSION_JUDGE = 'ask_judge_v1'
 
 const ExtractSchema = z.object({
   title: z.string(),
-  claims: z.array(z.object({ claim: z.string() })),
+  claims: z.array(
+    z.object({
+      claim: z.string(),
+      // The sentence the claim was drawn FROM, copied exactly. This is what
+      // lets the annotated view highlight the document in place. It is
+      // validated as a real substring before anything is shown — the same
+      // exact-copy discipline Pass A applies to comment quotes, for the same
+      // reason: a model asked for a verbatim will occasionally paraphrase, and
+      // an unverified "quote" of the client's own document is worse than none.
+      source: z.string(),
+    }),
+  ),
 })
 
 const VerdictSchema = z.object({
@@ -109,6 +120,7 @@ export function buildExtractPrompt(kind: 'idea' | 'plan'): string {
     '- Skip anything not testable against consumer conversation: budgets, timelines, staffing, internal process, legal.',
     '- One assertion per claim. Split a sentence that carries two.',
     '- Return them in the order they appear.',
+    '- For each claim, also return `source`: the sentence in the document the claim comes from, COPIED EXACTLY, character for character. Do not tidy it, do not join two sentences, do not paraphrase. If a claim is implied rather than stated anywhere, return an empty string — that is a real and useful answer, not a failure.',
     '',
     'Also return a short title naming the document, in plain words.',
   ].join('\n')
@@ -318,10 +330,9 @@ export async function runAsk(
   if (persist) await logAiCall(admin, { clientId, runId, pass: 'ask_extract', callIndex: 1, model: ANALYSIS_MODEL, promptVersion: PROMPT_VERSION_EXTRACT, systemPrompt: extractSystem, userPrompt: extractUser, response: extracted, error: null, usage, durationMs: Date.now() - startedExtract, validationStatus: extracted ? 'ok' : 'parse_error' })
 
   const claims: ExtractedClaim[] = (extracted?.claims ?? [])
-    .map((c) => c.claim?.trim())
-    .filter((c): c is string => Boolean(c))
+    .filter((c) => Boolean(c.claim?.trim()))
     .slice(0, ASK_MAX_CLAIMS)
-    .map((claim, i) => ({ ref: `C${i + 1}`, claim }))
+    .map((c, i) => ({ ref: `C${i + 1}`, claim: c.claim.trim(), source: (c.source ?? '').trim() || null }))
 
   const title = stripThemeRefs(extracted?.title?.trim() ?? '')
   if (!claims.length) {

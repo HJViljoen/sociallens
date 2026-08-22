@@ -28,11 +28,21 @@ export function AgentDocumentView({
   summary,
   judgement,
   quotesByClaim,
+  activeRef = null,
+  anchored,
+  onSelect,
 }: {
   claims: ClaimResult[]
   summary: AskSummary
   judgement: Judgement[]
   quotesByClaim: Map<string, string[]>
+  /** Set when the split view is driving selection from the document side. */
+  activeRef?: string | null
+  /** Refs whose span was found in the document. A claim NOT in here was never
+   *  written down — worth saying out loud rather than leaving as a silent
+   *  absence of a highlight. */
+  anchored?: Set<string>
+  onSelect?: (ref: string) => void
 }) {
   const numberOf = new Map(claims.map((c, i) => [c.ref, i + 1]))
 
@@ -49,7 +59,14 @@ export function AgentDocumentView({
           const meta = VERDICT_META[c.verdict]
           const quotes = quotesByClaim.get(c.ref) ?? []
           return (
-            <div key={c.ref} className="space-y-3 rounded-2xl border border-border/60 p-4">
+            <div
+              key={c.ref}
+              data-ref={c.ref}
+              onClick={onSelect ? () => onSelect(c.ref) : undefined}
+              className={`space-y-3 rounded-2xl border p-4 transition-colors ${
+                activeRef === c.ref ? 'border-primary/50 bg-primary/5' : 'border-border/60'
+              } ${onSelect ? 'cursor-pointer' : ''}`}
+            >
               <div className="flex items-start gap-3">
                 <span className="mt-0.5 shrink-0 text-xs font-semibold text-muted-foreground tabular-nums">
                   {i + 1}
@@ -61,6 +78,13 @@ export function AgentDocumentView({
                   {meta.label}
                 </span>
               </div>
+
+              {/* A claim the document never states. Not a failure of the check —
+                  a plan resting on something it never says out loud is worth
+                  knowing before money is spent on it. */}
+              {anchored && !anchored.has(c.ref) && (
+                <p className="text-xs text-muted-foreground">Not stated directly in the document.</p>
+              )}
 
               {/* Untested stops here. Deliberately. */}
               {c.verdict !== 'silent' && (
