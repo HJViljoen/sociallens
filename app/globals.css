@@ -369,3 +369,65 @@
   .profile-delay-2 { animation-delay: 0.12s; }
   .profile-delay-3 { animation-delay: 0.18s; }
 }
+
+/* ── Verbatim Agent: the crowd rings the asker ───────────────────────────────
+   Every figure starts stacked at the centre, behind the composer, and travels
+   out to its place on the ellipse. Same gesture as the Consumer Profile's
+   entrance — out from the middle, settling with an overshoot — at page scale.
+
+   The static (no-motion) state is the ARRIVED one, so a reader who prefers
+   reduced motion gets the finished ring rather than a pile in the middle. */
+.agent-ring {
+  /* The ring is ~52rem across at full size. On a phone that puts most of it
+     off-screen, leaving two half-figures clipped at the edges rather than a
+     crowd — so it contracts instead, keeping the whole ring in frame. */
+  --ring: 0.5;
+}
+@media (min-width: 640px) { .agent-ring { --ring: 0.72; } }
+@media (min-width: 1024px) { .agent-ring { --ring: 1; } }
+
+.agent-ring-figure {
+  transform: translate(-50%, -50%)
+             translate(calc(var(--rx) * var(--ring)), calc(var(--ry) * var(--ring)))
+             scale(var(--s));
+  opacity: var(--o);
+}
+
+@keyframes agent-ring-out {
+  from {
+    /* Stacked at the centre and small: the crowd has not made room yet. */
+    transform: translate(-50%, -50%) scale(0.35);
+    opacity: 0;
+  }
+  to {
+    transform: translate(-50%, -50%)
+               translate(calc(var(--rx) * var(--ring)), calc(var(--ry) * var(--ring)))
+               scale(var(--s));
+    opacity: var(--o);
+  }
+}
+
+/* The composer rises into the gap the crowd opens, a beat after they start
+   moving — so the space exists before the thing that occupies it arrives. */
+@keyframes agent-centre-in {
+  from { opacity: 0; transform: translate3d(0, 0.75rem, 0) scale(0.98); }
+  to   { opacity: 1; transform: none; }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  /* Same spring as the profile blocks: the overshoot lives in the easing, so
+     the ring settles on one beat instead of drifting into place. */
+  .agent-ring-figure {
+    animation: agent-ring-out 0.85s cubic-bezier(0.22, 1.35, 0.36, 1) both;
+  }
+  .agent-centre-in {
+    animation: agent-centre-in 0.5s cubic-bezier(0.22, 1, 0.36, 1) 0.28s both;
+  }
+}
+
+/* On the agent page the ambient backdrop stands down — the ring IS the crowd
+   there, and two crowd layers over each other read as smudge rather than
+   depth. Sibling-scoped so no page needs to know about the layout's art. */
+.crowd-bg:has(~ main .agent-ring) {
+  display: none;
+}

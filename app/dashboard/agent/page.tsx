@@ -1,6 +1,7 @@
 import Link from 'next/link'
 import { getSessionContext } from '@/lib/auth'
 import { AgentComposer } from '@/components/agent-composer'
+import { AgentCrowdRing } from '@/components/agent-stage'
 import { isPlatformAdmin } from '@/lib/agent/access'
 
 // The Verbatim Agent — arrive with a question from your own work, get an answer
@@ -8,7 +9,7 @@ import { isPlatformAdmin } from '@/lib/agent/access'
 //
 // No subheading explaining what the page does. The profile page lost its
 // tagline in the July pass for the same reason: a description is read once and
-// then it is furniture. The composer is the page.
+// then it is furniture. The composer is the page, and the crowd stands round it.
 
 interface ThreadRow {
   id: string
@@ -32,9 +33,15 @@ export default async function AgentPage() {
 
   return (
     <div className="space-y-10">
-      <div className="pt-8">
-        <AgentComposer canSend={canSend} showFigure />
-      </div>
+      {/* The stage is its own box so the ring centres on the COMPOSER rather
+          than on the whole scrolling page — with a thread list below, those two
+          centres are not the same point and the ring would sit low. */}
+      <section className="relative grid min-h-[26rem] place-items-center overflow-hidden py-10 lg:min-h-[32rem]">
+        <AgentCrowdRing />
+        <div className="agent-centre-in relative z-10 w-full">
+          <AgentComposer canSend={canSend} showFigure />
+        </div>
+      </section>
 
       {threads.length > 0 && (
         <section className="mx-auto w-full max-w-2xl space-y-2">
