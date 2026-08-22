@@ -172,6 +172,18 @@ export async function POST(request: Request) {
         retrievedCount: answer.retrievedCount,
         intent: answer.plan.intent,
         timeframe: answer.plan.timeframe,
+        // The diagnostics, persisted rather than computed and thrown away.
+        // Without these a thin or off-topic answer can only be found by a
+        // human reading it; with them you can ask the table which questions
+        // retrieved nothing, which expansions were bad, and how weak the
+        // evidence behind an answer actually was.
+        retrievalQueries: answer.plan.retrievalQueries,
+        emptyQueries: answer.emptyQueries,
+        groundedSpread: answer.grounded.map((g) => ({
+          ref: g.id,
+          insights: g.insightIds.length,
+          conversations: g.conversationCount,
+        })),
       },
       outcome: outcomeOf(answer),
       cost_usd: answer.costUsd,
