@@ -2,6 +2,7 @@ import type { AgentAnswer, GroundedPoint, JudgementPoint, NearestThing } from '.
 import type { RetrievedInsight } from './retrieve'
 import { countConversations } from './rank'
 import { AGENT_QUOTES_PER_POINT } from '../config'
+import { readsAsHeroQuote } from '../quotes'
 
 // Where "no proof is ever created by the bot" stops being a principle and
 // becomes code.
@@ -23,7 +24,7 @@ import { AGENT_QUOTES_PER_POINT } from '../config'
  *  of throwing the whole answer away. */
 export interface RawAnswer {
   answer?: string | null
-  grounded?: { text?: string | null; insightIds?: unknown }[] | null
+  grounded?: { ref?: string | null; text?: string | null; insightIds?: unknown }[] | null
   judgement?: { text?: string | null; basedOn?: unknown }[] | null
   nearest?: { text?: string | null; insightIds?: unknown }[] | null
 }
@@ -55,6 +56,11 @@ export function enforceRegisters(
 
   const grounded: GroundedPoint[] = []
   const demoted: JudgementPoint[] = []
+  // Quotes are deduplicated ACROSS points. Overlapping insight sets otherwise
+  // put the same comment under two different findings, which reads as thinner
+  // evidence than there is — the same "no voice repeats on a page" rule
+  // createQuotePicker already enforces on the dashboard.
+  const usedQuotes = new Set<string>()
   // Did ANY point resolve to real, live analysis — even if it could not be
   // quoted? This is the difference between "the corpus does not speak to this"
   // and "the corpus speaks to this but we cannot quote it", and collapsing the
@@ -78,9 +84,38 @@ export function enforceRegisters(
 
     resolvedAnything = true
     const insights = live.map((id) => byId.get(id)!)
-    const quotes = insights
-      .flatMap((i) => i.quotes.map((q) => ({ text: q.quote, commentId: q.commentId, videoId: q.videoId })))
-      .slice(0, AGENT_QUOTES_PER_POINT)
+    const quotes: GroundedPoint['quotes'] = []
+    for (const i of insights) {
+      // English-first, as a PREFERENCE and never a gate — the same rule the
+      // Pass D hero pool and the frontend picker already use (lib/quotes.ts).
+      // The corpus is genuinely multilingual and dropping those voices would
+      // misrepresent it; but a claim a reader cannot read is a claim they
+      // cannot check, and these answers get pasted into slides.
+      const ordered = [...i.quotes].sort(
+        (x, y) => Number(readsAsHeroQuote(y.quote)) - Number(readsAsHeroQuote(x.quote)) || x.rank - y.rank,
+      )
+      for (const q of ordered) {
+        if (quotes.length >= AGENT_QUOTES_PER_POINT) break
+        const key = q.commentId ?? q.quote
+        if (usedQuotes.has(key)) continue
+        usedQuotes.add(key)
+        quotes.push({ text: q.quote, commentId: q.commentId, videoId: q.videoId })
+      }
+      if (quotes.length >= AGENT_QUOTES_PER_POINT) break
+    }
+
+    // Dedup must not become a demotion. If every quote this point could show
+    // was already spent on an earlier point, the point is still evidenced —
+    // repeating one voice is much better than moving a real finding out of the
+    // evidence register because of a display rule.
+    if (quotes.length === 0) {
+      const fallback = insights
+        .flatMap((i) => i.quotes)
+        .sort((x, y) => Number(readsAsHeroQuote(y.quote)) - Number(readsAsHeroQuote(x.quote)) || x.rank - y.rank)[0]
+      if (fallback) {
+        quotes.push({ text: fallback.quote, commentId: fallback.commentId, videoId: fallback.videoId })
+      }
+    }
 
     // A grounded point with no quotable comment behind it is the exact shape
     // the 2026-08-19 review caught: structurally grounded, but the sentence the
@@ -101,8 +136,12 @@ export function enforceRegisters(
       ).values(),
     ]
 
+    // The model's own ref is the id, so judgement's `based_on` can actually
+    // resolve. Falling back to a positional label keeps older/garbled replies
+    // renderable rather than throwing the answer away.
+    const ref = clean(point?.ref) || `G${index + 1}`
     grounded.push({
-      id: `G${index + 1}`,
+      id: ref,
       text,
       insightIds: live,
       themeRefs,

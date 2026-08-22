@@ -26,7 +26,11 @@ export const PROMPT_VERSION_ANSWER = 'agent_answer_v1'
 
 const AnswerSchema = z.object({
   answer: z.string(),
-  grounded: z.array(z.object({ text: z.string(), insight_ids: z.array(z.string()) })),
+  // `ref` is the model's OWN label for the point, and it exists so judgement
+  // can point at it. Without it the two registers cannot be linked at all: the
+  // product used to assign G1..Gn after the reply, which the model had no way
+  // to predict, so every proposal came back citing nothing.
+  grounded: z.array(z.object({ ref: z.string(), text: z.string(), insight_ids: z.array(z.string()) })),
   judgement: z.array(z.object({ text: z.string(), based_on: z.array(z.string()) })),
   nearest: z.array(z.object({ text: z.string(), insight_ids: z.array(z.string()) })),
 })
@@ -39,8 +43,8 @@ export function buildAnswerPrompt(companyName: string, allowNearest: boolean): s
     'ANSWER FIRST. `answer` is 1-3 sentences that actually answer what was asked. Not a preamble, not a description of what you found.',
     '',
     'THREE REGISTERS, and the difference is the whole product:',
-    '- `grounded[]`: points the evidence below supports. EVERY entry must list the insight ids it rests on, copied exactly from the numbered evidence. A point you cannot tie to an id does not belong here.',
-    '- `judgement[]`: your own reading — what you would do, what connects, what it implies. Propose freely here. Each entry cites the grounded points it reasons from by their [G#] label. This register is welcome and expected; an answer that is only description is less useful than one that says what it means.',
+    '- `grounded[]`: points the evidence below supports. Give each one a short `ref` ("G1", "G2", …) and list the insight ids it rests on, copied exactly from the evidence. A point you cannot tie to an id does not belong here.',
+    '- `judgement[]`: your own reading — what you would do, what connects, what it implies. Propose freely here. Each entry cites, in `based_on`, the `ref` values of the grounded points it reasons from. This register is welcome and expected; an answer that is only description is less useful than one that says what it means.',
     allowNearest
       ? '- `nearest[]`: ONLY when the evidence does not address the question but does address something adjacent worth knowing. Say plainly that it is not what was asked. Leave empty otherwise.'
       : '- `nearest[]`: always empty. Leave it as an empty array.',
@@ -196,7 +200,7 @@ export async function answerQuestion(
 
   const raw: RawAnswer = {
     answer: stripThemeRefs(parsed?.answer ?? ''),
-    grounded: (parsed?.grounded ?? []).map((g) => ({ text: stripThemeRefs(g.text), insightIds: g.insight_ids })),
+    grounded: (parsed?.grounded ?? []).map((g) => ({ ref: g.ref, text: stripThemeRefs(g.text), insightIds: g.insight_ids })),
     judgement: (parsed?.judgement ?? []).map((j) => ({ text: stripThemeRefs(j.text), basedOn: j.based_on })),
     nearest: (parsed?.nearest ?? []).map((n) => ({ text: stripThemeRefs(n.text), insightIds: n.insight_ids })),
   }

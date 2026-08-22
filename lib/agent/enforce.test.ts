@@ -189,3 +189,76 @@ describe('enforceRegisters', () => {
     expect(out.grounded[0].conversationCount).toBe(1)
   })
 })
+
+describe('quote handling across points', () => {
+  it('does not repeat the same comment under two different findings', () => {
+    // Overlapping insight sets used to put one voice under two headings, which
+    // reads as thinner evidence than there is.
+    const a = insight('a', 'v1', 1)
+    // b shares a's quote but also has one of its own, so dedup has a real
+    // choice to make. (When it has NO unused quote the fallback reuses one,
+    // which the next test pins.)
+    const bOwn = insight('b', 'v2', 1)
+    const b = { ...bOwn, quotes: [...a.quotes, ...bOwn.quotes] }
+    const out = enforceRegisters(
+      {
+        answer: 'x',
+        grounded: [
+          { ref: 'G1', text: 'First.', insightIds: ['a'] },
+          { ref: 'G2', text: 'Second.', insightIds: ['b'] },
+        ],
+      },
+      [a, b],
+      opts,
+    )
+    const first = out.grounded[0].quotes.map((q) => q.text)
+    const second = out.grounded[1].quotes.map((q) => q.text)
+    expect(first.some((t) => second.includes(t))).toBe(false)
+  })
+
+  it('never demotes a point just because its quotes were spent elsewhere', () => {
+    // Both points cite the SAME single-quote insight. Dedup must not push the
+    // second one out of the evidence register.
+    const a = insight('a', 'v1', 1)
+    const out = enforceRegisters(
+      {
+        answer: 'x',
+        grounded: [
+          { ref: 'G1', text: 'First.', insightIds: ['a'] },
+          { ref: 'G2', text: 'Second.', insightIds: ['a'] },
+        ],
+      },
+      [a],
+      opts,
+    )
+    expect(out.grounded).toHaveLength(2)
+    expect(out.grounded[1].quotes).toHaveLength(1)
+  })
+})
+
+describe('judgement can actually cite the evidence', () => {
+  it('resolves based_on against the model’s OWN refs', () => {
+    // The bug this pins: refs used to be assigned after the reply, so the model
+    // could never predict them and every proposal came back citing nothing.
+    const out = enforceRegisters(
+      {
+        answer: 'x',
+        grounded: [{ ref: 'G1', text: 'Real.', insightIds: ['a'] }],
+        judgement: [{ text: 'So do the thing.', basedOn: ['G1'] }],
+      },
+      [insight('a', 'v1')],
+      opts,
+    )
+    expect(out.grounded[0].id).toBe('G1')
+    expect(out.judgement[0].basedOn).toEqual(['G1'])
+  })
+
+  it('falls back to a positional ref when the model omits one', () => {
+    const out = enforceRegisters(
+      { answer: 'x', grounded: [{ text: 'Real.', insightIds: ['a'] }] },
+      [insight('a', 'v1')],
+      opts,
+    )
+    expect(out.grounded[0].id).toBe('G1')
+  })
+})
