@@ -557,7 +557,7 @@ export default async function VoiceOfCustomerPage({ searchParams }: { searchPara
       <DetailDrawer open={detail === 'language'} closeHref={closeHref} title="How your customers talk" description={`${fmtInt(sampleTotal)} phrases, verbatim — the words to borrow`}>
         <div className="flex flex-wrap gap-1.5">
           {samples.map((s, i) => (
-            <span key={i} title={s.platform ? platformLabel(s.platform) : undefined} className="rounded-full bg-muted px-2.5 py-1 text-[12px] italic text-[#3F4B44]">{s.phrase}</span>
+            <span key={i} title={s.platform ? platformLabel(s.platform) : undefined} className="rounded-lg bg-muted px-2.5 py-1 text-[12px] italic leading-[1.35] text-[#3F4B44]">{s.phrase}</span>
           ))}
         </div>
         {sampleTotal > samples.length && <p className="mt-3 text-[11px] text-muted-foreground">showing {fmtInt(samples.length)} of {fmtInt(sampleTotal)}</p>}

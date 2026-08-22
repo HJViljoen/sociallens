@@ -101,6 +101,9 @@ built from `components/shell/` and `components/charts/`, not from `Card`:
   the verbatim rule stays the signature (clay/primary left rule).
 - **Numbers:** counts of real voices, videos, themes and shares are shown big and in mono; model confidence is
   never a number. Formatters in `lib/format.ts` are hydration-safe (UTC dates, hand-rolled separators).
+- **Rounding follows the content, not the box:** `rounded-full` ONLY on single-line pills (fixed height or
+  `whitespace-nowrap`). Anything that can wrap — quotes, phrases, labels in a list — takes a fixed radius
+  (`rounded-lg`/`rounded-[10px]`), otherwise a three-line chip renders as an oval (Heinrich, 2026-08-22).
 
 ## Rules
 
