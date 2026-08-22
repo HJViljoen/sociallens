@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { ArrowUp, Loader2 } from 'lucide-react'
 import { CrowdFigure } from '@/components/crowd-figure'
@@ -35,6 +35,19 @@ export function AgentComposer({
   const [question, setQuestion] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [elapsed, setElapsed] = useState(0)
+
+  // A live count, not a promise. The old copy said "an answer takes about half
+  // a minute" whether or not it did; this says what is actually happening, and
+  // it disappears the moment there is an answer — so it is state, not a hint
+  // that outstays its usefulness.
+  useEffect(() => {
+    if (!busy) return
+    setElapsed(0)
+    const started = Date.now()
+    const id = setInterval(() => setElapsed(Math.floor((Date.now() - started) / 1000)), 250)
+    return () => clearInterval(id)
+  }, [busy])
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -95,6 +108,12 @@ export function AgentComposer({
           {busy ? <Loader2 className="size-4 animate-spin" aria-hidden /> : <ArrowUp className="size-4" aria-hidden />}
         </button>
       </form>
+
+      {busy && (
+        <p className="mt-3 text-center text-xs text-muted-foreground tabular-nums" aria-live="polite">
+          Reading the conversation · {elapsed}s
+        </p>
+      )}
 
       {error && <p className="mt-3 text-center text-sm text-clay">{error}</p>}
     </div>

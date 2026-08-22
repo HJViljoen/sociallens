@@ -11,10 +11,12 @@ import { CrowdFigure, type FigureKey } from '@/components/crowd-figure'
 // unit of arc at every step:
 //
 //   ring   radius   figures   per unit arc
-//   0      1.00     16        16
-//   1      1.42     13        9.2
-//   2      1.90     10        5.3
-//   3      2.30      7        3.0
+//   0      0.85     20        23.5
+//   1      1.20     18        15.0
+//   2      1.60     15         9.4
+//   3      2.05     12         5.9
+//   4      2.55      9         3.5
+//   5      3.10      6         1.9
 //
 // Rounder than before (rx/ry 1.65, was 2.36). It stays flattened because a ring
 // of people standing around you IS an ellipse on a flat page — a true circle
@@ -33,14 +35,20 @@ function wobble(i: number, salt: number): number {
 const VARIANTS: FigureKey[] = ['a', 'b', 'c', 'e']
 
 /** Base ellipse, in rem, before the responsive --ring multiplier. */
-const RX = 14
-const RY = 8.5
+const RX = 15
+const RY = 9.5
 
+// Six rings now, reaching half as far again. The density gradient is the whole
+// point, so adding people had to mean adding them UNEVENLY — the inner rings
+// grew most, and the outermost is still only six figures, so the corners stay
+// as stragglers rather than filling in.
 const RINGS = [
-  { r: 1.0, n: 16, alpha: 0.15 },
-  { r: 1.42, n: 13, alpha: 0.115 },
-  { r: 1.9, n: 10, alpha: 0.085 },
-  { r: 2.3, n: 7, alpha: 0.055 },
+  { r: 0.85, n: 20, alpha: 0.175 },
+  { r: 1.2, n: 18, alpha: 0.15 },
+  { r: 1.6, n: 15, alpha: 0.12 },
+  { r: 2.05, n: 12, alpha: 0.092 },
+  { r: 2.55, n: 9, alpha: 0.068 },
+  { r: 3.1, n: 6, alpha: 0.048 },
 ]
 
 interface Placed {
@@ -74,13 +82,13 @@ const RING: Placed[] = RINGS.flatMap((ring, ri) =>
       // Front of the ring is nearer, so larger. Outer rings are further into
       // the haze, so smaller again — that is what turns concentric ellipses
       // into distance.
-      scale: (0.5 + 0.34 * near) * (1 - ri * 0.07),
+      scale: (0.5 + 0.34 * near) * (1 - ri * 0.055),
       opacity: ring.alpha * (0.72 + 0.5 * near),
       variant: VARIANTS[k % VARIANTS.length],
       lean: wobble(k, 9.1) * 3.5,
       // Rippling outward: the inner ring makes room first, the stragglers
       // arrive last, so the crowd opens rather than appearing.
-      delay: 0.05 + ri * 0.07 + near * 0.12,
+      delay: 0.04 + ri * 0.05 + near * 0.12,
     }
   }),
 )
