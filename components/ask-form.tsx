@@ -91,9 +91,6 @@ export function AskForm() {
           />
         </label>
 
-        <span className="text-xs text-muted-foreground">
-          A plan takes about half a minute.
-        </span>
       </div>
       {error && <p className="text-sm text-clay">{error}</p>}
     </form>

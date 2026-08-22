@@ -33,10 +33,6 @@ export default async function AskPage() {
     <div className="space-y-6">
       <div>
         <h1 className="text-xl font-semibold">Ask</h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Put an idea or a plan against what people actually said. Every claim comes back supported,
-          contradicted, or untested — with the conversations behind it.
-        </p>
       </div>
 
       <Card>

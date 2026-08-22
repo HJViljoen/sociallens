@@ -92,17 +92,13 @@ export function AgentAnswerView({ answer }: { answer: AgentAnswer }) {
                 </div>
               )
             })}
-            <p className="pt-1 text-xs text-muted-foreground">
-              This part is the tool&rsquo;s reading, not something your customers said.
-            </p>
           </div>
         </section>
       )}
 
       {answer.silent && (
         <p className="text-sm text-muted-foreground">
-          Nothing was found in the conversation we have analysed that speaks to this. That is a real
-          answer, not a failure &mdash; it usually means the topic lives somewhere we do not listen yet.
+          Nothing in the conversation we have analysed speaks to this.
         </p>
       )}
     </div>

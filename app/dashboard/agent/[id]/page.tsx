@@ -84,15 +84,7 @@ export default async function AgentThreadPage({ params }: { params: Promise<{ id
         )}
       </div>
 
-      <Card>
-        <CardContent className="py-5">
-          <AgentComposer
-            canSend={canSend}
-            threadId={id}
-            placeholder="Push back, or narrow it down."
-          />
-        </CardContent>
-      </Card>
+      <AgentComposer canSend={canSend} threadId={id} placeholder="Push back, or narrow it down" />
     </div>
   )
 }
