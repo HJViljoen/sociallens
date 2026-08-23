@@ -258,6 +258,46 @@ export function categoryTabs(counts: Map<string, number>): { category: string; l
     .sort((a, b) => idx(a.category) - idx(b.category) || b.count - a.count || a.label.localeCompare(b.label))
 }
 
+/** Category chip tint — one calibrated family per category, never a hashed
+ *  hue (Heinrich, 2026-08-22): green = good news (praise, purchase intent,
+ *  buying triggers), warm red = friction (pain points, objections, switching),
+ *  gold = asks (questions, feature requests), neutral = the rest. Class
+ *  strings are written out in full so Tailwind's scanner sees them. */
+const CATEGORY_FAMILY: Record<string, 'green' | 'red' | 'gold'> = {
+  praise: 'green',
+  purchase_intent: 'green',
+  buying_trigger: 'green',
+  pain_point: 'red',
+  objection: 'red',
+  switching_signal: 'red',
+  question: 'gold',
+  feature_request: 'gold',
+}
+const FAMILY_CHIP = {
+  green: 'bg-positive/12 text-positive',
+  red: 'bg-negative/12 text-negative',
+  gold: 'bg-warning/15 text-warning',
+  neutral: 'bg-muted text-muted-foreground',
+} as const
+export const categoryChip = (category: string): string => FAMILY_CHIP[CATEGORY_FAMILY[category] ?? 'neutral']
+
+/** The phrases the language tile has room for: short ones (≤ `maxWords`
+ *  words — long sentences wrap into a mess), shortest first, de-duplicated
+ *  case-insensitively, at most `n`. */
+export function shortPhrases<T extends { phrase: string }>(samples: T[], n = 8, maxWords = 8): T[] {
+  const seen = new Set<string>()
+  return samples
+    .filter((s) => {
+      const p = s.phrase.trim()
+      const key = p.toLowerCase()
+      if (!p || seen.has(key) || p.split(/\s+/).length > maxWords) return false
+      seen.add(key)
+      return true
+    })
+    .sort((a, b) => a.phrase.trim().length - b.phrase.trim().length)
+    .slice(0, n)
+}
+
 /** Audience-mood colour job: the feeling's valence (Pass A's fixed emotion
  *  vocabulary). Positive = green, negative = clay, neutral = sand. */
 export function emotionTone(emotion: string): 'positive' | 'negative' | 'neutral' {

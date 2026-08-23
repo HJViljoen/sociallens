@@ -6,7 +6,8 @@ import { Sparkline } from '@/components/charts/sparkline'
 // The theme map — Voice's hero chart: a squarified treemap of the top themes
 // this update. Block area = conversations (evidence_count, a real count);
 // fill = the entity bucket's tint; a FULL 1px outline in the bucket colour and
-// equal 5px gaps on both axes (Heinrich's round-3 fix). Server-rendered: the
+// equal 5px gaps on both axes (Heinrich's round-3 fix). The bucket is the only
+// colour on a block — the category chip is a quiet neutral. Server-rendered: the
 // layout is solved once on a reference frame and placed with percentages, so
 // the map fills whatever the tile gives it. Every block is a link one click
 // deeper (?detail=<themeId>).
@@ -19,16 +20,15 @@ export interface ThemeBlock {
   bucket: Bucket
   /** the category chip, already worded for clients */
   category: string
-  categoryClass: string
   isNew: boolean
   /** conversations per update, oldest → newest (≥2 points draws a spark) */
   series?: number[]
   href: string
 }
 
-// Bucket fills are the tile surface tinted with the bucket colour — the same
-// hues as the reference (#E3EEE3 / #E4E8EF / #F3DFD5 on cream), and they
-// still read on the dark tile. Class strings can't carry these, so inline.
+// Bucket fills are the tile surface tinted with the bucket colour (green for
+// your audience, stone for the wider category, clay for a competitor), and
+// they still read on the dark tile. Class strings can't carry these, so inline.
 const FILL: Record<Bucket, string> = {
   client: 'color-mix(in srgb, var(--positive) 14%, var(--tile))',
   category: 'color-mix(in srgb, var(--accent-slate) 14%, var(--tile))',
@@ -75,7 +75,7 @@ export function ThemeMap({ blocks, className }: { blocks: ThemeBlock[]; classNam
             <span className={`font-semibold leading-[1.2] ${big ? 'line-clamp-3 text-[13px]' : mid ? 'line-clamp-2 text-[11.5px]' : 'line-clamp-2 text-[10.5px]'}`}>{b.label}</span>
             <span className="mt-auto flex min-w-0 items-center gap-1.5">
               <span className={`font-mono font-semibold tabular-nums leading-none ${big ? 'text-[15px]' : 'text-[12px]'}`}>{b.count}</span>
-              {big && <Chip className={b.categoryClass}>{b.category}</Chip>}
+              {big && <Chip className="bg-tile/75 text-muted-foreground">{b.category}</Chip>}
               {b.isNew && mid && <Chip className="bg-sidebar-accent text-primary">New</Chip>}
               {big && b.series && b.series.length >= 2 && (
                 <Sparkline values={b.series} color={edge} width={54} height={14} endDot={false} className="ml-auto" />

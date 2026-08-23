@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   squarify, themeTrajectories, themeMovers, movementOf, voiceTiers, pickVoiceCards, categoryTabs, topEmotions, emotionTone,
+  categoryChip, shortPhrases,
   type ThemeHistoryRow,
 } from './voice-tiles'
 
@@ -162,5 +163,34 @@ describe('labels and mood', () => {
     expect(emotionTone('frustrated')).toBe('negative')
     expect(emotionTone('hopeful')).toBe('positive')
     expect(emotionTone('neutral')).toBe('neutral')
+  })
+})
+
+describe('category chips and short phrases', () => {
+  it('maps every category onto a green / warm-red / gold / neutral family, never a hashed hue', () => {
+    expect(categoryChip('praise')).toBe(categoryChip('purchase_intent'))
+    expect(categoryChip('buying_trigger')).toMatch(/positive/)
+    expect(categoryChip('pain_point')).toBe(categoryChip('objection'))
+    expect(categoryChip('switching_signal')).toMatch(/negative/)
+    expect(categoryChip('question')).toBe(categoryChip('feature_request'))
+    expect(categoryChip('question')).toMatch(/warning/)
+    expect(categoryChip('demographic_signal')).toBe(categoryChip('something_new'))
+    expect(categoryChip('demographic_signal')).toMatch(/muted/)
+    for (const c of ['praise', 'pain_point', 'question', 'demographic_signal']) expect(categoryChip(c)).not.toMatch(/plum|slate|pine|ochre|#/)
+  })
+
+  it('keeps only short phrases, shortest first, de-duplicated, capped at n', () => {
+    const rows = [
+      { phrase: 'this one is a full sentence that runs on and on for far too long' },
+      { phrase: 'So worth it' },
+      { phrase: 'game changer' },
+      { phrase: 'so worth it ' },
+      { phrase: 'ok' },
+      { phrase: 'eight words exactly is the cut off here' },
+      { phrase: 'nine words is one too many for this chip' },
+      { phrase: '' },
+    ]
+    expect(shortPhrases(rows).map((r) => r.phrase)).toEqual(['ok', 'So worth it', 'game changer', 'eight words exactly is the cut off here'])
+    expect(shortPhrases(rows, 2).map((r) => r.phrase)).toEqual(['ok', 'So worth it'])
   })
 })

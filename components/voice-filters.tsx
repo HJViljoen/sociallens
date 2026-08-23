@@ -7,7 +7,8 @@ import { useRouter, useSearchParams, usePathname } from 'next/navigation'
 // duplication); this only updates the query string and preserves any other
 // params (?entity, ?type, ?themes, ?seed). Category filtering is the tab row
 // on the page; strength options are worded, never numeric (Redesign Spec §1 —
-// scores are not displayed). Sized for the one-screen tile (2026-08-22).
+// scores are not displayed). Rendered inline (a span) so it can sit in the
+// tile's eyebrow row.
 const STAGES = [
   { value: 'all', label: 'Journey: any' },
   { value: 'awareness', label: 'Awareness' },
@@ -43,16 +44,18 @@ export function VoiceFilters({ stage, min, deepLinked, showStage }: {
   const setParam = (key: string, value: string, clearValue: string) =>
     push((p) => (value === clearValue ? p.delete(key) : p.set(key, value)))
 
+  // Quiet 22px controls: they sit on the map tile's eyebrow row (2026-08-22),
+  // so they read as settings, not as a second toolbar.
   const selectCls =
-    'h-[22px] cursor-pointer rounded-full border border-border bg-tile pl-2 pr-1 text-[11px] text-[#3F4B44] outline-none transition-colors hover:bg-muted/40 focus-visible:ring-2 focus-visible:ring-ring/40'
+    'h-[22px] cursor-pointer rounded-md border border-border/80 bg-tile px-1.5 text-[11px] text-muted-foreground outline-none transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/40'
 
   return (
-    <div className="flex shrink-0 flex-wrap items-center justify-end gap-1.5">
+    <span className="inline-flex shrink-0 items-center gap-1.5">
       {deepLinked && (
         <button
           type="button"
           onClick={() => push((p) => p.delete('themes'))}
-          className="inline-flex h-[22px] cursor-pointer items-center gap-1 rounded-full bg-sidebar-accent px-2 text-[11px] font-medium text-primary transition-colors hover:bg-sidebar-accent/80"
+          className="inline-flex h-[22px] cursor-pointer items-center gap-1 rounded-md bg-sidebar-accent px-2 text-[11px] font-medium text-primary transition-colors hover:bg-sidebar-accent/80"
         >
           Behind a selected insight
           <span aria-hidden>✕</span>
@@ -70,6 +73,6 @@ export function VoiceFilters({ stage, min, deepLinked, showStage }: {
           <option key={s.value} value={s.value}>{s.label}</option>
         ))}
       </select>
-    </div>
+    </span>
   )
 }

@@ -2,11 +2,11 @@ import Link from 'next/link'
 import { getSessionContext } from '@/lib/auth'
 import { selectAll } from '@/lib/supabase-admin'
 import { fetchInsightsByIds, fetchQuoteCitationsByAudience, readsAsHeroQuote, cleanQuote, type QuoteCitation } from '@/lib/quotes'
-import { categoryTint, PREVALENCE_BADGE } from '@/lib/ui-colors'
+import { PREVALENCE_BADGE } from '@/lib/ui-colors'
 import { prevalenceTier, PREVALENCE_LABEL, glossaryRule, type GlossaryKey } from '@/lib/calibration'
 import { fmtInt, fmtCompact, fmtPct, weekdayDate, shortDate, platformLabel, cap } from '@/lib/format'
 import {
-  themeTrajectories, themeMovers, voiceTiers, pickVoiceCards, categoryTabs, categoryLabel, topEmotions, emotionTone, bucketKind,
+  themeTrajectories, themeMovers, voiceTiers, pickVoiceCards, categoryTabs, categoryLabel, categoryChip, shortPhrases, topEmotions, emotionTone, bucketKind,
   type ThemeHistoryRow, type Trajectory,
 } from '@/lib/voice-tiles'
 import { VoiceFilters } from '@/components/voice-filters'
@@ -59,8 +59,9 @@ const RIBBON_THEMES = 8
 const QUOTE_IDS_PER_THEME = 12
 const QUOTES_PER_THEME = 4
 const RIBBON_CARDS = 5
-/** Phrases on the language tile / in its drawer. */
+/** Phrases on the language tile (picked shortest-first from a pool) / in its drawer. */
 const PHRASES_SHOWN = 8
+const PHRASES_POOL = 120
 const PHRASES_DRAWER = 300
 /** Quotes in a theme's drawer. */
 const DETAIL_QUOTES = 6
@@ -148,7 +149,7 @@ export default async function VoiceOfCustomerPage({ searchParams }: { searchPara
       .select('phrase, platform', { count: 'exact' })
       .eq('client_id', clientId)
       .order('phrase')
-      .limit(detail === 'language' ? PHRASES_DRAWER : PHRASES_SHOWN),
+      .limit(detail === 'language' ? PHRASES_DRAWER : PHRASES_POOL),
     // Population read of the current analysis → the *_current view (AGENTS.md).
     selectAll<{ id: string; emotion: string | null }>(() =>
       supabase.from('audience_insights_current').select('id, emotion').eq('client_id', clientId).order('id', { ascending: true }),
@@ -169,6 +170,7 @@ export default async function VoiceOfCustomerPage({ searchParams }: { searchPara
   const showNew = updatesCount > 1
   const samples = (samplesRes.data ?? []) as { phrase: string; platform: string | null }[]
   const sampleTotal = samplesRes.count ?? samples.length
+  const phrases = shortPhrases(samples, PHRASES_SHOWN)
 
   // ---- bucket vocabulary (raw bucket values are never client-facing) ----
   const competitorName = (bucket: string) => bucket.replace(/^competitor:/, '')
@@ -244,7 +246,6 @@ export default async function VoiceOfCustomerPage({ searchParams }: { searchPara
     count: t.evidence_count,
     bucket: bucketKind(t.bucket),
     category: categoryLabel(t.category),
-    categoryClass: categoryTint(t.category),
     isNew: showNew && t.first_seen,
     series: historyOf(t)?.evidence,
     href: hrefWith({ detail: t.id }),
@@ -326,7 +327,6 @@ export default async function VoiceOfCustomerPage({ searchParams }: { searchPara
   }
   const detailHistory = detailTheme ? historyOf(detailTheme) : undefined
 
-  const earlyInView = tiers.early.length
   const legendItems: GlossaryKey[] = showNew ? [...LEGEND_ITEMS, 'new'] : LEGEND_ITEMS
   const mapEmptyLine = themes.length === 0
     ? 'Your customer voices are being organised into themes — they land with your next update.'
@@ -363,13 +363,16 @@ export default async function VoiceOfCustomerPage({ searchParams }: { searchPara
 
       <PageGrid>
         {/* ── hero: the theme map ─────────────────────────────────────── */}
+        {/* Header rows (2026-08-22): eyebrow + the two quiet selects; the
+            audience pills when there are too many for the page bar; category
+            tabs that wrap, never scroll; then the map. */}
         <Tile col={8} row={4} eyebrow="The conversation, by theme"
-          meta={themes.length > 0 ? `${tiersAll.confirmed.length} confirmed · ${tiersAll.early.length} early · ${tiersAll.heardOnce.length} heard once · block size = conversations this update` : undefined}
-          bodyClassName="gap-1.5"
+          meta={themes.length > 0 ? <VoiceFilters stage={stageFilter} min={String(minScore)} deepLinked={deepLinked} showStage={stagesPresent.size > 0} /> : undefined}
+          bodyClassName="gap-2"
           footer={themes.length > 0 ? (
             <span className="flex items-center gap-2">
-              <Link href={hrefWith({ detail: 'list' })} scroll={false}>All {fmtInt(shown.length)} themes as a list →</Link>
-              {blocks.length > 0 && <span className="font-normal text-muted-foreground">top {blocks.length} shown · click a block to hear its voices</span>}
+              <Link href={hrefWith({ detail: 'list' })} scroll={false}>All {fmtInt(shown.length)} themes →</Link>
+              <span className="font-normal text-muted-foreground">{tiersAll.confirmed.length} confirmed · {tiersAll.early.length} early · {tiersAll.heardOnce.length} heard once</span>
             </span>
           ) : undefined}
           footerNote={themes.length > 0 ? <BucketLegend competitor={leadCompetitor ? competitorName(leadCompetitor) : null} /> : undefined}
@@ -378,49 +381,46 @@ export default async function VoiceOfCustomerPage({ searchParams }: { searchPara
             <div className="flex flex-wrap items-center gap-1.5">{entityPills}</div>
           )}
           {themes.length > 0 && (
-            <div className="-mx-3.5 flex items-end gap-2 border-b border-border/90 px-3.5">
-              <div className="flex min-w-0 flex-1 gap-0.5 overflow-x-auto [scrollbar-width:none]">
-                <TabLink label="All" count={tiersEntity.confirmed.length} active={typeFilter === 'all'} href={hrefWith({ type: null, detail: null })} />
-                {tabs.map((t) => (
-                  <TabLink key={t.category} label={t.label} count={t.count} active={typeFilter === t.category} href={hrefWith({ type: t.category, detail: null })} />
-                ))}
-              </div>
-              <div className="pb-1">
-                <VoiceFilters stage={stageFilter} min={String(minScore)} deepLinked={deepLinked} showStage={stagesPresent.size > 0} />
-              </div>
+            <div className="-mx-4 flex flex-wrap items-center gap-0.5 border-b border-border/80 px-4 pb-2">
+              <TabLink label="All" count={tiersEntity.confirmed.length} active={typeFilter === 'all'} href={hrefWith({ type: null, detail: null })} />
+              {tabs.map((t) => (
+                <TabLink key={t.category} label={t.label} count={t.count} active={typeFilter === t.category} href={hrefWith({ type: t.category, detail: null })} />
+              ))}
             </div>
           )}
           {blocks.length > 0 ? (
-            <ThemeMap blocks={blocks} className="mt-0.5 min-h-[260px]" />
+            <ThemeMap blocks={blocks} className="min-h-[240px]" />
           ) : (
             <TileEmpty>{mapEmptyLine}</TileEmpty>
           )}
         </Tile>
 
         {/* ── gaining and fading ─────────────────────────────────────── */}
-        <Tile col={4} row={2} eyebrow="Gaining and fading" meta={updatesCount > 1 ? 'conversations · vs previous appearance' : undefined}
+        <Tile col={4} row={2} eyebrow="Gaining and fading" meta={movers.length > 0 ? `${fmtInt(movers.length)} moved` : undefined}
           footer={movers.length > 0 ? <Link href={hrefWith({ detail: 'movers' })} scroll={false}>All movers →</Link> : undefined}
-          footerNote={movers.length > 0 ? 'themes heard in ≥2 updates' : undefined}
         >
           {updatesCount < 2 ? (
             <TileEmpty>Movement lands with your second update.</TileEmpty>
           ) : movers.length === 0 ? (
             <TileEmpty>No theme has moved clearly yet — {steadyCount > 0 ? `${steadyCount} heard in more than one update, all steady so far` : 'the themes heard so far are all new this update'}.</TileEmpty>
           ) : (
-            <div className="flex flex-col gap-[7px] pt-0.5">
+            <div className="flex min-h-0 flex-1 flex-col justify-between overflow-hidden">
               {movers.slice(0, MOVER_ROWS).map((t) => <MoverRow key={t.key} t={t} competitorName={competitorName} />)}
             </div>
           )}
         </Tile>
 
         {/* ── how your customers talk ────────────────────────────────── */}
-        <Tile col={4} row={1} eyebrow="How your customers talk" meta={sampleTotal > 0 ? `${fmtInt(sampleTotal)} phrases` : undefined}
+        <Tile col={4} row={1} eyebrow="How your customers talk" meta={sampleTotal > 0 ? `${fmtInt(sampleTotal)} phrases` : undefined} distribute="center"
           footer={sampleTotal > 0 ? <Link href={hrefWith({ detail: 'language' })} scroll={false}>Borrow the language →</Link> : undefined}
         >
-          {samples.length > 0 ? (
-            <div className="flex flex-wrap content-start gap-1 overflow-hidden">
-              {samples.slice(0, PHRASES_SHOWN).map((s, i) => (
-                <span key={i} title={s.platform ? platformLabel(s.platform) : undefined} className={`${chip} max-w-full truncate bg-muted italic text-[#3F4B44]`}>
+          {phrases.length > 0 ? (
+            // One clean row of chips on the fixed one-screen grid (a chip that
+            // doesn't fit wraps out of view, never gets cut mid-word); two rows
+            // when the grid stacks.
+            <div className="flex max-h-[44px] flex-wrap content-start gap-1 overflow-hidden xl:max-h-[20px]">
+              {phrases.map((s, i) => (
+                <span key={i} title={s.platform ? platformLabel(s.platform) : undefined} className="inline-flex h-[20px] max-w-full items-center truncate rounded-lg bg-muted px-2 text-[11px] italic leading-none text-foreground/80">
                   {s.phrase}
                 </span>
               ))}
@@ -429,9 +429,9 @@ export default async function VoiceOfCustomerPage({ searchParams }: { searchPara
         </Tile>
 
         {/* ── audience mood ──────────────────────────────────────────── */}
-        <Tile col={4} row={1} eyebrow="Audience mood" meta={moods.length > 0 ? `top feelings · of ${fmtInt(moods[0].total)} read` : undefined}>
+        <Tile col={4} row={1} eyebrow="Audience mood" meta={moods.length > 0 ? `of ${fmtInt(moods[0].total)} read` : undefined} distribute="center">
           {moods.length > 0 ? (
-            <div className="flex flex-col gap-[4px]">
+            <div className="flex flex-col gap-1.5">
               {moods.map((m) => (
                 <RankedBar key={m.emotion} label={cap(m.emotion)} pct={moodMax > 0 ? (m.pct / moodMax) * 100 : 0} color={MOOD_COLOR[emotionTone(m.emotion)]} count={fmtPct(m.pct, 0)} barWidth={120} />
               ))}
@@ -441,25 +441,17 @@ export default async function VoiceOfCustomerPage({ searchParams }: { searchPara
 
         {/* ── hear these voices ──────────────────────────────────────── */}
         <Tile col={12} row={2} eyebrow="Hear these voices"
-          meta={cards.length > 0 ? `${cards.length} of ${fmtInt(ribbon.total)} · rotates on every visit · verbatim, unedited — a clay rule means a real person said this` : undefined}
+          meta={cards.length > 0 ? `${cards.length} of ${fmtInt(ribbon.total)}` : undefined}
           footer={cards.length > 0 && ribbon.total > cards.length ? <Link href={hrefWith({ seed: String(seed + 1), detail: null })} scroll={false}>Next five →</Link> : undefined}
-          footerNote={themes.length > 0 ? (
-            <span>
-              <Link href={hrefWith({ detail: 'language' })} scroll={false} className="hover:text-primary">language samples</Link>
-              {' and '}
-              <Link href={hrefWith({ detail: 'list' })} scroll={false} className="hover:text-primary">early signals ({earlyInView})</Link>
-              {' live in the drawer'}
-            </span>
-          ) : undefined}
         >
           {cards.length > 0 ? (
-            <div className="-mx-3 flex min-h-0 flex-1 flex-col items-stretch divide-y divide-border/80 sm:flex-row sm:divide-x sm:divide-y-0">
+            <div className="-mx-4 flex min-h-0 flex-1 flex-col items-stretch divide-y divide-border/80 sm:flex-row sm:divide-x sm:divide-y-0">
               {cards.map((c, i) => (
-                <Link key={i} href={hrefWith({ detail: c.theme.id })} scroll={false} className="flex min-w-0 flex-1 flex-col gap-1.5 px-3 hover:bg-muted/30">
-                  <span className={`${chip} max-w-full self-start truncate ${categoryTint(c.theme.category)}`}>{c.theme.label}</span>
-                  <blockquote className="min-h-0 border-l-2 border-clay pl-2 text-[12.5px] italic leading-[1.4] text-foreground/90">
+                <Link key={i} href={hrefWith({ detail: c.theme.id })} scroll={false} className="flex min-w-0 flex-1 basis-0 flex-col justify-center gap-2 px-4 py-1 hover:bg-muted/30">
+                  <span className={`${chip} max-w-full self-start truncate ${categoryChip(c.theme.category)}`}>{c.theme.label}</span>
+                  <blockquote className="min-h-0 border-l-2 border-clay pl-2.5 text-[12.5px] italic leading-[1.4] text-foreground/90">
                     <span className="line-clamp-4">“{c.quote}”</span>
-                    {c.who && <span className="mt-0.5 block text-[10.5px] not-italic text-muted-foreground">{c.who}</span>}
+                    {c.who && <span className="mt-1 block text-[10.5px] not-italic text-muted-foreground">{c.who}</span>}
                   </blockquote>
                 </Link>
               ))}
@@ -482,7 +474,7 @@ export default async function VoiceOfCustomerPage({ searchParams }: { searchPara
             <div className="space-y-4">
               <div className="flex flex-wrap items-center gap-1.5">
                 <span title={glossaryRule(prevalence)} className={`${chip} ${PREVALENCE_BADGE[prevalence]}`}>{PREVALENCE_LABEL[prevalence]}</span>
-                <span className={`${chip} ${categoryTint(detailTheme.category)}`}>{categoryLabel(detailTheme.category)}</span>
+                <span className={`${chip} ${categoryChip(detailTheme.category)}`}>{categoryLabel(detailTheme.category)}</span>
                 {detailTheme.dominant_emotion && <span className={`${chip} capitalize bg-muted text-muted-foreground`}>{detailTheme.dominant_emotion}</span>}
                 {showNew && detailTheme.first_seen && <span title={glossaryRule('new')} className={`${chip} bg-sidebar-accent text-primary`}>New</span>}
               </div>
@@ -557,7 +549,7 @@ export default async function VoiceOfCustomerPage({ searchParams }: { searchPara
       <DetailDrawer open={detail === 'language'} closeHref={closeHref} title="How your customers talk" description={`${fmtInt(sampleTotal)} phrases, verbatim — the words to borrow`}>
         <div className="flex flex-wrap gap-1.5">
           {samples.map((s, i) => (
-            <span key={i} title={s.platform ? platformLabel(s.platform) : undefined} className="rounded-lg bg-muted px-2.5 py-1 text-[12px] italic leading-[1.35] text-[#3F4B44]">{s.phrase}</span>
+            <span key={i} title={s.platform ? platformLabel(s.platform) : undefined} className="rounded-lg bg-muted px-2.5 py-1 text-[12px] italic leading-[1.35] text-foreground/80">{s.phrase}</span>
           ))}
         </div>
         {sampleTotal > samples.length && <p className="mt-3 text-[11px] text-muted-foreground">showing {fmtInt(samples.length)} of {fmtInt(sampleTotal)}</p>}
@@ -566,18 +558,19 @@ export default async function VoiceOfCustomerPage({ searchParams }: { searchPara
   )
 }
 
-/** One category tab — a Link so the server filters. */
+/** One category tab, "Label N" — a Link so the server filters. A quiet chip
+ *  rather than an underline so the row can wrap onto a second line cleanly. */
 function TabLink({ label, count, active, href }: { label: string; count: number; active: boolean; href: string }) {
   return (
     <Link
       href={href}
       scroll={false}
-      className={`-mb-px flex shrink-0 items-baseline gap-1 whitespace-nowrap border-b-2 px-2 pb-1.5 pt-0.5 text-[11.5px] font-medium transition-colors ${
-        active ? 'border-primary text-primary' : 'border-transparent text-[#6B756B] hover:text-foreground'
+      className={`inline-flex h-[22px] shrink-0 items-center gap-1 whitespace-nowrap rounded-md px-2 text-[11.5px] font-medium transition-colors ${
+        active ? 'bg-sidebar-accent text-primary' : 'text-[#6B756B] hover:bg-muted/60 hover:text-foreground'
       }`}
     >
       {label}
-      <span className="font-mono text-[10.5px] tabular-nums text-muted-foreground/80">{count}</span>
+      <span className={`font-mono text-[10.5px] tabular-nums ${active ? 'text-primary/70' : 'text-muted-foreground/80'}`}>{count}</span>
     </Link>
   )
 }
@@ -629,7 +622,7 @@ function ThemeList({ title, hint, rows, hrefWith, showNew, compact }: {
             <span className="size-1.5 shrink-0 rounded-full" style={{ background: EDGE[bucketKind(t.bucket)] }} aria-hidden />
             <span className={`min-w-0 flex-1 truncate ${compact ? 'text-[12px] text-muted-foreground' : 'text-[12.5px]'}`}>{t.label}</span>
             {showNew && t.first_seen && <span className={`${chip} bg-sidebar-accent text-primary`}>New</span>}
-            {!compact && <span className={`${chip} hidden sm:inline-flex ${categoryTint(t.category)}`}>{categoryLabel(t.category)}</span>}
+            {!compact && <span className={`${chip} hidden sm:inline-flex ${categoryChip(t.category)}`}>{categoryLabel(t.category)}</span>}
             <span className="w-7 shrink-0 text-right font-mono text-[11.5px] font-semibold tabular-nums">{t.evidence_count}</span>
           </Link>
         ))}
