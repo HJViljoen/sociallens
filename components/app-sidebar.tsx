@@ -5,7 +5,7 @@ import {
   SidebarHeader, SidebarMenu, SidebarMenuButton, SidebarMenuItem,
   useSidebar,
 } from "@/components/ui/sidebar"
-import { LayoutDashboard, Target, MessageCircle, Swords, Play, FileText, Users, UserRound, MessageSquareQuote, Sparkles, CreditCard, Settings, LogOut } from "lucide-react"
+import { LayoutDashboard, Target, MessageCircle, Swords, Play, FileText, Users, UserRound, Sparkles, CreditCard, Settings, LogOut } from "lucide-react"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { signOut } from "@/app/login/actions"
@@ -26,19 +26,15 @@ const baseNav = [
   { href: "/dashboard/settings",  label: "Settings",           icon: Settings },
 ]
 
-// Ask is gated on the same flag as its route (/api/ask 404s without it) — an
-// entry point to an endpoint that refuses is worse than no entry point.
-const ASK_ITEM = { href: "/dashboard/ask", label: "Ask", icon: MessageSquareQuote }
 // The agent rides its OWN flag, not the Ask one: lighting up the agent must
 // not light up Pass E and the weekly re-evaluation inside a pipeline run.
 const AGENT_ITEM = { href: "/dashboard/agent", label: "Verbatim Agent", icon: Sparkles }
 
-export function AppSidebar({ showAsk = false, showAgent = false }: { showAsk?: boolean; showAgent?: boolean }) {
+export function AppSidebar({ showAgent = false }: { showAgent?: boolean }) {
   const pathname = usePathname()
-  // Ask sits just after the profile it reads from.
-  const withAsk = showAsk
-    ? baseNav.flatMap((item) => (item.href === "/dashboard/profile" ? [item, ASK_ITEM] : [item]))
-    : baseNav
+  // The Ask page was retired 2026-08-23 — the Verbatim Agent does the same
+  // (question + plan/document check) and more; /dashboard/ask redirects there.
+  const withAsk = baseNav
   // The agent sits directly under the profile it reads from, above Ask.
   const navItems = showAgent
     ? withAsk.flatMap((item) => (item.href === "/dashboard/profile" ? [item, AGENT_ITEM] : [item]))

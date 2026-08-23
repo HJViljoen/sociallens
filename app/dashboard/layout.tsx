@@ -3,7 +3,7 @@ import { AppSidebar } from "@/components/app-sidebar"
 import { AccessBanner } from "@/components/access-banner"
 import { getSessionContext } from "@/lib/auth"
 import { billingAccess, type BillingClient } from "@/lib/billing"
-import { askEnabled, agentEnabled } from "@/lib/config"
+import { agentEnabled } from "@/lib/config"
 
 export default async function DashboardLayout({ children }: { children: React.ReactNode }) {
   const { supabase, clientId } = await getSessionContext()
@@ -21,7 +21,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
 
   return (
     <SidebarProvider>
-      <AppSidebar showAsk={askEnabled()} showAgent={agentEnabled()} />
+      <AppSidebar showAgent={agentEnabled()} />
       {/* min-w-0: without it this flex item refuses to shrink below the
           intrinsic width of wide children (the Content page's 9-column table),
           so the whole page overflows the phone viewport instead of the table
