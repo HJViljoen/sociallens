@@ -424,7 +424,7 @@ export default async function ContentPage({
                 <tbody>
                   {fieldRows.map((r) => (
                     <tr key={r.label} className="border-t border-border/70">
-                      <td className="max-w-0 py-2 pr-2">
+                      <td className="w-[42%] py-2 pr-2">
                         <span className="flex items-center gap-1.5">
                           <span className="size-1.5 shrink-0 rounded-full" style={{ background: fieldColors.get(r.label) }} aria-hidden />
                           <span className="truncate">{r.label}</span>
@@ -492,7 +492,7 @@ export default async function ContentPage({
                   <div key={a.platform} className="flex items-center gap-3">
                     <PlatformIcon platform={a.platform} size={14} className="shrink-0 text-[#55605A]" />
                     <span className="sr-only">{platformLabel(a.platform)}</span>
-                    <div className="min-w-0 flex-1"><Sparkline values={a.values} width={190} height={24} fill /></div>
+                    <div className="min-w-0 flex-1"><Sparkline values={a.values} width={270} height={28} fill /></div>
                     <div className="flex min-w-[96px] flex-col items-end">
                       <span className="font-mono text-[12.5px] font-semibold tabular-nums">{fmtCompact(a.latest)}</span>
                       <span className="whitespace-nowrap">

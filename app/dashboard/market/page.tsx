@@ -365,8 +365,8 @@ export default async function MarketIntelligencePage({ searchParams }: { searchP
                 const conv = recConversations(a.rec)
                 if (i !== openIndex) {
                   return (
-                    <li key={a.rec.id} className="flex min-h-0 flex-1 flex-col border-t border-border/80 first:border-t-0">
-                      <Link href={`${BASE}?rec=${a.rec.id}`} scroll={false} className="group -mx-2 flex flex-1 items-center gap-3 rounded-md px-2 py-2.5 transition-colors hover:bg-muted/40">
+                    <li key={a.rec.id} className="flex min-h-0 flex-col border-t border-border/80 first:border-t-0">
+                      <Link href={`${BASE}?rec=${a.rec.id}`} scroll={false} className="group -mx-2 flex items-center gap-3 rounded-md px-2 py-3 transition-colors hover:bg-muted/40">
                         <span className="w-3.5 shrink-0 font-mono text-[12px] font-semibold tabular-nums text-[#9AA39A]">{i + 1}</span>
                         <PriorityDot priority={a.rec.priority} />
                         <span className="line-clamp-2 min-w-0 flex-1 text-[13px] font-semibold leading-[1.3] group-hover:text-primary">{a.rec.title}</span>
@@ -499,7 +499,6 @@ export default async function MarketIntelligencePage({ searchParams }: { searchP
         <Tile col={3} row={1} eyebrow="Said about you"
           footer={aboutYou.length > 0 ? <Link href={`${BASE}?detail=about`} scroll={false}>All {aboutYou.length} →</Link> : undefined}
           bodyClassName="overflow-hidden"
-          distribute="center"
         >
           {aboutYou.length > 0 ? (
             <Quote text={aboutYou[0].quote} who={`${aboutYou[0].account}${aboutYou[0].platform ? ` · ${platformLabel(aboutYou[0].platform)}` : ''}`} />
@@ -638,7 +637,7 @@ function Quadrant({ title, items, dot, className = '' }: { title: string; items:
           {items.map((it, i) => (
             <li key={i} className="flex items-start gap-2">
               <span className="mt-[7px] size-1 shrink-0 rounded-full bg-muted-foreground/50" aria-hidden />
-              <span className="line-clamp-2 text-[11.5px] leading-[1.4] text-foreground/85">{it}</span>
+              <span className="line-clamp-2 text-[11.5px] leading-[1.35] text-foreground/85">{it}</span>
             </li>
           ))}
         </ul>

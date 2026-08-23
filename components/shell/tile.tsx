@@ -104,7 +104,7 @@ export function Tile({
 /** One cell of a strip tile — a counted receipt. */
 export function StripCell({ eyebrow, children, className }: { eyebrow: ReactNode; children?: ReactNode; className?: string }) {
   return (
-    <div className={cn('flex min-h-0 min-w-0 flex-1 flex-col justify-center gap-1 overflow-hidden px-4 py-3', className)}>
+    <div className={cn('flex min-h-0 min-w-0 flex-1 flex-col justify-center gap-[3px] overflow-hidden px-4 py-2.5', className)}>
       <h2 className="truncate text-[10.5px] font-semibold uppercase tracking-[0.07em] text-[#6B756B]">{eyebrow}</h2>
       {children}
     </div>

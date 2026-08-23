@@ -460,7 +460,7 @@ export default async function DashboardPage({ searchParams }: { searchParams?: P
         </Tile>
 
         {/* ── what your market is talking about ─────────────────────── */}
-        <Tile col={5} row={2} distribute="center" eyebrow="What your market is talking about" meta="conversations per theme"
+        <Tile col={5} row={2} eyebrow="What your market is talking about" meta="conversations per theme"
           footer={<Link href="/dashboard/voice">All {tiers.confirmed > 0 ? `${tiers.confirmed} confirmed ` : ''}themes →</Link>}
           footerNote={
             <span className="flex items-center gap-2">
@@ -471,7 +471,7 @@ export default async function DashboardPage({ searchParams }: { searchParams?: P
           }
         >
           {themes.length > 0 ? (
-            <div className="flex flex-col gap-2">
+            <div className="flex flex-col gap-[5px]">
               {themes.map((t, i) => (
                 <RankedBar
                   key={`${i}-${t.label}`}
@@ -510,7 +510,7 @@ export default async function DashboardPage({ searchParams }: { searchParams?: P
           footer={oneThing ? <Link href="/dashboard/market">Why, and the voices{oneThingVoices > 0 ? ` (${oneThingVoices})` : ''} →</Link> : undefined}
         >
           {oneThing ? (
-            <p className="line-clamp-3 text-[13.5px] font-semibold leading-[1.3] tracking-[-0.01em]">{oneThing.title}</p>
+            <p className="line-clamp-2 text-[13.5px] font-semibold leading-[1.3] tracking-[-0.01em]">{oneThing.title}</p>
           ) : <TileEmpty>Recommendations land with the next update.</TileEmpty>}
         </Tile>
 
