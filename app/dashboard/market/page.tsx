@@ -16,6 +16,7 @@ import {
 import { PageFrame, PageGrid, PageBar, BarPill } from '@/components/shell/page-grid'
 import { Tile, TileEmpty } from '@/components/shell/tile'
 import { DetailDrawer } from '@/components/shell/detail-drawer'
+import { DrawerLink } from '@/components/shell/drawer-link'
 
 // Market Intelligence — "What should we do?", on one screen: the decision
 // ledger (one-screen redesign round 2, 2026-08-22). Left, the agenda: numbered
@@ -329,11 +330,6 @@ export default async function MarketIntelligencePage({ searchParams }: { searchP
   }
 
   // ── overlays ────────────────────────────────────────────────────────────
-  const showRecs = sp.detail === 'recs'
-  const showClaims = sp.detail === 'claims'
-  const showInsights = sp.detail === 'insights'
-  const showAbout = sp.detail === 'about'
-  const showNews = sp.detail === 'news'
 
   const context = `What should we do? · ${brand} · ${weekdayDate(runDate)}`
 
@@ -348,7 +344,7 @@ export default async function MarketIntelligencePage({ searchParams }: { searchP
         {/* ── the agenda: what to do ─────────────────────────────────── */}
         <Tile col={5} row={6} variant={featured ? 'warm' : 'default'} eyebrow="What to do · this update"
           meta={agenda.length > 0 ? `${agenda.length} ${plural(agenda.length, 'recommendation')}` : undefined}
-          footer={agenda.length > 0 ? <Link href={`${BASE}?detail=recs`} scroll={false}>All {agenda.length} →</Link> : undefined}
+          footer={agenda.length > 0 ? <DrawerLink href={`${BASE}?detail=recs`}>All {agenda.length} →</DrawerLink> : undefined}
           footerNote={agenda.length > 0 ? (
             <span className="flex items-center gap-2.5 text-[10.5px]">
               <span className="flex items-center gap-1"><PriorityDot priority="high" />high</span>
@@ -430,7 +426,7 @@ export default async function MarketIntelligencePage({ searchParams }: { searchP
         {/* ── say vs hear: the claims ledger ─────────────────────────── */}
         <Tile col={7} row={2} eyebrow="What you say vs what they hear"
           meta={claims.length > 0 ? claimCountsLine(counts) : undefined}
-          footer={claims.length > 0 ? <Link href={`${BASE}?detail=claims`} scroll={false}>All {claims.length} →</Link> : undefined}
+          footer={claims.length > 0 ? <DrawerLink href={`${BASE}?detail=claims`}>All {claims.length} →</DrawerLink> : undefined}
           bodyClassName="overflow-hidden gap-1.5"
         >
           {claims.length > 0 ? (
@@ -472,7 +468,7 @@ export default async function MarketIntelligencePage({ searchParams }: { searchP
               {tiers.early > 0 && <Chip tone="warning" title={glossaryRule('early_signal')}>{tiers.early} early</Chip>}
             </span>
           ) : undefined}
-          footer={insights.length > 0 ? <Link href={`${BASE}?detail=insights`} scroll={false}>All {insights.length} →</Link> : undefined}
+          footer={insights.length > 0 ? <DrawerLink href={`${BASE}?detail=insights`}>All {insights.length} →</DrawerLink> : undefined}
           bodyClassName="overflow-hidden gap-0"
           distribute={keyInsights.length > 0 ? 'start' : 'center'}
         >
@@ -500,7 +496,7 @@ export default async function MarketIntelligencePage({ searchParams }: { searchP
 
         {/* ── said about you ─────────────────────────────────────────── */}
         <Tile col={3} row={1} eyebrow="Said about you"
-          footer={aboutYou.length > 0 ? <Link href={`${BASE}?detail=about`} scroll={false}>All {aboutYou.length} →</Link> : undefined}
+          footer={aboutYou.length > 0 ? <DrawerLink href={`${BASE}?detail=about`}>All {aboutYou.length} →</DrawerLink> : undefined}
           bodyClassName="overflow-hidden"
         >
           {aboutYou.length > 0 ? (
@@ -512,7 +508,7 @@ export default async function MarketIntelligencePage({ searchParams }: { searchP
 
         {/* ── in the news ────────────────────────────────────────────── */}
         <Tile col={3} row={1} eyebrow="In the news" meta={news.length > 0 ? `${fmtInt(newsTotal)} ${plural(newsTotal, 'headline')}` : undefined}
-          footer={newsTotal > 1 ? <Link href={`${BASE}?detail=news`} scroll={false}>All {fmtInt(newsTotal)} →</Link> : undefined}
+          footer={newsTotal > 1 ? <DrawerLink href={`${BASE}?detail=news`}>All {fmtInt(newsTotal)} →</DrawerLink> : undefined}
           bodyClassName="overflow-hidden"
           distribute="center"
         >
@@ -528,7 +524,7 @@ export default async function MarketIntelligencePage({ searchParams }: { searchP
       </PageGrid>
 
       {/* ── drawers: one click deeper ────────────────────────────────── */}
-      <DetailDrawer open={showRecs} closeHref={BASE} title="All recommendations" description={`${agenda.length} this update · ordered by evidence, the best-grounded first`}>
+      <DetailDrawer value="recs" closeHref={BASE} title="All recommendations" description={`${agenda.length} this update · ordered by evidence, the best-grounded first`}>
         <ol className="space-y-4">
           {agenda.map((a, i) => (
             <RecDrawerRow key={a.rec.id} item={a} index={i} themes={recThemes(a.rec)} conversations={recConversations(a.rec)} />
@@ -536,7 +532,7 @@ export default async function MarketIntelligencePage({ searchParams }: { searchP
         </ol>
       </DetailDrawer>
 
-      <DetailDrawer open={showClaims} closeHref={BASE} title="What you say vs what they hear" description={claims.length > 0 ? claimCountsLine(counts) : undefined}>
+      <DetailDrawer value="claims" closeHref={BASE} title="What you say vs what they hear" description={claims.length > 0 ? claimCountsLine(counts) : undefined}>
         <div className="space-y-4">
           {claims.map((e, i) => {
             const v = claimVerdict(e.audience)
@@ -560,7 +556,7 @@ export default async function MarketIntelligencePage({ searchParams }: { searchP
         </div>
       </DetailDrawer>
 
-      <DetailDrawer open={showInsights} closeHref={BASE} title="All findings" description={`${insights.length} this update · ${tiers.confirmed} confirmed · ${tiers.early} early · ${tiers.archive} below the bar`}>
+      <DetailDrawer value="insights" closeHref={BASE} title="All findings" description={`${insights.length} this update · ${tiers.confirmed} confirmed · ${tiers.early} early · ${tiers.archive} below the bar`}>
         <div className="space-y-5">
           {confirmed.length > 0 && (
             <DrawerSection label="Confirmed">
@@ -590,7 +586,7 @@ export default async function MarketIntelligencePage({ searchParams }: { searchP
         </div>
       </DetailDrawer>
 
-      <DetailDrawer open={showAbout} closeHref={BASE} title="Said about you" description={glossaryRule('about_you')}>
+      <DetailDrawer value="about" closeHref={BASE} title="Said about you" description={glossaryRule('about_you')}>
         <div className="space-y-4">
           {aboutYou.map((e, i) => (
             <div key={i} className="space-y-1.5 border-t border-border/70 pt-3 first:border-t-0 first:pt-0">
@@ -606,7 +602,7 @@ export default async function MarketIntelligencePage({ searchParams }: { searchP
         </div>
       </DetailDrawer>
 
-      <DetailDrawer open={showNews} closeHref={BASE} title="In the news" description="coverage of your brand, competitors and category — context beside the conversation, not a cause of anything measured">
+      <DetailDrawer value="news" closeHref={BASE} title="In the news" description="coverage of your brand, competitors and category — context beside the conversation, not a cause of anything measured">
         <div className="space-y-3">
           {news.map((n) => {
             const chip = newsRingChip(n.ring)

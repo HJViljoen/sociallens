@@ -1,4 +1,3 @@
-import Link from 'next/link'
 import { Captions } from 'lucide-react'
 import { selectAll } from '@/lib/supabase-admin'
 import { getSessionContext } from '@/lib/auth'
@@ -13,6 +12,7 @@ import {
 import { PageFrame, PageGrid, PageBar, BarPill } from '@/components/shell/page-grid'
 import { Tile, TileEmpty } from '@/components/shell/tile'
 import { DetailDrawer } from '@/components/shell/detail-drawer'
+import { DrawerLink } from '@/components/shell/drawer-link'
 import { Sparkline } from '@/components/charts/sparkline'
 import { Delta } from '@/components/charts/stat'
 import { RankedBar } from '@/components/charts/ranked-bar'
@@ -359,9 +359,6 @@ export default async function ContentPage({
   const basePath = '/dashboard/videos'
   const closeHref = intentFilter ? `${basePath}?intent=${intentFilter}` : basePath
   const showLegend = sp.detail === 'legend'
-  const showPlaybooks = sp.detail === 'playbooks'
-  const showVideos = sp.detail === 'videos'
-  const showVoices = sp.detail === 'voices'
 
   const context = `What content works, and who to answer?${updateDate ? ` · ${weekdayDate(updateDate)}` : ''}`
 
@@ -377,7 +374,7 @@ export default async function ContentPage({
         {/* ── what works right now (the lead) ────────────────────────── */}
         <Tile col={7} row={3} eyebrow="What works right now" meta="vs median · this update"
           distribute="between" bodyClassName="gap-4"
-          footer={playbooks.length > 1 ? <Link href={`${basePath}?detail=playbooks`} scroll={false}>Playbooks side by side →</Link> : undefined}
+          footer={playbooks.length > 1 ? <DrawerLink href={`${basePath}?detail=playbooks`}>Playbooks side by side →</DrawerLink> : undefined}
         >
           {hooks.length > 0 || formats.length > 0 ? (
             <>
@@ -411,7 +408,7 @@ export default async function ContentPage({
         {/* ── the field this update ──────────────────────────────────── */}
         <Tile col={4} row={3} eyebrow="The field this update" meta={`${fmtInt(all.length)} videos · ${fmtInt(analysed.length)} analysed`}
           distribute="between" bodyClassName="gap-3"
-          footer={all.length > 0 ? <Link href={`${basePath}?detail=videos`} scroll={false}>All {fmtInt(all.length)} videos →</Link> : undefined}
+          footer={all.length > 0 ? <DrawerLink href={`${basePath}?detail=videos`}>All {fmtInt(all.length)} videos →</DrawerLink> : undefined}
           footerNote={scoreboard.length > fieldRows.length ? `${scoreboard.length - fieldRows.length} more in the playbooks` : undefined}
         >
           {scoreboard.length > 1 ? (
@@ -462,7 +459,7 @@ export default async function ContentPage({
         {/* ── top voices ─────────────────────────────────────────────── */}
         <Tile col={3} row={3} eyebrow="Top voices" meta="by views · this update"
           distribute="center"
-          footer={voicesAll.length > voices.length ? <Link href={`${basePath}?detail=voices`} scroll={false}>All voices →</Link> : undefined}
+          footer={voicesAll.length > voices.length ? <DrawerLink href={`${basePath}?detail=voices`}>All voices →</DrawerLink> : undefined}
         >
           {voices.length > 0 ? (
             <div className="flex flex-col">
@@ -525,7 +522,7 @@ export default async function ContentPage({
       {/* ── drawers: one click deeper ────────────────────────────────── */}
       <EngageDrawers digest={digest} rows={inbox} detail={sp.detail} filter={intentFilter} />
 
-      <DetailDrawer open={showPlaybooks} closeHref={closeHref} title="Content playbooks, side by side" description="what each player leans on this update — coverage shown per row, because not every video can be read confidently">
+      <DetailDrawer value="playbooks" closeHref={closeHref} title="Content playbooks, side by side" description="what each player leans on this update — coverage shown per row, because not every video can be read confidently">
         <table className="w-full text-[12px]">
           <thead>
             <tr className="border-b text-[10px] uppercase tracking-[0.06em] text-muted-foreground">
@@ -561,7 +558,7 @@ export default async function ContentPage({
         <p className="mt-3 text-[11px] text-muted-foreground">Hooks are read from each video’s caption, its speech transcript when captured, and the conversation it sparked — never the footage.</p>
       </DetailDrawer>
 
-      <DetailDrawer open={showVoices} closeHref={closeHref} title="Top voices this update" description="the accounts driving the category conversation, by views">
+      <DetailDrawer value="voices" closeHref={closeHref} title="Top voices this update" description="the accounts driving the category conversation, by views">
         <table className="w-full text-[12px]">
           <thead>
             <tr className="border-b text-[10px] uppercase tracking-[0.06em] text-muted-foreground">
@@ -587,7 +584,7 @@ export default async function ContentPage({
         </table>
       </DetailDrawer>
 
-      <DetailDrawer open={showVideos} closeHref={closeHref} title="All videos" description={all.length > CATALOG_CAP ? `top ${CATALOG_CAP} of ${fmtInt(all.length)} by views` : `${fmtInt(all.length)} videos this update, by views`}>
+      <DetailDrawer value="videos" closeHref={closeHref} title="All videos" description={all.length > CATALOG_CAP ? `top ${CATALOG_CAP} of ${fmtInt(all.length)} by views` : `${fmtInt(all.length)} videos this update, by views`}>
         <div className="overflow-x-auto">
           <table className="w-full min-w-[860px] text-[11.5px]">
             <thead>

@@ -17,6 +17,7 @@ import {
 import { PageFrame, PageGrid, PageBar, BarPill } from '@/components/shell/page-grid'
 import { Tile, StripCell, TileEmpty } from '@/components/shell/tile'
 import { DetailDrawer } from '@/components/shell/detail-drawer'
+import { DrawerLink } from '@/components/shell/drawer-link'
 import { Sparkline } from '@/components/charts/sparkline'
 import { StatValue, Delta } from '@/components/charts/stat'
 import { RankedBar } from '@/components/charts/ranked-bar'
@@ -311,8 +312,6 @@ export default async function DashboardPage({ searchParams }: { searchParams?: P
 
   // ── overlays ───────────────────────────────────────────────────────────
   const showLegend = sp.detail === 'legend'
-  const showBrief = sp.detail === 'brief'
-  const showFunnel = sp.detail === 'funnel'
   const legendItems: GlossaryKey[] = themes.some((t) => t.isNew) ? ['conversations', 'sentiment', 'new'] : ['conversations', 'sentiment']
   const funnel = [
     termTotal > 0 && tc?.platforms?.length ? { n: termTotal, label: `search terms tracked across ${tc.platforms.map(platformLabel).join(', ')}` } : null,
@@ -394,7 +393,7 @@ export default async function DashboardPage({ searchParams }: { searchParams?: P
               <span className="truncate">The one thing to do → {oneThing.title}</span>
             </Link>
           ) : null}
-          footerNote={<Link href="/dashboard?detail=brief" scroll={false} className="font-medium text-[#DCE8DD] hover:text-white">Read the full brief →</Link>}
+          footerNote={<DrawerLink href="/dashboard?detail=brief" className="font-medium text-[#DCE8DD] hover:text-white">Read the full brief →</DrawerLink>}
         >
           {showHero ? (
             <>
@@ -548,7 +547,7 @@ export default async function DashboardPage({ searchParams }: { searchParams?: P
       </PageGrid>
 
       {/* ── drawers: one click deeper ────────────────────────────────── */}
-      <DetailDrawer open={showBrief} closeHref="/dashboard" title="The executive brief" description={`${brand} · ${weekdayDate(runDate)}`}>
+      <DetailDrawer value="brief" closeHref="/dashboard" title="The executive brief" description={`${brand} · ${weekdayDate(runDate)}`}>
         <div className="space-y-4">
           <p className="text-[16px] font-semibold leading-snug">{narrative.headline}</p>
           {narrative.beats.map((b) => (
@@ -570,12 +569,12 @@ export default async function DashboardPage({ searchParams }: { searchParams?: P
             </div>
           )}
           {funnel.length > 0 && (
-            <Link href="/dashboard?detail=funnel" scroll={false} className="inline-block text-[12px] font-medium text-primary">How this update was built →</Link>
+            <DrawerLink href="/dashboard?detail=funnel" className="inline-block text-[12px] font-medium text-primary">How this update was built →</DrawerLink>
           )}
         </div>
       </DetailDrawer>
 
-      <DetailDrawer open={showFunnel} closeHref="/dashboard" title="How this update was built" description="every figure is counted from stored data — nothing is estimated">
+      <DetailDrawer value="funnel" closeHref="/dashboard" title="How this update was built" description="every figure is counted from stored data — nothing is estimated">
         <ol className="space-y-2.5 border-l-2 border-primary/20 pl-4">
           {funnel.map((s) => (
             <li key={s.label} className="flex items-baseline gap-3">

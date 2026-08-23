@@ -14,6 +14,7 @@ import { HowToRead } from '@/components/how-to-read'
 import { PageFrame, PageGrid, PageBar, BarPill } from '@/components/shell/page-grid'
 import { Tile, TileEmpty } from '@/components/shell/tile'
 import { DetailDrawer } from '@/components/shell/detail-drawer'
+import { DrawerLink } from '@/components/shell/drawer-link'
 import { Sparkline } from '@/components/charts/sparkline'
 import { RankedBar } from '@/components/charts/ranked-bar'
 import { Mover } from '@/components/charts/mover'
@@ -391,7 +392,7 @@ export default async function VoiceOfCustomerPage({ searchParams }: { searchPara
           bodyClassName="gap-2"
           footer={themes.length > 0 ? (
             <span className="flex items-center gap-2">
-              <Link href={hrefWith({ detail: 'list' })} scroll={false}>All {fmtInt(shown.length)} themes →</Link>
+              <DrawerLink href={hrefWith({ detail: 'list' })}>All {fmtInt(shown.length)} themes →</DrawerLink>
               <span className="font-normal text-muted-foreground">{tiersAll.confirmed.length} confirmed · {tiersAll.early.length} early · {tiersAll.heardOnce.length} heard once</span>
             </span>
           ) : undefined}
@@ -417,7 +418,7 @@ export default async function VoiceOfCustomerPage({ searchParams }: { searchPara
 
         {/* ── gaining and fading ─────────────────────────────────────── */}
         <Tile col={4} row={2} eyebrow="Gaining and fading" meta={movers.length > 0 ? `${fmtInt(movers.length)} moved` : undefined}
-          footer={movers.length > 0 ? <Link href={hrefWith({ detail: 'movers' })} scroll={false}>All movers →</Link> : undefined}
+          footer={movers.length > 0 ? <DrawerLink href={hrefWith({ detail: 'movers' })}>All movers →</DrawerLink> : undefined}
         >
           {updatesCount < 2 ? (
             <TileEmpty>Movement lands with your second update.</TileEmpty>
@@ -535,7 +536,7 @@ export default async function VoiceOfCustomerPage({ searchParams }: { searchPara
         })()}
       </DetailDrawer>
 
-      <DetailDrawer open={detail === 'list'} closeHref={closeHref} title={`All ${fmtInt(shown.length)} themes`}
+      <DetailDrawer value="list" closeHref={closeHref} title={`All ${fmtInt(shown.length)} themes`}
         description={`${entityFilter === 'all' ? 'every audience' : bucketName(entityFilter).toLowerCase()}${typeFilter !== 'all' ? ` · ${categoryLabel(typeFilter).toLowerCase()}` : ''} · widest-heard first`}>
         <div className="space-y-5">
           <ThemeList title="Confirmed" hint="heard in more than one conversation" rows={[...tiers.confirmed].sort((a, b) => b.evidence_count - a.evidence_count)} hrefWith={hrefWith} showNew={showNew} />
@@ -545,7 +546,7 @@ export default async function VoiceOfCustomerPage({ searchParams }: { searchPara
         </div>
       </DetailDrawer>
 
-      <DetailDrawer open={detail === 'movers'} closeHref={closeHref} title="Gaining and fading" description={`themes heard in ≥2 of your ${updatesCount} updates · conversations per update, delta vs last`}>
+      <DetailDrawer value="movers" closeHref={closeHref} title="Gaining and fading" description={`themes heard in ≥2 of your ${updatesCount} updates · conversations per update, delta vs last`}>
         <div className="space-y-5">
           {(['gaining', 'fading', 'emerging'] as const).map((m) => {
             const rows = movers.filter((t) => t.movement === m)

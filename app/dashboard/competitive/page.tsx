@@ -15,6 +15,7 @@ import {
 import { PageFrame, PageGrid, PageBar, BarPill } from '@/components/shell/page-grid'
 import { Tile, TileEmpty } from '@/components/shell/tile'
 import { DetailDrawer } from '@/components/shell/detail-drawer'
+import { DrawerLink } from '@/components/shell/drawer-link'
 import { LineChart } from '@/components/charts/line-chart'
 import { FaceOff, FaceOffHeader, YOU_COLOR, THEM_COLOR } from './face-off'
 
@@ -253,8 +254,6 @@ export default async function CompetitiveIntelligencePage({ searchParams }: { se
 
   // ── overlays ───────────────────────────────────────────────────────────
   const showLegend = sp.detail === 'legend'
-  const showField = sp.detail === 'field'
-  const showFindings = sp.detail === 'findings'
   const context = `${lead ? `Where do we stand vs ${lead}?` : 'Where do we stand?'} · ${weekdayDate(runDate)}`
   const layerWord = faceLayer === 'period' ? 'this update' : 'all updates'
 
@@ -276,9 +275,9 @@ export default async function CompetitiveIntelligencePage({ searchParams }: { se
         {/* ── hero: the face-off ─────────────────────────────────────── */}
         <Tile col={12} row={2} distribute="between" bodyClassName="gap-2"
           footer={lead && share ? (
-            <Link href={competitiveHref(vs, 'field')} scroll={false}>
+            <DrawerLink href={competitiveHref(vs, 'field')}>
               Full comparison{share.rest ? `, incl. the wider category (${fmtInt(share.rest.videos)} videos · ${fmtPct(share.rest.pct)})` : ''} →
-            </Link>
+            </DrawerLink>
           ) : undefined}
           footerNote={lead && rows.length > 0 && shareNote ? shareNote : undefined}
         >
@@ -328,7 +327,7 @@ export default async function CompetitiveIntelligencePage({ searchParams }: { se
         <Tile col={5} row={4} eyebrow="What the voices say about the match-up"
           meta={insights.length > 0 ? `${insights.length} finding${insights.length === 1 ? '' : 's'}` : undefined}
           bodyClassName="gap-0"
-          footer={insights.length > 0 ? <Link href={competitiveHref(vs, 'findings')} scroll={false}>All {insights.length} findings →</Link> : undefined}
+          footer={insights.length > 0 ? <DrawerLink href={competitiveHref(vs, 'findings')}>All {insights.length} findings →</DrawerLink> : undefined}
         >
           {insights.length > 0 ? (
             // Equal bands, one finding each, so the column never leaves its
@@ -359,7 +358,7 @@ export default async function CompetitiveIntelligencePage({ searchParams }: { se
       </PageGrid>
 
       {/* ── drawers: one click deeper ────────────────────────────────── */}
-      <DetailDrawer open={showField} closeHref={base} title="The full comparison" description={`${brand}${lead ? ` vs ${lead}` : ''} · ${layerWord} · ${weekdayDate(runDate)}`}>
+      <DetailDrawer value="field" closeHref={base} title="The full comparison" description={`${brand}${lead ? ` vs ${lead}` : ''} · ${layerWord} · ${weekdayDate(runDate)}`}>
         {fieldRows.length > 0 ? (
           <div className="space-y-4">
             <div className="overflow-x-auto">
@@ -397,7 +396,7 @@ export default async function CompetitiveIntelligencePage({ searchParams }: { se
         ) : <p className="text-[12px] text-muted-foreground">Nothing to compare yet.</p>}
       </DetailDrawer>
 
-      <DetailDrawer open={showFindings} closeHref={base} title="What the voices say about the match-up" description={`${insights.length} finding${insights.length === 1 ? '' : 's'} · ${weekdayDate(runDate)}`}>
+      <DetailDrawer value="findings" closeHref={base} title="What the voices say about the match-up" description={`${insights.length} finding${insights.length === 1 ? '' : 's'} · ${weekdayDate(runDate)}`}>
         <div className="space-y-5">
           {groupByKind(insights).map((g) => (
             <section key={g.category} className="space-y-3">
