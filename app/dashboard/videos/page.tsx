@@ -7,8 +7,8 @@ import { SENTIMENT_BADGE } from '@/lib/ui-colors'
 import { fmtInt, fmtCompact, fmtPct, weekdayDate, platformLabel } from '@/lib/format'
 import { accountSeries } from '@/lib/dashboard-tiles'
 import {
-  perfVsMedian, fmtMultiple, bestDuration, fieldSentence, topVoices, roleByAccount, initials, handleKey, isIntent,
-  type FieldRow, type VoiceRole, type DurationBandPerf,
+  perfVsMedian, medianEngagement, fmtMultiple, bestDuration, fieldSentence, topVoices, roleByAccount, initials, handleKey, isIntent,
+  type FieldRow, type VoiceRole, type DurationBandPerf, type PerfMultiple,
 } from '@/lib/content-tiles'
 import { PageFrame, PageGrid, PageBar, BarPill } from '@/components/shell/page-grid'
 import { Tile, TileEmpty } from '@/components/shell/tile'
@@ -20,11 +20,12 @@ import { PlatformIcon } from '@/components/charts/platform-icon'
 import { loadEngageDigest, shapeInbox, EngageInboxTile, EngageDrawers } from './engage-section'
 
 // Content — "what content works, and who to answer?", on one screen (one-screen
-// redesign, 2026-08-22: the reply inbox + the playbook). "Worth a reply" is the
-// hero inbox · what works right now (hooks + formats as multiples of the median
-// video, best length, top sound) · the field this update (entity scoreboard +
-// one grounded sentence) · top voices · your own accounts (moved here from
-// Trends: follower sparklines + the top explained movement). Every tile gates
+// redesign, 2026-08-22: the playbook + the reply inbox). "What works right now"
+// leads (hooks + formats as multiples of the median video, best length, top
+// sound) · "Worth a reply" is the inbox at its side · the field this update
+// (entity scoreboard + one grounded sentence) · top voices · your own accounts
+// (moved here from Trends: follower sparklines + the top explained movement).
+// Grid: 7×3 + 5×4 + 4×3 + 3×3 + 5×2 = 72 cells. Every tile gates
 // on its data and shows an honest empty line at its size. Numbers rule: counts,
 // views and measured engagement — hook styles, formats and insight categories
 // only group and order. Video tiles anchor on the newest update WITH videos,
@@ -61,8 +62,13 @@ const pretty = (s: string) => s.replace(/[-_]/g, ' ')
 /** Max catalog rows rendered in the "All videos" drawer (the query stays
  *  uncapped — the tiles need the full update). */
 const CATALOG_CAP = 100
-/** Accounts in the "All voices" drawer. */
+/** Accounts in the "All voices" drawer, and in the tile. */
 const VOICES_ALL = 12
+const VOICES_SHOWN = 5
+/** Hook styles / formats listed per column in "What works right now". */
+const PERF_SHOWN = 6
+/** Bar track width shared by both columns — the lists read on one scale. */
+const PERF_BAR = 72
 
 const durationLabel = (secs: number) => {
   const m = Math.floor(secs / 60)
@@ -208,6 +214,34 @@ const ROLE_CHIP: Record<VoiceRole, string> = {
   creator: 'bg-slate/12 text-slate',
 }
 
+/** One column of "What works right now": heading, then up to PERF_SHOWN rows of
+ *  label | bar | multiple — one row height, one font size, one bar scale. */
+function PerfList({ heading, rows, max, empty }: { heading: string; rows: PerfMultiple[]; max: number; empty: string }) {
+  return (
+    <div className="flex min-w-0 flex-col gap-1.5">
+      <span className="mb-0.5 text-[10px] font-semibold uppercase tracking-[0.07em] text-muted-foreground">{heading}</span>
+      {rows.length > 0 ? rows.map((r) => (
+        <RankedBar key={r.k} className="h-[22px]" barWidth={PERF_BAR} color="var(--primary)"
+          pct={max > 0 ? (r.multiple / max) * 100 : 0}
+          label={<span className="capitalize" title={`${r.count} videos · ${fmtPct(r.avgEng)} average engagement`}>{pretty(r.k)}</span>}
+          count={fmtMultiple(r.multiple)}
+        />
+      )) : <TileEmpty>{empty}</TileEmpty>}
+    </div>
+  )
+}
+
+/** A small stat cell: eyebrow, mono value, one quiet note. */
+function StatCell({ label, value, note, noteTitle }: { label: string; value: string; note: string; noteTitle?: string }) {
+  return (
+    <div className="flex min-w-0 flex-col gap-0.5 border-t border-border/70 pt-2.5">
+      <span className="text-[10px] font-semibold uppercase tracking-[0.07em] text-muted-foreground">{label}</span>
+      <span className="truncate font-mono text-[15px] font-semibold tabular-nums leading-[1.2]">{value}</span>
+      <span className="truncate text-[11.5px] text-muted-foreground" title={noteTitle}>{note}</span>
+    </div>
+  )
+}
+
 export default async function ContentPage({
   searchParams,
 }: {
@@ -276,12 +310,11 @@ export default async function ContentPage({
 
   // ── what works right now ───────────────────────────────────────────────
   const analysed = all.filter((v) => v.classified_type != null)
-  const hooks = perfVsMedian(analysed, 'hook_style')
-  const formats = perfVsMedian(analysed, 'classified_type')
-  const hookMax = hooks[0]?.multiple ?? 0
-  const formatMax = formats[0]?.multiple ?? 0
-  const durations = durationPerf(all)
-  const duration = bestDuration(durations)
+  const hooks = perfVsMedian(analysed, 'hook_style', { top: PERF_SHOWN })
+  const formats = perfVsMedian(analysed, 'classified_type', { top: PERF_SHOWN })
+  // One scale for both columns: the same multiple draws the same bar.
+  const perfMax = Math.max(hooks[0]?.multiple ?? 0, formats[0]?.multiple ?? 0)
+  const duration = bestDuration(durationPerf(all), medianEngagement(analysed))
   const sounds = trendingSounds(all)
   const topSound = sounds[0] ?? null
   const playbooks = entityPlaybooks(all).filter((p) => p.classified > 0)
@@ -300,14 +333,14 @@ export default async function ContentPage({
   const fieldColors = new Map(fieldRows.map((r) => [r.label, rowColor(r)]))
 
   // ── top voices ─────────────────────────────────────────────────────────
-  const voices = topVoices(all, 4)
+  const voices = topVoices(all, VOICES_SHOWN)
   const voicesAll = topVoices(all, VOICES_ALL)
   const voiceMax = voices[0]?.views ?? 0
   const voiceLine = (v: { role: VoiceRole; competitorName: string | null; topFormat: string | null; videos: number }) =>
     [
       v.role === 'competitor' && v.competitorName ? `competitor · ${v.competitorName}` : ROLE_WORD[v.role],
       v.topFormat ? pretty(v.topFormat) : null,
-      `${v.videos} ${v.videos === 1 ? 'video' : 'videos'} this update`,
+      `${v.videos} ${v.videos === 1 ? 'video' : 'videos'}`,
     ].filter(Boolean).join(' · ')
 
   // ── your accounts (Trends' logic: snapshots → series; events newest first,
@@ -337,48 +370,28 @@ export default async function ContentPage({
       </PageBar>
 
       <PageGrid>
-        {/* ── hero: the reply inbox ───────────────────────────────────── */}
-        <EngageInboxTile digest={digest} rows={inbox} filter={intentFilter} />
-
-        {/* ── what works right now ───────────────────────────────────── */}
-        <Tile col={5} row={2} eyebrow="What works right now" meta="engagement vs the median video · this update"
-          bodyClassName="gap-1.5"
+        {/* ── what works right now (the lead) ────────────────────────── */}
+        <Tile col={7} row={3} eyebrow="What works right now" meta="vs median · this update"
+          distribute="between" bodyClassName="gap-4"
           footer={playbooks.length > 1 ? <Link href={`${basePath}?detail=playbooks`} scroll={false}>Playbooks side by side →</Link> : undefined}
-          footerNote={hooks.length + formats.length > 0 ? 'styles with 2+ videos' : undefined}
         >
           {hooks.length > 0 || formats.length > 0 ? (
             <>
-              <div className="grid grid-cols-2 gap-x-4">
-                <div className="flex min-w-0 flex-col gap-[4px]">
-                  <span className="text-[10px] font-semibold uppercase tracking-[0.07em] text-muted-foreground">Hooks</span>
-                  {hooks.length > 0 ? hooks.map((h) => (
-                    <RankedBar key={h.k} label={<span className="capitalize text-[12px]" title={`${h.count} videos · ${fmtPct(h.avgEng)} average engagement`}>{pretty(h.k)}</span>} pct={(h.multiple / hookMax) * 100} color="var(--primary)" count={fmtMultiple(h.multiple)} barWidth={56} />
-                  )) : <TileEmpty>Hooks land once 2+ videos share a style.</TileEmpty>}
-                </div>
-                <div className="flex min-w-0 flex-col gap-[4px]">
-                  <span className="text-[10px] font-semibold uppercase tracking-[0.07em] text-muted-foreground">Formats</span>
-                  {formats.length > 0 ? formats.map((f) => (
-                    <RankedBar key={f.k} label={<span className="capitalize text-[12px]" title={`${f.count} videos · ${fmtPct(f.avgEng)} average engagement`}>{pretty(f.k)}</span>} pct={(f.multiple / formatMax) * 100} color="var(--primary)" count={fmtMultiple(f.multiple)} barWidth={56} />
-                  )) : <TileEmpty>Formats land once 2+ videos share one.</TileEmpty>}
-                </div>
+              <div className="grid grid-cols-2 gap-x-6">
+                <PerfList heading="Hooks" rows={hooks} max={perfMax} empty="Hooks land once 3+ videos share a style." />
+                <PerfList heading="Formats" rows={formats} max={perfMax} empty="Formats land once 3+ videos share one." />
               </div>
               {(duration || topSound) && (
-                <div className="flex flex-col gap-[3px] pt-0.5">
+                <div className="grid grid-cols-2 gap-x-6">
                   {duration && (
-                    <div className="flex items-baseline gap-2 text-[11.5px]">
-                      <span className="w-[72px] shrink-0 font-mono text-[13px] font-semibold tabular-nums">{duration.best.label}</span>
-                      <span className="truncate text-muted-foreground">
-                        {duration.against && duration.multiple != null
-                          ? `earns ${fmtMultiple(duration.multiple)} the engagement of ${duration.against.label} · ${fmtInt(duration.best.count)} videos`
-                          : `${fmtPct(duration.best.avgEng ?? 0)} average engagement · ${fmtInt(duration.best.count)} videos`}
-                      </span>
-                    </div>
+                    <StatCell label="Best length" value={duration.best.label}
+                      note={duration.multiple != null
+                        ? `${fmtMultiple(duration.multiple)} the median · ${fmtInt(duration.best.count)} videos`
+                        : `${fmtPct(duration.best.avgEng ?? 0)} average · ${fmtInt(duration.best.count)} videos`}
+                    />
                   )}
                   {topSound && (
-                    <div className="flex items-baseline gap-2 text-[11.5px]">
-                      <span className="w-[72px] shrink-0 font-mono text-[13px] font-semibold tabular-nums">{topSound.count}</span>
-                      <span className="truncate text-muted-foreground" title={topSound.name}>videos on “{topSound.name}” · {fmtCompact(topSound.views)} views</span>
-                    </div>
+                    <StatCell label="Top sound" value={`${fmtInt(topSound.count)} videos`} note={`“${topSound.name}”`} noteTitle={topSound.name} />
                   )}
                 </div>
               )}
@@ -388,9 +401,12 @@ export default async function ContentPage({
           )}
         </Tile>
 
+        {/* ── the reply inbox ────────────────────────────────────────── */}
+        <EngageInboxTile digest={digest} rows={inbox} filter={intentFilter} />
+
         {/* ── the field this update ──────────────────────────────────── */}
-        <Tile col={5} row={2} eyebrow="The field this update" meta={`${fmtInt(all.length)} videos · ${fmtInt(analysed.length)} analysed`}
-          bodyClassName="gap-1.5"
+        <Tile col={4} row={3} eyebrow="The field this update" meta={`${fmtInt(all.length)} videos · ${fmtInt(analysed.length)} analysed`}
+          distribute="between" bodyClassName="gap-3"
           footer={all.length > 0 ? <Link href={`${basePath}?detail=videos`} scroll={false}>All {fmtInt(all.length)} videos →</Link> : undefined}
           footerNote={scoreboard.length > fieldRows.length ? `${scoreboard.length - fieldRows.length} more in the playbooks` : undefined}
         >
@@ -399,27 +415,27 @@ export default async function ContentPage({
               <table className="w-full border-collapse text-[12px] leading-[1.3]">
                 <thead>
                   <tr className="text-[10px] uppercase tracking-[0.06em] text-muted-foreground">
-                    <th className="pb-1 text-left font-semibold">Who</th>
-                    <th className="pb-1 text-right font-semibold">Videos</th>
-                    <th className="pb-1 text-right font-semibold">Views</th>
-                    <th className="pb-1 pl-3 text-left font-semibold">Engagement</th>
+                    <th className="pb-1.5 text-left font-semibold">Who</th>
+                    <th className="pb-1.5 text-right font-semibold">Videos</th>
+                    <th className="pb-1.5 text-right font-semibold">Views</th>
+                    <th className="pb-1.5 pl-3 text-left font-semibold">Eng.</th>
                   </tr>
                 </thead>
                 <tbody>
                   {fieldRows.map((r) => (
                     <tr key={r.label} className="border-t border-border/70">
-                      <td className="py-[5px] pr-2">
-                        <span className="flex items-center gap-1.5 truncate">
+                      <td className="max-w-0 py-2 pr-2">
+                        <span className="flex items-center gap-1.5">
                           <span className="size-1.5 shrink-0 rounded-full" style={{ background: fieldColors.get(r.label) }} aria-hidden />
                           <span className="truncate">{r.label}</span>
                         </span>
                       </td>
-                      <td className="py-[5px] text-right font-mono tabular-nums">{fmtInt(r.videos)}</td>
-                      <td className="py-[5px] text-right font-mono tabular-nums text-muted-foreground">{r.views > 0 ? fmtCompact(r.views) : '—'}</td>
-                      <td className="py-[5px] pl-3">
+                      <td className="py-2 text-right font-mono tabular-nums">{fmtInt(r.videos)}</td>
+                      <td className="py-2 text-right font-mono tabular-nums text-muted-foreground">{r.views > 0 ? fmtCompact(r.views) : '—'}</td>
+                      <td className="py-2 pl-3">
                         {r.avgEng != null ? (
                           <span className="flex items-center gap-1.5" title={`across ${r.engN} of ${r.videos} videos with engagement data`}>
-                            <span className="h-1.5 w-[64px] shrink-0 overflow-hidden rounded-full bg-muted" aria-hidden>
+                            <span className="h-1.5 w-[48px] shrink-0 overflow-hidden rounded-full bg-muted" aria-hidden>
                               <span className="block h-full rounded-full" style={{ width: `${Math.max(2, (r.avgEng / (fieldEngMax || 1)) * 100)}%`, background: fieldColors.get(r.label) }} />
                             </span>
                             <span className="font-mono text-[11.5px] tabular-nums">{fmtPct(r.avgEng)}</span>
@@ -430,7 +446,7 @@ export default async function ContentPage({
                   ))}
                 </tbody>
               </table>
-              {sentence && <p className="line-clamp-2 text-[11.5px] leading-[1.4] text-muted-foreground">{sentence}</p>}
+              {sentence && <p className="line-clamp-3 text-[12px] leading-[1.45] text-muted-foreground">{sentence}</p>}
             </>
           ) : all.length > 0 ? (
             <TileEmpty>The field fills in once a competitor or your own posts are tracked — this update has {fmtInt(all.length)} category videos.</TileEmpty>
@@ -440,23 +456,25 @@ export default async function ContentPage({
         </Tile>
 
         {/* ── top voices ─────────────────────────────────────────────── */}
-        <Tile col={7} row={2} eyebrow="Top voices this update" meta="by views · who shapes the conversation"
-          bodyClassName="gap-0"
+        <Tile col={3} row={3} eyebrow="Top voices" meta="by views · this update"
+          distribute="center"
           footer={voicesAll.length > voices.length ? <Link href={`${basePath}?detail=voices`} scroll={false}>All voices →</Link> : undefined}
-          footerNote="views as platforms report them — Instagram shares none"
         >
           {voices.length > 0 ? (
             <div className="flex flex-col">
               {voices.map((v) => (
-                <div key={v.name} className="flex items-center gap-2.5 border-t border-border/70 py-[5px] first:border-t-0">
+                <div key={v.name} className="flex items-center gap-2.5 border-t border-border/70 py-2 first:border-t-0 first:pt-0 last:pb-0">
                   <span className="grid size-[26px] shrink-0 place-items-center rounded-full text-[10px] font-semibold text-[#F5F1E6]" style={{ background: ROLE_COLOR[v.role] }} aria-hidden>{initials(v.name)}</span>
-                  <div className="min-w-0 flex-1 truncate text-[12.5px] font-semibold">
-                    @{v.name} <span className="font-normal text-muted-foreground">· {voiceLine(v)}</span>
+                  <div className="min-w-0 flex-1">
+                    <div className="truncate text-[12.5px] font-semibold">@{v.name}</div>
+                    <div className="truncate text-[11px] text-muted-foreground">{voiceLine(v)}</div>
                   </div>
-                  <span className="h-1.5 w-[90px] shrink-0 overflow-hidden rounded-full bg-muted" aria-hidden>
-                    <span className="block h-full rounded-full" style={{ width: `${Math.max(2, voiceMax > 0 ? (v.views / voiceMax) * 100 : 0)}%`, background: ROLE_COLOR[v.role] }} />
-                  </span>
-                  <span className="w-11 shrink-0 text-right font-mono text-[11.5px] font-semibold tabular-nums">{v.views > 0 ? fmtCompact(v.views) : '—'}</span>
+                  <div className="flex shrink-0 flex-col items-end gap-1">
+                    <span className="font-mono text-[11.5px] font-semibold tabular-nums">{v.views > 0 ? fmtCompact(v.views) : '—'}</span>
+                    <span className="h-1.5 w-[56px] overflow-hidden rounded-full bg-muted" aria-hidden>
+                      <span className="block h-full rounded-full" style={{ width: `${Math.max(2, voiceMax > 0 ? (v.views / voiceMax) * 100 : 0)}%`, background: ROLE_COLOR[v.role] }} />
+                    </span>
+                  </div>
                 </div>
               ))}
             </div>
@@ -465,13 +483,13 @@ export default async function ContentPage({
 
         {/* ── your accounts ──────────────────────────────────────────── */}
         <Tile col={5} row={2} eyebrow="On your accounts" meta={accounts.length > 0 ? 'followers · daily · 30 days' : undefined}
-          bodyClassName="gap-2"
+          distribute="between" bodyClassName="gap-3"
         >
           {accounts.length > 0 ? (
             <>
-              <div className="flex flex-col gap-[6px]">
+              <div className="flex flex-col gap-2">
                 {accounts.slice(0, 3).map((a) => (
-                  <div key={a.platform} className="flex items-center gap-2.5">
+                  <div key={a.platform} className="flex items-center gap-3">
                     <PlatformIcon platform={a.platform} size={14} className="shrink-0 text-[#55605A]" />
                     <span className="sr-only">{platformLabel(a.platform)}</span>
                     <div className="min-w-0 flex-1"><Sparkline values={a.values} width={190} height={24} fill /></div>
@@ -486,8 +504,8 @@ export default async function ContentPage({
                 ))}
               </div>
               {topEvent && (
-                <p className="flex items-start gap-2 text-[11.5px] leading-[1.4]">
-                  <span className="mt-[5px] size-1.5 shrink-0 rounded-full bg-warning" aria-hidden />
+                <p className="flex items-start gap-2 text-[12px] leading-[1.45]">
+                  <span className="mt-[6px] size-1.5 shrink-0 rounded-full bg-warning" aria-hidden />
                   <span className="line-clamp-2">
                     {topEvent.explained && topEvent.explanation
                       ? topEvent.explanation

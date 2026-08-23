@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import {
-  insightTiers, confirmedCompetitiveIds, recEvidenceTier, orderAgenda, priorityDot, distinctVideos,
+  insightTiers, confirmedCompetitiveIds, recEvidenceTier, orderAgenda, openAgendaId, priorityDot, distinctVideos,
   claimVerdict, claimCounts, claimCountsLine, ledgerRows, truncateWords, quadrantBullets, tierCounts, newsRingChip,
 } from './market-tiles'
 
@@ -62,6 +62,14 @@ describe('agenda ordering', () => {
 
   it('handles an empty list', () => {
     expect(orderAgenda([], tiers, comp)).toEqual([])
+  })
+
+  it('one agenda row is open: ?rec when shown, else the top row', () => {
+    const shown = orderAgenda([rec('a', 'high', ['conf']), rec('b', 'low', ['conf'])], tiers, comp)
+    expect(openAgendaId(shown, undefined)).toBe('a')
+    expect(openAgendaId(shown, 'b')).toBe('b')
+    expect(openAgendaId(shown, 'not-shown')).toBe('a')
+    expect(openAgendaId([], 'a')).toBeNull()
   })
 
   it('priority dots: high gold, medium sage, low/unknown sand', () => {

@@ -56,14 +56,18 @@ interface ThemeRow extends ThemeBucketRow {
 }
 
 const LEGEND_ITEMS: GlossaryKey[] = ['conversations', 'sentiment']
-const VISIBLE_FINDINGS = 4
+// Three fit a 4-row tile at 1440×900 with two-line findings and quotes; the
+// drawer has them all.
+const VISIBLE_FINDINGS = 3
 
-// Kind chips — class strings written out in full so Tailwind v4 sees them.
+// Kind chips — greens / warm reds-golds / neutrals only; class strings written
+// out in full so Tailwind v4 sees them. lead = green tint, threat = clay tint,
+// gap = gold tint, tone (sentiment differential) and the rest = neutral stone.
 const KIND_CHIP: Record<KindTone, string> = {
   lead: 'bg-[#E3EEE3] text-positive',
   threat: 'bg-[#F3DFD5] text-[#8B3A22]',
   gap: 'bg-[#F6E7D2] text-[#8A5A1B]',
-  tone: 'bg-plum/12 text-plum',
+  tone: 'bg-slate/15 text-[#5C564C]',
   other: 'bg-muted text-muted-foreground',
 }
 const impactWord = (l: string | null) => (l === 'high' ? 'high impact' : l === 'medium' ? 'medium impact' : l === 'low' ? 'low impact' : null)
@@ -184,7 +188,7 @@ export default async function CompetitiveIntelligencePage({ searchParams }: { se
   const themDelta = lead ? pointDelta(share?.competitors.find((c) => c.name === lead)?.pct, sharePrev?.competitors.find((c) => c.name === lead)?.pct) : null
   const shareNote = youDelta != null && themDelta != null && lead
     ? `${brandShort} ${fmtDelta(youDelta, 'pt', 1)} · ${lead} ${fmtDelta(themDelta, 'pt', 1)} vs last update`
-    : 'comments and engagement as platforms report them'
+    : null
 
   // ── share over time ────────────────────────────────────────────────────
   const series = shareSeries(history, lead)
@@ -267,13 +271,13 @@ export default async function CompetitiveIntelligencePage({ searchParams }: { se
 
       <PageGrid>
         {/* ── hero: the face-off ─────────────────────────────────────── */}
-        <Tile col={12} row={2} bodyClassName="gap-1"
+        <Tile col={12} row={2} distribute="between" bodyClassName="gap-2"
           footer={lead && share ? (
             <Link href={competitiveHref(vs, 'field')} scroll={false}>
-              Full comparison, incl. the wider category{share.rest ? ` (${fmtInt(share.rest.videos)} videos · ${fmtPct(share.rest.pct)})` : ''} →
+              Full comparison{share.rest ? `, incl. the wider category (${fmtInt(share.rest.videos)} videos · ${fmtPct(share.rest.pct)})` : ''} →
             </Link>
           ) : undefined}
-          footerNote={lead && rows.length > 0 ? shareNote : undefined}
+          footerNote={lead && rows.length > 0 && shareNote ? shareNote : undefined}
         >
           {lead && rows.length > 0 ? (
             <>
@@ -293,13 +297,12 @@ export default async function CompetitiveIntelligencePage({ searchParams }: { se
 
         {/* ── share of tracked conversation over time ────────────────── */}
         <Tile col={7} row={4} eyebrow="Share of tracked conversation over time"
-          meta={series ? `by videos · ${updatesCount} updates${series.layer === 'cumulative' ? ' · all-time share' : ''} · rest of the category not drawn` : undefined}
+          meta={series ? `${updatesCount} updates · ${series.layer === 'cumulative' ? 'all-time share' : 'share per update'}` : undefined}
           footer={series ? (
             <span className="font-normal text-muted-foreground">
               Since your first update: {brandShort} {fmtDelta(series.youDelta, 'pt', 1)}{lead && series.themDelta != null ? ` · ${lead} ${fmtDelta(series.themDelta, 'pt', 1)}` : ''}
             </span>
           ) : undefined}
-          footerNote="share of tracked volume, not web share of voice"
         >
           {series ? (
             <div className="flex min-h-0 flex-1 flex-col justify-center">
@@ -325,20 +328,23 @@ export default async function CompetitiveIntelligencePage({ searchParams }: { se
           footer={insights.length > 0 ? <Link href={competitiveHref(vs, 'findings')} scroll={false}>All {insights.length} findings →</Link> : undefined}
         >
           {insights.length > 0 ? (
-            <div className="flex min-h-0 flex-col divide-y divide-border/70 overflow-hidden">
+            // Equal bands, one finding each, so the column never leaves its
+            // air at the bottom: chips on one row, title one line, finding and
+            // quote two lines each.
+            <div className="flex min-h-0 flex-1 flex-col divide-y divide-border/70 overflow-hidden">
               {insights.slice(0, VISIBLE_FINDINGS).map((ci) => {
                 const cov = coverageFor(ci)
                 const quote = quotesFor.get(ci.id)?.[0]
                 return (
-                  <div key={ci.id} className="flex flex-col gap-1 py-2 first:pt-0.5">
-                    <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+                  <div key={ci.id} className="flex min-h-0 flex-1 flex-col justify-center gap-1 py-2 first:pt-0 last:pb-0">
+                    <div className="flex items-center gap-1.5 overflow-hidden whitespace-nowrap text-[11px] text-muted-foreground">
                       <KindChip category={ci.category} />
-                      {ci.competitor_name && <span className="truncate">vs {ci.competitor_name}</span>}
+                      {ci.competitor_name && <span className="min-w-0 truncate">vs {ci.competitor_name}</span>}
                       {cov && <span className={`shrink-0 ${cov.thin ? 'text-warning' : ''}`} title={cov.thin ? `Only ${cov.text.replace(' · thin', '')} about ${ci.competitor_name} produced anything we could read — a hint, not a finding.` : `Drawn from ${cov.text} about ${ci.competitor_name} that produced readable signal.`}>· {cov.text}</span>}
                     </div>
-                    <p className="line-clamp-1 text-[13px] font-semibold leading-[1.3] tracking-[-0.01em]">{ci.title}</p>
+                    <p className="truncate text-[13px] font-semibold leading-[1.3] tracking-[-0.01em]">{ci.title}</p>
                     <p className="line-clamp-2 text-[11.5px] leading-[1.4] text-foreground/80">{ci.finding}</p>
-                    {quote && <blockquote className="line-clamp-1 border-l-2 border-clay pl-2 text-[11.5px] italic leading-[1.4] text-foreground/85">“{quote}”</blockquote>}
+                    {quote && <blockquote className="line-clamp-2 border-l-2 border-clay pl-2 text-[11.5px] italic leading-[1.4] text-foreground/85">“{quote}”</blockquote>}
                   </div>
                 )
               })}

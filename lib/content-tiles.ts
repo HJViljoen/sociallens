@@ -198,20 +198,18 @@ export interface DurationBandPerf { label: string; count: number; avgEng: number
 
 export interface DurationVerdict {
   best: DurationBandPerf
-  /** the weakest band with enough videos to compare against, or null */
-  against: DurationBandPerf | null
+  /** best band's average ÷ the update's median video engagement — the same
+   *  "1×" the hook and format multiples read against; null without a median */
   multiple: number | null
 }
 
-/** The best-earning length band against the weakest comparable one. Bands
- *  need `minCount` videos with engagement to count. */
-export function bestDuration(bands: DurationBandPerf[], minCount = 2): DurationVerdict | null {
+/** The best-earning length band, read against the update's median video.
+ *  Bands need `minCount` videos with engagement to count. */
+export function bestDuration(bands: DurationBandPerf[], median: number | null, minCount = 2): DurationVerdict | null {
   const ok = bands.filter((b) => b.avgEng != null && b.avgEng > 0 && b.engN >= minCount) as (DurationBandPerf & { avgEng: number })[]
   if (ok.length === 0) return null
-  const sorted = [...ok].sort((a, b) => b.avgEng - a.avgEng)
-  const best = sorted[0]
-  const against = sorted.length > 1 ? sorted[sorted.length - 1] : null
-  return { best, against, multiple: against ? best.avgEng / against.avgEng : null }
+  const best = [...ok].sort((a, b) => b.avgEng - a.avgEng)[0]
+  return { best, multiple: median != null && median > 0 ? best.avgEng / median : null }
 }
 
 // ── the field this update ─────────────────────────────────────────────────

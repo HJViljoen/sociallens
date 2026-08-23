@@ -375,9 +375,9 @@ export default async function DashboardPage({ searchParams }: { searchParams?: P
         </Tile>
 
         {/* ── hero: the executive brief ──────────────────────────────── */}
-        <Tile col={7} row={3} variant="hero" eyebrow="Executive brief · this update" meta={`${weekdayDate(runDate)} · read 1 min`}
+        <Tile col={7} row={3} variant="hero" distribute="between" eyebrow="Executive brief · this update" meta={weekdayDate(runDate)}
           footer={oneThing ? (
-            <Link href="/dashboard/market" className="inline-flex max-w-full items-center rounded-full bg-[#F5F1E6]/10 px-3 py-1 text-[12px] font-medium text-[#F5F1E6] ring-1 ring-[#F5F1E6]/35 hover:bg-[#F5F1E6]/15">
+            <Link href="/dashboard/market" className="inline-flex max-w-full items-center rounded-full border border-[#F5F1E6]/35 bg-[#F5F1E6]/10 px-3.5 py-1.5 text-[12px] font-medium text-[#F5F1E6] hover:bg-[#F5F1E6]/15">
               <span className="truncate">The one thing to do → {oneThing.title}</span>
             </Link>
           ) : null}
@@ -385,13 +385,13 @@ export default async function DashboardPage({ searchParams }: { searchParams?: P
         >
           {showHero ? (
             <>
-              <p className="line-clamp-3 max-w-[36rem] text-[17px] font-semibold leading-[1.25] tracking-[-0.012em] [text-wrap:balance]">{narrative.headline}</p>
+              <p className="line-clamp-3 max-w-[38rem] text-[19px] font-semibold leading-[1.25] tracking-[-0.012em] [text-wrap:balance]">{narrative.headline}</p>
               {narrative.beats.length > 0 && (
-                <div className="grid grid-cols-1 gap-x-4 gap-y-2 sm:grid-cols-3">
+                <div className="grid grid-cols-1 gap-x-6 gap-y-3 sm:grid-cols-3">
                   {narrative.beats.slice(0, 3).map((b) => (
                     <div key={b.metric} className="min-w-0">
-                      <div className="font-mono text-[17px] font-semibold leading-none tabular-nums tracking-[-0.02em]">{b.figure}</div>
-                      <p className="mt-1 line-clamp-4 text-[12px] leading-[1.45] text-[#F5F1E6]/88">{b.before}<span className="font-semibold text-[#F5F1E6]">{b.figure}</span>{b.after}</p>
+                      <div className="font-mono text-[18px] font-semibold leading-none tabular-nums tracking-[-0.02em]">{b.figure}</div>
+                      <p className="mt-1.5 line-clamp-4 text-[12.5px] leading-[1.5] text-[#F5F1E6]/88">{b.before}<span className="font-semibold text-[#F5F1E6]">{b.figure}</span>{b.after}</p>
                     </div>
                   ))}
                 </div>
@@ -399,7 +399,7 @@ export default async function DashboardPage({ searchParams }: { searchParams?: P
               {oneThingQuotes.length > 0 && (
                 <div className="flex flex-col gap-2">
                   {oneThingQuotes.slice(0, 2).map((q, i) => (
-                    <blockquote key={i} className="max-w-[38rem] border-l-2 border-[#D99A7A] pl-2.5 text-[12.5px] italic leading-[1.4] text-[#F1EBDD]">
+                    <blockquote key={i} className="max-w-[40rem] border-l-2 border-[#D99A7A] pl-3 text-[13px] italic leading-[1.45] text-[#F1EBDD]">
                       <span className="line-clamp-2">“{q}”</span>
                     </blockquote>
                   ))}
@@ -413,7 +413,7 @@ export default async function DashboardPage({ searchParams }: { searchParams?: P
         </Tile>
 
         {/* ── sentiment ──────────────────────────────────────────────── */}
-        <Tile col={5} row={1} eyebrow="Audience sentiment" meta={sent ? `${fmtInt(sent.judged)} judged · to date` : undefined}>
+        <Tile col={5} row={1} eyebrow="Audience sentiment" meta={sent ? `${fmtInt(sent.judged)} judged · to date` : undefined} distribute="center">
           {sent ? (
             <>
               <div className="flex items-end gap-3">
@@ -436,7 +436,7 @@ export default async function DashboardPage({ searchParams }: { searchParams?: P
         {/* ── share of tracked conversation ──────────────────────────── */}
         <Tile col={5} row={2} eyebrow="Share of tracked conversation" meta={usePeriodShare ? 'by videos · this update' : 'by videos · all updates'}
           footer={<Link href="/dashboard/competitive">Where you stand{topCompetitor ? ` vs ${topCompetitor.name}` : ''} →</Link>}
-          footerNote="share of tracked volume, not the whole web"
+          distribute="center"
         >
           {share && shareSegments.length > 0 ? (
             <div className="flex flex-1 items-center gap-4">
@@ -460,7 +460,7 @@ export default async function DashboardPage({ searchParams }: { searchParams?: P
         </Tile>
 
         {/* ── what your market is talking about ─────────────────────── */}
-        <Tile col={5} row={2} eyebrow="What your market is talking about" meta="conversations per theme"
+        <Tile col={5} row={2} distribute="center" eyebrow="What your market is talking about" meta="conversations per theme"
           footer={<Link href="/dashboard/voice">All {tiers.confirmed > 0 ? `${tiers.confirmed} confirmed ` : ''}themes →</Link>}
           footerNote={
             <span className="flex items-center gap-2">
@@ -471,7 +471,7 @@ export default async function DashboardPage({ searchParams }: { searchParams?: P
           }
         >
           {themes.length > 0 ? (
-            <div className="flex flex-col gap-[5px]">
+            <div className="flex flex-col gap-2">
               {themes.map((t, i) => (
                 <RankedBar
                   key={`${i}-${t.label}`}
@@ -493,10 +493,10 @@ export default async function DashboardPage({ searchParams }: { searchParams?: P
         <Tile col={4} row={2} eyebrow="Since your first update"
           meta={mv ? `${updatesCount} updates · ${shortDate(mv.dates[0])} → ${shortDate(mv.dates[mv.dates.length - 1])}` : undefined}
           footer={mv ? <Link href="/dashboard/competitive">Where you stand over time →</Link> : undefined}
-          footerNote={mv ? 'deltas vs last update' : undefined}
+          distribute="center"
         >
           {mv ? (
-            <div className="flex flex-col gap-[9px] pt-0.5">
+            <div className="flex flex-col gap-3">
               {mv.rows.map((r) => {
                 const st = MOVE_STYLE[r.key]
                 return <Mover key={r.key} label={r.label} series={r.series} value={st.fmt(r.value)} delta={r.delta} unit={st.unit} good={st.good} color={st.color} />
@@ -506,7 +506,7 @@ export default async function DashboardPage({ searchParams }: { searchParams?: P
         </Tile>
 
         {/* ── top recommendation ─────────────────────────────────────── */}
-        <Tile col={3} row={1} variant={oneThing ? 'warm' : 'default'} eyebrow="Top recommendation" meta={oneThing ? priorityWord(oneThing.priority) : undefined}
+        <Tile col={3} row={1} variant={oneThing ? 'warm' : 'default'} distribute="center" eyebrow="Top recommendation" meta={oneThing ? priorityWord(oneThing.priority) : undefined}
           footer={oneThing ? <Link href="/dashboard/market">Why, and the voices{oneThingVoices > 0 ? ` (${oneThingVoices})` : ''} →</Link> : undefined}
         >
           {oneThing ? (
@@ -515,7 +515,7 @@ export default async function DashboardPage({ searchParams }: { searchParams?: P
         </Tile>
 
         {/* ── your accounts ──────────────────────────────────────────── */}
-        <Tile col={3} row={1} eyebrow="On your accounts" meta={accounts.length > 0 ? 'followers · 30 days' : undefined}
+        <Tile col={3} row={1} distribute="center" eyebrow="On your accounts" meta={accounts.length > 0 ? 'followers · 30 days' : undefined}
           footer={topEvent ? <Link href="/dashboard/videos">{topEvent.magnitude_label} →</Link> : undefined}
         >
           {accounts.length > 0 ? (

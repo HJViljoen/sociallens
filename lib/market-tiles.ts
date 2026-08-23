@@ -82,6 +82,13 @@ export function orderAgenda<T extends RecLike>(recs: T[], tierById: Map<string, 
     )
 }
 
+/** The agenda row that is open (?rec=<id>): the requested one when it is
+ *  among the shown rows, else the top row. Exactly one row is ever open. */
+export function openAgendaId<T extends RecLike>(shown: AgendaItem<T>[], requested: string | undefined): string | null {
+  if (requested && shown.some((a) => a.rec.id === requested)) return requested
+  return shown[0]?.rec.id ?? null
+}
+
 /** Priority dot colour by stored priority: high gold, medium sage, low sand. */
 export function priorityDot(priority: string | null | undefined): string {
   if (priority === 'high') return 'var(--accent-ochre)'

@@ -19,7 +19,8 @@ import {
 } from '@/lib/content-tiles'
 
 // "Worth a reply" — the engagement digest (2026-08-10, Anne's ask, weekly by
-// design), now the Content page's hero inbox (one-screen redesign). Evidence-
+// design), now the Content page's inbox beside the playbook (one-screen
+// redesign; hooks and formats lead, the inbox sits top-right). Evidence-
 // only v1: surfaces comments the analysis already cited under question /
 // buying-signal insights, hard-limited to the update's own window
 // (lib/engage.ts). Anchored on the latest COMPLETED update — unlike the page's
@@ -72,13 +73,13 @@ export async function loadEngageDigest(supabase: SupabaseClient, clientId: strin
   return { runStartedAt: run.started_at as string, windowDays, engage, flagged, candidates }
 }
 
-// Intent chips — plum for buying signals, gold for questions, clay for
-// misinformation (the colour jobs of the one-screen pages); objections slate.
+// Intent chips — the page's greens / warm reds-golds only: buying signals
+// green, questions gold, objections clay, misinformation red (the negative).
 const INTENT_CHIP: Record<Intent, string> = {
-  buying: 'bg-plum/12 text-plum',
+  buying: 'bg-positive/12 text-positive',
   question: 'bg-ochre/15 text-ochre',
-  objection: 'bg-slate/12 text-slate',
-  misinformation: 'bg-clay/12 text-clay',
+  objection: 'bg-clay/12 text-clay',
+  misinformation: 'bg-negative/12 text-negative',
 }
 
 const quote = (text: string, max = 220) => (text.length > max ? `${text.slice(0, max)}…` : text)
@@ -94,7 +95,7 @@ const windowWord = (days: number) =>
   days === 7 ? 'this week' : days === 30 ? 'this month' : `in the past ${days} days`
 
 /** Rows shown inside the tile before "N more →" takes over. */
-const INBOX_SHOWN = 6
+const INBOX_SHOWN = 5
 
 export type InboxItem = InboxRow<EngageCandidate & { id: string; commentDate: string | null; likes: number; account: string | null }>
 
@@ -132,29 +133,30 @@ function ReplyLink({ c, className }: { c: EngageCandidate; className?: string })
   )
 }
 
-/** One inbox row: intent · quote + context · platform · age · Reply. */
-function InboxRowView({ row, compact }: { row: InboxItem; compact: boolean }) {
+/** One inbox row: intent · platform · age · where it sits (one line, Reply at
+ *  the right), then the quote clamped to two lines. */
+function InboxRowView({ row }: { row: InboxItem }) {
   const c = row.src
   return (
-    <div className="grid grid-cols-[96px_minmax(0,1fr)_84px_34px_52px] items-start gap-2.5 border-t border-border/70 py-[7px] first:border-t-0">
-      <IntentChip intent={row.intent} />
-      <div className="min-w-0">
-        <p className={`border-l-2 border-clay/80 pl-2 text-[12.5px] italic leading-[1.4] ${compact ? 'line-clamp-2' : ''}`} title={c.comment.text}>
-          “{compact ? quote(c.comment.text) : c.comment.text}”
-        </p>
-        <p className="mt-0.5 truncate pl-2.5 text-[11px] text-muted-foreground">{row.context}</p>
+    <div className="flex flex-col gap-1 border-t border-border/70 py-2 first:border-t-0 first:pt-0">
+      <div className="flex items-center gap-2">
+        <IntentChip intent={row.intent} />
+        <span className="flex min-w-0 flex-1 items-center gap-1.5 text-[11px] text-muted-foreground">
+          <PlatformIcon platform={c.comment.platform} className="shrink-0 text-[#55605A]" />
+          <span className="truncate">
+            {platformLabel(c.comment.platform)} · <span className="font-mono tabular-nums">{row.age ?? '—'}</span> · {row.context}
+          </span>
+        </span>
+        <ReplyLink c={c} className="shrink-0 text-[11.5px]" />
       </div>
-      <span className="flex items-center gap-1.5 pt-0.5 text-[11px] text-muted-foreground">
-        <PlatformIcon platform={c.comment.platform} className="text-[#55605A]" />
-        <span className="truncate">{platformLabel(c.comment.platform)}</span>
-      </span>
-      <span className="pt-0.5 font-mono text-[11px] tabular-nums text-muted-foreground">{row.age ?? '—'}</span>
-      <ReplyLink c={c} className="pt-0.5 text-right text-[11.5px]" />
+      <p className="line-clamp-2 border-l-2 border-clay/80 pl-2 text-[12.5px] italic leading-[1.4]" title={c.comment.text}>
+        “{quote(c.comment.text)}”
+      </p>
     </div>
   )
 }
 
-/** The hero inbox tile (col 7 × row 4). */
+/** The inbox tile (col 5 × row 4, top-right). */
 export function EngageInboxTile({
   digest, rows, filter,
 }: {
@@ -169,13 +171,13 @@ export function EngageInboxTile({
   const more = shown.length - visible.length
   // `total` is the digest's pick (capped per intent and overall), not a count
   // of everything said — say so.
-  const meta = digest ? `top ${total} picked ${windowWord(digest.windowDays)} · evidence only · intent first` : undefined
+  const meta = digest ? `top ${total} picked ${windowWord(digest.windowDays)}` : undefined
   const chip = (active: boolean, href: string, label: string) => (
     <Link
       key={href}
       href={href}
       scroll={false}
-      className={`inline-flex h-[22px] items-center rounded-full px-2.5 text-[11px] font-medium whitespace-nowrap ${active ? 'bg-sidebar-accent text-primary' : 'bg-muted text-[#3F4B44] hover:bg-muted/70'}`}
+      className={`inline-flex h-[20px] shrink-0 items-center rounded-full px-2 text-[10.5px] font-medium whitespace-nowrap ${active ? 'bg-sidebar-accent text-primary' : 'bg-muted text-[#3F4B44] hover:bg-muted/70'}`}
     >
       {label}
     </Link>
@@ -183,16 +185,15 @@ export function EngageInboxTile({
 
   return (
     <Tile
-      col={7} row={4}
+      col={5} row={4}
       eyebrow="Worth a reply"
       meta={meta}
-      bodyClassName="gap-1"
+      bodyClassName="gap-2"
       footer={total > 0 ? (
         <Link href={`/dashboard/videos?detail=replies${filter ? `&intent=${filter}` : ''}`} scroll={false}>
           {more > 0 ? `${more} more →` : `All ${total} in one list →`}
         </Link>
       ) : undefined}
-      footerNote={total > 0 ? 'replies are written by you; Verbatim only finds the moments' : undefined}
     >
       {digest == null ? (
         <TileEmpty>Your first reply inbox lands with your first analysed update.</TileEmpty>
@@ -200,14 +201,13 @@ export function EngageInboxTile({
         <TileEmpty>Nothing fresh to jump into this update — new conversations land with the next one.</TileEmpty>
       ) : (
         <>
-          <div className="flex items-center gap-1.5 overflow-hidden py-0.5">
+          <div className="flex items-center gap-1 overflow-hidden">
             {chip(filter == null, '/dashboard/videos', `All ${total}`)}
             {counts.map((c) => chip(filter === c.intent, `/dashboard/videos?intent=${c.intent}`, `${INTENT_PLURAL[c.intent]} ${c.count}`))}
-            <span className="ml-auto truncate text-[11px] text-muted-foreground">sorted by intent, then recency</span>
           </div>
           {visible.length > 0 ? (
             <div className="min-h-0 overflow-hidden">
-              {visible.map((row) => <InboxRowView key={row.src.comment.id} row={row} compact />)}
+              {visible.map((row) => <InboxRowView key={row.src.comment.id} row={row} />)}
             </div>
           ) : (
             <TileEmpty>No {filter ? INTENT_PLURAL[filter].toLowerCase() : 'moments'} in this update’s window.</TileEmpty>
@@ -289,7 +289,7 @@ export function EngageDrawers({
           )}
           {listed.length === 0 && <p className="text-muted-foreground">Nothing fresh to jump into this update.</p>}
           <p className="text-[11px] text-muted-foreground">
-            Replies are written by you; Verbatim only finds the moments. The commenter’s own handle is never shown — the link is how a reply gets written.
+            The commenter’s own handle is never shown — the link is how a reply gets written.
           </p>
         </div>
       </DetailDrawer>

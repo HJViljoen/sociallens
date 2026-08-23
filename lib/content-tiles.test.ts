@@ -108,23 +108,22 @@ describe('perfVsMedian', () => {
 })
 
 describe('bestDuration', () => {
-  it('pits the best band against the weakest comparable one', () => {
+  it('picks the best band with enough videos and reads it against the median video', () => {
     const v = bestDuration([
       { label: 'Under 15s', count: 3, avgEng: 3, engN: 3 },
       { label: '15–30s', count: 212, avgEng: 4.2, engN: 200 },
       { label: 'Over 1 min', count: 40, avgEng: 2, engN: 30 },
       { label: '30–60s', count: 1, avgEng: 9, engN: 1 }, // too thin
-    ])
+    ], 2)
     expect(v?.best.label).toBe('15–30s')
-    expect(v?.against?.label).toBe('Over 1 min')
     expect(v?.multiple).toBeCloseTo(2.1)
   })
-  it('handles one band and none', () => {
-    const one = bestDuration([{ label: '15–30s', count: 5, avgEng: 4, engN: 5 }])
-    expect(one?.against).toBeNull()
+  it('handles a missing median and no bands', () => {
+    const one = bestDuration([{ label: '15–30s', count: 5, avgEng: 4, engN: 5 }], null)
+    expect(one?.best.label).toBe('15–30s')
     expect(one?.multiple).toBeNull()
-    expect(bestDuration([])).toBeNull()
-    expect(bestDuration([{ label: 'x', count: 2, avgEng: null, engN: 0 }])).toBeNull()
+    expect(bestDuration([], 2)).toBeNull()
+    expect(bestDuration([{ label: 'x', count: 2, avgEng: null, engN: 0 }], 2)).toBeNull()
   })
 })
 
