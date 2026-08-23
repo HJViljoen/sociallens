@@ -87,6 +87,8 @@ export async function proxy(request: NextRequest) {
     // confirm page runs on the session the callback just established (T0-3).
     pathname.startsWith('/reset') ||
     pathname.startsWith('/auth/callback') ||
+    // Keep-warm target — pinged unauthenticated every 5 min (inngest keep-warm).
+    pathname === '/health' ||
     // Marketing pages need no session — reachable directly in local dev, where
     // the host isn't the apex and the rewrite above doesn't apply.
     pathname.startsWith('/site')
