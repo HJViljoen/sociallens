@@ -68,7 +68,12 @@ export async function proxy(request: NextRequest) {
     }
   )
 
-  const { data: { user } } = await supabase.auth.getUser()
+  // getClaims() verifies the access token locally (ES256 + cached JWKS) and
+  // still refreshes an expiring session through setAll above. getUser() was a
+  // round-trip to the Auth server on every request — including every sidebar
+  // prefetch, which fans out a dozen at once.
+  const { data: claims } = await supabase.auth.getClaims()
+  const user = claims?.claims?.sub ? claims.claims : null
 
   // Pages reachable without a session: sign in, sign up, password reset, and
   // invite acceptance (the invitee usually has no account yet).

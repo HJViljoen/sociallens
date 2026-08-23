@@ -252,17 +252,13 @@ export default async function ContentPage({
   // Auth + tenant via the RLS-enforced session client. See lib/auth.ts.
   const { supabase, clientId } = await getSessionContext()
 
-  // Anchor on the newest update WITH videos, excluding in-flight ones (the
-  // dashboard's videoRunId pattern) — the page keeps serving the previous
-  // update while a new one is collecting.
-  const { data: runningRuns } = await supabase.from('pipeline_runs').select('id')
-    .eq('client_id', clientId).eq('status', 'running')
-  const runningIds = ((runningRuns ?? []) as { id: string }[]).map((r) => r.id)
-  let vidQ = supabase.from('videos').select('run_id, scraped_at').eq('client_id', clientId)
-  if (runningIds.length) vidQ = vidQ.not('run_id', 'in', `(${runningIds.join(',')})`)
-
-  const [{ data: latestVid }, { data: tc }, digest, snapRows, { data: eventData }] = await Promise.all([
-    vidQ.order('scraped_at', { ascending: false }).limit(1).maybeSingle(),
+  // Only the anchor query below needs the in-flight run ids; everything else
+  // is keyed on the client alone, so it goes out in the same wave as the
+  // running-runs lookup — round trips, not rows, are the cost (the DB pays a
+  // ~0.5s wake-up on the first requests after idle, and every sequential wave
+  // pays it again).
+  const [{ data: runningRuns }, { data: tc }, digest, snapRows, { data: eventData }] = await Promise.all([
+    supabase.from('pipeline_runs').select('id').eq('client_id', clientId).eq('status', 'running'),
     supabase.from('tracking_configs').select('own_handles').eq('client_id', clientId).maybeSingle(),
     loadEngageDigest(supabase, clientId),
     // Daily follower snapshots (three platforms cross the 1000-row cap in ~11 months).
@@ -274,6 +270,14 @@ export default async function ContentPage({
       .select('platform, metric, event_date, severity, magnitude_label, explained, explanation')
       .eq('client_id', clientId).order('event_date', { ascending: false }),
   ])
+
+  // Anchor on the newest update WITH videos, excluding in-flight ones (the
+  // dashboard's videoRunId pattern) — the page keeps serving the previous
+  // update while a new one is collecting.
+  const runningIds = ((runningRuns ?? []) as { id: string }[]).map((r) => r.id)
+  let vidQ = supabase.from('videos').select('run_id, scraped_at').eq('client_id', clientId)
+  if (runningIds.length) vidQ = vidQ.not('run_id', 'in', `(${runningIds.join(',')})`)
+  const { data: latestVid } = await vidQ.order('scraped_at', { ascending: false }).limit(1).maybeSingle()
 
   const ownHandles = new Set(
     Object.values(((tc as { own_handles?: Record<string, string> } | null)?.own_handles ?? {}) as Record<string, string>)

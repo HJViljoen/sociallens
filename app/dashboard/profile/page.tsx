@@ -1,7 +1,7 @@
 import Link from 'next/link'
 import { HeartCrack, Compass, Users, UserRound, Layers, Zap } from 'lucide-react'
 import { getSessionContext } from '@/lib/auth'
-import { createQuotePicker, fetchInsightsByIds, fetchQuotesByAudience } from '@/lib/quotes'
+import { createQuotePicker, fetchInsightsByIds, fetchQuotesByAudience, type QuoteRow } from '@/lib/quotes'
 import { PlatformMix, ShareOverTime, type PlatformRow, type ShareSeries } from '@/components/profile-stats'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Quotes } from '@/components/quotes'
@@ -95,12 +95,38 @@ export default async function ConsumerProfilePage({
   const sp = await searchParams
   const { supabase, clientId } = await getSessionContext()
 
-  // Latest closed run, same anchor as every other page — an in-flight run has
-  // no profile yet, so the previous one keeps serving.
-  const { data: latestRun } = await supabase
-    .from('pipeline_runs').select('id')
-    .eq('client_id', clientId).in('status', ['completed', 'partial'])
-    .order('started_at', { ascending: false }).limit(1).maybeSingle()
+  // All three reads are keyed on the client alone, so they go out together —
+  // round trips, not rows, are the cost here (the DB pays a ~0.5s wake-up on
+  // the first requests after idle, and every sequential wave pays it again).
+  const [{ data: latestRun }, { data: profileRow }, { data: historyRows }] = await Promise.all([
+    // Latest closed run, same anchor as every other page — an in-flight run has
+    // no profile yet, so the previous one keeps serving.
+    supabase
+      .from('pipeline_runs').select('id')
+      .eq('client_id', clientId).in('status', ['completed', 'partial'])
+      .order('started_at', { ascending: false }).limit(1).maybeSingle(),
+    // Newest stored profile, not "the newest run's profile". Pass E is
+    // flag-gated and profiles can be written offline, so pinning to the latest
+    // run would blank this page the moment a run completes without one — and the
+    // empty state would claim there is too little conversation, which would be a
+    // false statement about the data rather than about the pass.
+    supabase
+      .from('consumer_profiles')
+      .select('headline, personas, run_date, run_id')
+      .eq('client_id', clientId)
+      .order('run_date', { ascending: false })
+      .limit(1)
+      .maybeSingle(),
+    // How the mix has moved (used further down). Personas are matched across
+    // runs on their key, which continuity keeps stable — matching on name
+    // would break the moment a persona was reworded.
+    supabase
+      .from('consumer_profiles')
+      .select('run_date, personas')
+      .eq('client_id', clientId)
+      .order('run_date', { ascending: true })
+      .limit(12),
+  ])
 
   if (!latestRun) {
     return (
@@ -109,19 +135,6 @@ export default async function ConsumerProfilePage({
       </div>
     )
   }
-
-  // Newest stored profile, not "the newest run's profile". Pass E is
-  // flag-gated and profiles can be written offline, so pinning to the latest
-  // run would blank this page the moment a run completes without one — and the
-  // empty state would claim there is too little conversation, which would be a
-  // false statement about the data rather than about the pass.
-  const { data: profileRow } = await supabase
-    .from('consumer_profiles')
-    .select('headline, personas, run_date, run_id')
-    .eq('client_id', clientId)
-    .order('run_date', { ascending: false })
-    .limit(1)
-    .maybeSingle()
 
   const profile = profileRow as ProfileRow | null
   const personas = (profile?.personas ?? [])
@@ -163,13 +176,18 @@ export default async function ConsumerProfilePage({
   // view, because these ids must resolve even where a newer run has superseded
   // the rows but not yet pruned them.
   const allInsightIds = [...new Set(personas.flatMap((p) => p.insightIds))]
-  const insightRows = allInsightIds.length
-    ? await fetchInsightsByIds<{ id: string; platform: string | null; source_video_id: string | null }>(
-        supabase,
-        allInsightIds,
-        'id, platform, source_video_id',
-      )
-    : []
+  // The voices (below) hang off the same personas — fetched in the same wave.
+  const voiceIds = active.insightIds.slice(0, 60)
+  const [insightRows, quotesByAudience] = await Promise.all([
+    allInsightIds.length
+      ? fetchInsightsByIds<{ id: string; platform: string | null; source_video_id: string | null }>(
+          supabase,
+          allInsightIds,
+          'id, platform, source_video_id',
+        )
+      : Promise.resolve([]),
+    voiceIds.length ? fetchQuotesByAudience(supabase, voiceIds) : Promise.resolve(new Map<string, QuoteRow[]>()),
+  ])
   const insightMeta = new Map(insightRows.map((r) => [r.id, r]))
   // Which platforms the card draws, biggest first. Counted in DISTINCT
   // conversations so the ordering is by real reach rather than by how many
@@ -203,15 +221,7 @@ export default async function ConsumerProfilePage({
   })
   const platforms = [...platformTotals.entries()].sort((a, b) => b[1] - a[1]).map(([p]) => p)
 
-  // How the mix has moved. Personas are matched across runs on their key, which
-  // continuity keeps stable — matching on name would break the moment a
-  // persona was reworded.
-  const { data: historyRows } = await supabase
-    .from('consumer_profiles')
-    .select('run_date, personas')
-    .eq('client_id', clientId)
-    .order('run_date', { ascending: true })
-    .limit(12)
+  // How the mix has moved (rows fetched in the first wave above).
   const history = (historyRows ?? []) as { run_date: string; personas: Partial<Persona>[] }[]
   const shareDates = history.map((h) => h.run_date)
   const shareSeries: ShareSeries[] = personas.map((p) => ({
@@ -230,8 +240,6 @@ export default async function ConsumerProfilePage({
   // the description is a claim the reader has to take on trust — and the
   // product is called Verbatim. The picker de-duplicates across calls, so each
   // block gets a different person rather than the same quote three times.
-  const voiceIds = active.insightIds.slice(0, 60)
-  const quotesByAudience = voiceIds.length ? await fetchQuotesByAudience(supabase, voiceIds) : new Map()
   const pickVoice = createQuotePicker(quotesByAudience, new Map())
   const voiceFor = (text: string) => (voiceIds.length ? pickVoice(voiceIds, 1, text)[0] : undefined)
   const drivesVoice = voiceFor(active.wants)

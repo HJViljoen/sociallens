@@ -138,6 +138,19 @@ interface EvidenceClient {
   }
 }
 
+/** Split an id list into PostgREST-URL-sized chunks and fetch them ALL AT
+ *  ONCE. These helpers used to await one chunk at a time; Market and Voice
+ *  pass hundreds to thousands of ids, so a page paid 5–30 serial round trips
+ *  here — each one, after an idle spell, at the DB's wake-up price. Chunks
+ *  are disjoint by id, so processing the results in chunk order gives the
+ *  same per-id ordering the serial loop did. */
+async function fetchChunks<R>(ids: string[], fetch: (chunk: string[]) => Rows, size = 120): Promise<R[]> {
+  const chunks: string[][] = []
+  for (let i = 0; i < ids.length; i += size) chunks.push(ids.slice(i, i + size))
+  const results = await Promise.all(chunks.map((chunk) => fetch(chunk)))
+  return results.flatMap((r) => (r.data ?? []) as R[])
+}
+
 /** Fetch evidence quotes for a set of audience-insight ids (chunked to stay under
  *  the PostgREST URL cap), keyed by audience-insight id. */
 export async function fetchQuotesByAudience(
@@ -146,21 +159,18 @@ export async function fetchQuotesByAudience(
 ): Promise<Map<string, QuoteRow[]>> {
   const c = client as EvidenceClient
   const byAudience = new Map<string, QuoteRow[]>()
-  for (let i = 0; i < audienceIds.length; i += 120) {
-    // redacted = false: demographic_signal evidence cites but never quotes
-    // (counts-not-quotes, 2026-08-22); its rows carry quote '' and must never
-    // reach a picker.
-    const { data } = await c
-      .from('insight_evidence')
-      .select('audience_insight_id, quote, relevance_rank')
-      .in('audience_insight_id', audienceIds.slice(i, i + 120))
-      .eq('redacted', false)
-    for (const r of (data ?? []) as { audience_insight_id: string; quote: string | null; relevance_rank: number | null }[]) {
-      if (!r.quote) continue
-      const arr = byAudience.get(r.audience_insight_id) ?? []
-      arr.push({ quote: r.quote, rank: r.relevance_rank ?? 99 })
-      byAudience.set(r.audience_insight_id, arr)
-    }
+  // redacted = false: demographic_signal evidence cites but never quotes
+  // (counts-not-quotes, 2026-08-22); its rows carry quote '' and must never
+  // reach a picker.
+  const rows = await fetchChunks<{ audience_insight_id: string; quote: string | null; relevance_rank: number | null }>(
+    audienceIds,
+    (chunk) => c.from('insight_evidence').select('audience_insight_id, quote, relevance_rank').in('audience_insight_id', chunk).eq('redacted', false),
+  )
+  for (const r of rows) {
+    if (!r.quote) continue
+    const arr = byAudience.get(r.audience_insight_id) ?? []
+    arr.push({ quote: r.quote, rank: r.relevance_rank ?? 99 })
+    byAudience.set(r.audience_insight_id, arr)
   }
   return byAudience
 }
@@ -178,35 +188,32 @@ export async function fetchQuoteCitationsByAudience(
 ): Promise<Map<string, QuoteCitation[]>> {
   const c = client as EvidenceClient
   const byAudience = new Map<string, QuoteCitation[]>()
-  for (let i = 0; i < audienceIds.length; i += 120) {
-    // redacted = false: demographic_signal evidence cites but never quotes
-    // (counts-not-quotes, 2026-08-22). Same rule as fetchQuotesByAudience.
-    const { data } = await c
-      .from('insight_evidence')
-      .select('audience_insight_id, quote, relevance_rank, comment_id, source_video_id')
-      .in('audience_insight_id', audienceIds.slice(i, i + 120))
-      .eq('redacted', false)
-    for (const r of (data ?? []) as {
-      audience_insight_id: string
-      quote: string | null
-      relevance_rank: number | null
-      comment_id: string | null
-      source_video_id: string | null
-    }[]) {
-      if (!r.quote) continue
-      // A quote with neither a comment nor a video behind it cannot be cited,
-      // and an uncitable quote is exactly what the grounded register must not
-      // carry. Drop it here rather than let it reach the enforcement step.
-      if (!r.comment_id && !r.source_video_id) continue
-      const arr = byAudience.get(r.audience_insight_id) ?? []
-      arr.push({
-        quote: r.quote,
-        rank: r.relevance_rank ?? 99,
-        commentId: r.comment_id,
-        videoId: r.source_video_id,
-      })
-      byAudience.set(r.audience_insight_id, arr)
-    }
+  // redacted = false: demographic_signal evidence cites but never quotes
+  // (counts-not-quotes, 2026-08-22). Same rule as fetchQuotesByAudience.
+  const rows = await fetchChunks<{
+    audience_insight_id: string
+    quote: string | null
+    relevance_rank: number | null
+    comment_id: string | null
+    source_video_id: string | null
+  }>(
+    audienceIds,
+    (chunk) => c.from('insight_evidence').select('audience_insight_id, quote, relevance_rank, comment_id, source_video_id').in('audience_insight_id', chunk).eq('redacted', false),
+  )
+  for (const r of rows) {
+    if (!r.quote) continue
+    // A quote with neither a comment nor a video behind it cannot be cited,
+    // and an uncitable quote is exactly what the grounded register must not
+    // carry. Drop it here rather than let it reach the enforcement step.
+    if (!r.comment_id && !r.source_video_id) continue
+    const arr = byAudience.get(r.audience_insight_id) ?? []
+    arr.push({
+      quote: r.quote,
+      rank: r.relevance_rank ?? 99,
+      commentId: r.comment_id,
+      videoId: r.source_video_id,
+    })
+    byAudience.set(r.audience_insight_id, arr)
   }
   return byAudience
 }
@@ -228,15 +235,12 @@ export async function fetchQuoteTextsByCommentId(
   const c = client as EvidenceClient
   const out = new Map<string, string>()
   const unique = [...new Set(commentIds.filter(Boolean))]
-  for (let i = 0; i < unique.length; i += 120) {
-    const { data } = await c
-      .from('insight_evidence')
-      .select('comment_id, quote')
-      .in('comment_id', unique.slice(i, i + 120))
-      .eq('redacted', false)
-    for (const r of (data ?? []) as { comment_id: string | null; quote: string | null }[]) {
-      if (r.comment_id && r.quote && !out.has(r.comment_id)) out.set(r.comment_id, r.quote)
-    }
+  const rows = await fetchChunks<{ comment_id: string | null; quote: string | null }>(
+    unique,
+    (chunk) => c.from('insight_evidence').select('comment_id, quote').in('comment_id', chunk).eq('redacted', false),
+  )
+  for (const r of rows) {
+    if (r.comment_id && r.quote && !out.has(r.comment_id)) out.set(r.comment_id, r.quote)
   }
   return out
 }
@@ -250,12 +254,7 @@ export async function fetchQuoteTextsByCommentId(
 export async function fetchInsightsByIds<T>(client: unknown, ids: string[], select: string): Promise<T[]> {
   const c = client as EvidenceClient
   const unique = [...new Set(ids)]
-  const out: T[] = []
-  for (let i = 0; i < unique.length; i += 120) {
-    const { data } = await c.from('audience_insights').select(select).in('id', unique.slice(i, i + 120))
-    out.push(...((data ?? []) as T[]))
-  }
-  return out
+  return fetchChunks<T>(unique, (chunk) => c.from('audience_insights').select(select).in('id', chunk))
 }
 
 /** A per-page quote picker with cross-card de-duplication (no voice repeats on a

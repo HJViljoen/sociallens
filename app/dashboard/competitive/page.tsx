@@ -84,13 +84,20 @@ export default async function CompetitiveIntelligencePage({ searchParams }: { se
 
   // Anchor on the newest update WITH analysis; an in-flight one has no
   // findings yet and would blank the page for the duration of every update.
-  const [{ data: client }, { data: tc }, { data: latestRun }, runningRes] = await Promise.all([
+  // The share history is keyed on client_id alone, so it rides in this first
+  // wave rather than waiting a round trip for the run id (round trips, not
+  // rows, are what a cold request pays for).
+  const [{ data: client }, { data: tc }, { data: latestRun }, runningRes, historyRaw] = await Promise.all([
     supabase.from('clients').select('company_name').eq('id', clientId).maybeSingle(),
     supabase.from('tracking_configs').select('report_day, report_period').eq('client_id', clientId).maybeSingle(),
     supabase.from('pipeline_runs').select('id, started_at')
       .eq('client_id', clientId).in('status', ['completed', 'partial'])
       .order('started_at', { ascending: false }).limit(1).maybeSingle(),
     supabase.from('pipeline_runs').select('id').eq('client_id', clientId).eq('status', 'running'),
+    selectAll<SummaryRow>(() =>
+      supabase.from('run_summary').select('run_id, run_date, total_videos, share_of_voice, period_share_of_voice')
+        .eq('client_id', clientId).order('run_date', { ascending: true }),
+    ),
   ])
   const runningIds = ((runningRes.data ?? []) as { id: string }[]).map((r) => r.id)
   const notRunning = runningIds.length ? `(${runningIds.join(',')})` : null
@@ -117,11 +124,7 @@ export default async function CompetitiveIntelligencePage({ searchParams }: { se
   if (notRunning) themedQ = themedQ.not('run_id', 'in', notRunning)
   let latestVidQ = supabase.from('videos').select('run_id').eq('client_id', clientId)
   if (notRunning) latestVidQ = latestVidQ.not('run_id', 'in', notRunning)
-  const [historyRaw, ciRes, latestThemedRes, latestVidRes] = await Promise.all([
-    selectAll<SummaryRow>(() =>
-      supabase.from('run_summary').select('run_id, run_date, total_videos, share_of_voice, period_share_of_voice')
-        .eq('client_id', clientId).order('run_date', { ascending: true }),
-    ),
+  const [ciRes, latestThemedRes, latestVidRes] = await Promise.all([
     supabase.from('competitive_insights').select('id, category, competitor_name, title, finding, evidence, impact_level, hero_quote')
       .eq('client_id', clientId).eq('run_id', runId),
     themedQ.order('created_at', { ascending: false }).limit(1).maybeSingle(),

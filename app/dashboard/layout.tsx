@@ -1,24 +1,16 @@
+import { Suspense } from "react"
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar"
 import { AppSidebar } from "@/components/app-sidebar"
-import { AccessBanner } from "@/components/access-banner"
-import { getSessionContext } from "@/lib/auth"
-import { billingAccess, type BillingClient } from "@/lib/billing"
+import { AccessBannerLoader } from "@/components/access-banner-loader"
 import { agentEnabled } from "@/lib/config"
 
-export default async function DashboardLayout({ children }: { children: React.ReactNode }) {
-  const { supabase, clientId } = await getSessionContext()
-  // select('*'): the billing columns are optional on older rows, and this
-  // must render whether or not a given migration has landed.
-  const { data: clientRow } = await supabase.from("clients").select("*").eq("id", clientId).maybeSingle()
-  // No row (RLS hiccup, transient failure) is NOT the same as "no access":
-  // billingAccess would read the missing approved_at as pending and tell a
-  // comped design partner their workspace was never switched on. Say nothing
-  // rather than something wrong; the scheduler and pipeline gates are the ones
-  // that actually stop spend.
-  const access = clientRow
-    ? billingAccess(clientRow as BillingClient)
-    : { hasAccess: true, reason: 'comped' as const }
-
+// Deliberately synchronous: no session, no DB. This layout wraps every
+// dashboard route, and an async layout sits ABOVE each route's loading.tsx
+// boundary — while it awaited the session + the clients row, no skeleton
+// could paint and every navigation showed the old page frozen for the
+// duration. The proxy already gates anonymous users; the page resolves the
+// session (request-cached) and the billing banner streams in behind Suspense.
+export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   return (
     <SidebarProvider>
       <AppSidebar showAgent={agentEnabled()} />
@@ -38,7 +30,9 @@ export default async function DashboardLayout({ children }: { children: React.Re
           <SidebarTrigger />
         </header>
         <main className="relative z-10 flex-1 min-h-0 overflow-y-auto p-6">
-          <AccessBanner access={access} />
+          <Suspense fallback={null}>
+            <AccessBannerLoader />
+          </Suspense>
           {children}
         </main>
       </div>

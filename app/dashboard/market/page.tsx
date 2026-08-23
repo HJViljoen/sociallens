@@ -152,11 +152,22 @@ export default async function MarketIntelligencePage({ searchParams }: { searchP
 
   // Latest COMPLETED update — an in-flight one has no synthesis rows yet, so
   // the page keeps serving the previous read until the new one closes.
-  const [{ data: client }, { data: latestRun }] = await Promise.all([
+  const [{ data: client }, { data: latestRun }, newsRes] = await Promise.all([
     supabase.from('clients').select('company_name').eq('id', clientId).maybeSingle(),
     supabase.from('pipeline_runs').select('id, started_at')
       .eq('client_id', clientId).in('status', ['completed', 'partial'])
       .order('started_at', { ascending: false }).limit(1).maybeSingle(),
+    // In the news — rings 0–2 only (brand / competitors / category), newest
+    // first, the same read Trends had: context beside the conversation, never
+    // a claimed cause. Keyed on the client, not the run, so it rides this
+    // first wave — round trips, not rows, are the cost (the DB pays a ~0.5s
+    // wake-up on the first requests after idle, and every sequential wave
+    // pays it again).
+    supabase.from('news_items')
+      .select('title, url, source_ref, published_at, ring', { count: 'exact' })
+      .eq('client_id', clientId).lte('ring', 2)
+      .order('published_at', { ascending: false, nullsFirst: false })
+      .limit(NEWS_SHOWN),
   ])
   const brand = client?.company_name ?? 'Your brand'
 
@@ -176,7 +187,7 @@ export default async function MarketIntelligencePage({ searchParams }: { searchP
   }
   const runId = latestRun.id as string
 
-  const [miRes, recRes, ciRes, summaryRes, ssRes, bucketRes, newsRes] = await Promise.all([
+  const [miRes, recRes, ciRes, summaryRes, ssRes, bucketRes] = await Promise.all([
     supabase.from('market_insights')
       .select('id, insight_type, title, description, evidence, confidence_score, opportunity_score, hero_quote')
       .eq('client_id', clientId).eq('run_id', runId)
@@ -201,14 +212,6 @@ export default async function MarketIntelligencePage({ searchParams }: { searchP
     supabase.from('themes')
       .select('bucket, supporting_insight_ids')
       .eq('client_id', clientId).eq('run_id', runId),
-    // In the news — rings 0–2 only (brand / competitors / category), newest
-    // first, the same read Trends had: context beside the conversation, never
-    // a claimed cause.
-    supabase.from('news_items')
-      .select('title, url, source_ref, published_at, ring', { count: 'exact' })
-      .eq('client_id', clientId).lte('ring', 2)
-      .order('published_at', { ascending: false, nullsFirst: false })
-      .limit(NEWS_SHOWN),
   ])
 
   const insights = (miRes.data ?? []) as MarketInsight[]

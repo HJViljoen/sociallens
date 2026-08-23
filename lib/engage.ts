@@ -173,11 +173,14 @@ async function chunkedIn<T>(
   buildChunk: (ids: string[]) => () => { range: (from: number, to: number) => PromiseLike<{ data: T[] | null; error: unknown }> },
   ids: string[],
 ): Promise<T[]> {
-  const out: T[] = []
-  for (let i = 0; i < ids.length; i += 100) {
-    out.push(...(await selectAll<T>(buildChunk(ids.slice(i, i + 100)))))
-  }
-  return out
+  // All chunks in flight at once (they were awaited one by one — the Content
+  // page's long pole was this helper's four stages, each a serial walk).
+  // Chunks are disjoint, and concatenating in chunk order keeps the output
+  // order the serial loop produced.
+  const chunks: string[][] = []
+  for (let i = 0; i < ids.length; i += 100) chunks.push(ids.slice(i, i + 100))
+  const pages = await Promise.all(chunks.map((chunk) => selectAll<T>(buildChunk(chunk))))
+  return pages.flat()
 }
 
 export async function loadEngageCandidates(

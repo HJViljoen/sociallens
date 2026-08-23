@@ -28,13 +28,28 @@ export default async function TeamPage() {
   const canManage = canManageTenant(role)
   const isOwner = role === 'owner'
 
-  const [{ data: client }, { data: members }, { data: cfg }] = await Promise.all([
+  const [{ data: client }, { data: members }, { data: cfg }, { data: inviteData }] = await Promise.all([
     supabase.from('clients').select('company_name').eq('id', clientId).maybeSingle(),
     supabase.from('users').select('id, full_name, email, role').eq('client_id', clientId).order('created_at'),
     // Who actually receives the update. Accepting an invite adds you to this
     // list (T0-10); showing it here is what makes "your team gets the update"
     // checkable instead of a claim.
     supabase.from('tracking_configs').select('report_emails').eq('client_id', clientId).maybeSingle(),
+    // Pending invites (managers only — see below) ride the same wave: round
+    // trips, not rows, are the cost, and this read depends on nothing above.
+    // The list comes through RLS (session client) and deliberately does NOT
+    // select `token`: the column is revoked from `authenticated`, so it is
+    // unreadable from PostgREST with a tenant JWT at all. Nulling it in
+    // JavaScript was not a control — any admin could have read every pending
+    // token directly, and the not-signed-in accept path turns a stolen OWNER
+    // token into a takeover with no mailbox access.
+    canManage
+      ? supabase
+          .from('invitations')
+          .select('id, email, role, expires_at, invited_by')
+          .eq('client_id', clientId).eq('status', 'pending')
+          .order('created_at', { ascending: false })
+      : Promise.resolve({ data: null }),
   ])
   const reportEmails = ((cfg?.report_emails ?? []) as string[]).map((e) => e.trim()).filter(Boolean)
 
@@ -47,18 +62,7 @@ export default async function TeamPage() {
   let invites: InviteRow[] = []
   let baseUrl = ''
   if (canManage) {
-    // The list comes through RLS (session client) and deliberately does NOT
-    // select `token`: the column is revoked from `authenticated`, so it is
-    // unreadable from PostgREST with a tenant JWT at all. Nulling it in
-    // JavaScript was not a control — any admin could have read every pending
-    // token directly, and the not-signed-in accept path turns a stolen OWNER
-    // token into a takeover with no mailbox access.
-    const { data } = await supabase
-      .from('invitations')
-      .select('id, email, role, expires_at, invited_by')
-      .eq('client_id', clientId).eq('status', 'pending')
-      .order('created_at', { ascending: false })
-    const rows = ((data as (Omit<InviteRow, 'token'> & { invited_by: string | null })[] | null) ?? [])
+    const rows = ((inviteData as (Omit<InviteRow, 'token'> & { invited_by: string | null })[] | null) ?? [])
 
     // Tokens for the invites YOU sent, read with the service role.
     const mine = rows.filter((r) => r.invited_by === userId).map((r) => r.id)

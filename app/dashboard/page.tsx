@@ -81,7 +81,14 @@ export default async function DashboardPage({ searchParams }: { searchParams?: P
 
   // Anchor on the newest run WITH DATA; an in-flight run has no analysis rows
   // yet, so anchoring on it would blank the page for the duration of every run.
-  const [{ data: client }, { data: tc }, { data: latestRun }, runningRes, registryRes] = await Promise.all([
+  //
+  // Round trips are the cost here, not rows: the DB answers in ~10ms warm but
+  // the first requests after an idle spell pay a ~0.5s wake-up, and every
+  // sequential wave pays it again. So everything keyed on client_id alone
+  // (the whole history, the snapshots, the theme tiers) goes out in this
+  // first wave; only what needs the anchored run id waits for the second.
+  const SUMMARY_COLS = 'run_id, run_date, total_videos, total_comments, period_videos, period_comments, share_of_voice, period_share_of_voice, period_sentiment_positive, audience_sentiment, period_audience_sentiment'
+  const [{ data: client }, { data: tc }, { data: latestRun }, runningRes, registryRes, historyRaw, snapRows, tierRows] = await Promise.all([
     supabase.from('clients').select('company_name').eq('id', clientId).maybeSingle(),
     supabase.from('tracking_configs')
       .select('brand_keywords, competitor_keywords, industry_keywords, platforms, report_day, report_period')
@@ -91,6 +98,17 @@ export default async function DashboardPage({ searchParams }: { searchParams?: P
       .order('started_at', { ascending: false }).limit(1).maybeSingle(),
     supabase.from('pipeline_runs').select('id').eq('client_id', clientId).eq('status', 'running'),
     supabase.from('theme_registry').select('id', { count: 'exact', head: true }).eq('client_id', clientId),
+    selectAll<SummaryRow>(() =>
+      supabase.from('run_summary').select(`${SUMMARY_COLS}, executive_brief`).eq('client_id', clientId).order('run_date', { ascending: true }),
+    ),
+    // Daily follower snapshots (three platforms cross the 1000-row cap in ~11 months).
+    selectAll<{ platform: string; snapshot_date: string; followers: number | null }>(() =>
+      supabase.from('account_snapshots').select('platform, snapshot_date, followers').eq('client_id', clientId).order('snapshot_date', { ascending: true }),
+    ),
+    // Themes confirmed per update (for the movement row) + tiers for the strip.
+    selectAll<{ run_id: string; single_source: boolean | null; strength_score: number | null }>(() =>
+      supabase.from('themes').select('run_id, single_source, strength_score').eq('client_id', clientId).order('run_id').order('id'),
+    ),
   ])
   const runningIds = ((runningRes.data ?? []) as { id: string }[]).map((r) => r.id)
   const notRunning = runningIds.length ? `(${runningIds.join(',')})` : null
@@ -121,41 +139,52 @@ export default async function DashboardPage({ searchParams }: { searchParams?: P
     )
   }
 
-  // ── the state snapshot + its history, in parallel ──────────────────────
+  // ── everything keyed on the anchored run, in one wave ──────────────────
   let themedQ = supabase.from('themes').select('run_id').eq('client_id', clientId)
   if (notRunning) themedQ = themedQ.not('run_id', 'in', notRunning)
-  const SUMMARY_COLS = 'run_id, run_date, total_videos, total_comments, period_videos, period_comments, share_of_voice, period_share_of_voice, period_sentiment_positive, audience_sentiment, period_audience_sentiment'
   let latestVidQ = supabase.from('videos').select('run_id').eq('client_id', clientId)
   if (notRunning) latestVidQ = latestVidQ.not('run_id', 'in', notRunning)
   let earlierThemesQ = supabase.from('themes').select('run_id').eq('client_id', clientId)
   if (notRunning) earlierThemesQ = earlierThemesQ.not('run_id', 'in', notRunning)
-  const [historyRaw, recRes, latestThemedRes, miRes, latestVidRes, snapRows, eventsRes, tierRows] = await Promise.all([
-    selectAll<SummaryRow>(() =>
-      supabase.from('run_summary').select(`${SUMMARY_COLS}, executive_brief`).eq('client_id', clientId).order('run_date', { ascending: true }),
-    ),
+  const [recRes, latestThemedRes, miRes, latestVidRes, eventsRes, bucketRes] = await Promise.all([
     supabase.from('recommendations').select('id, title, reasoning, priority, based_on, hero_quote').eq('client_id', clientId).eq('run_id', runId),
     themedQ.order('created_at', { ascending: false }).limit(1).maybeSingle(),
     supabase.from('market_insights').select('id, evidence').eq('client_id', clientId).eq('run_id', runId),
     // The newest update that gathered videos (an analysis-only update re-reads
     // old videos and gathers none) — anchors the platform split below.
     latestVidQ.order('scraped_at', { ascending: false }).limit(1).maybeSingle(),
-    // Daily follower snapshots (three platforms cross the 1000-row cap in ~11 months).
-    selectAll<{ platform: string; snapshot_date: string; followers: number | null }>(() =>
-      supabase.from('account_snapshots').select('platform, snapshot_date, followers').eq('client_id', clientId).order('snapshot_date', { ascending: true }),
-    ),
     supabase.from('account_events').select('platform, severity, explained, magnitude_label, explanation')
       .eq('client_id', clientId).eq('run_id', runId).order('severity', { ascending: false }).limit(3),
-    // Themes confirmed per update (for the movement row) + tiers for the strip.
-    selectAll<{ run_id: string; single_source: boolean | null; strength_score: number | null }>(() =>
-      supabase.from('themes').select('run_id, single_source, strength_score').eq('client_id', clientId).order('run_id').order('id'),
-    ),
+    // Theme buckets for scoping the recommendation's voices (used below only
+    // when there is a recommendation; cheap, and it saves a wave).
+    supabase.from('themes').select('bucket, supporting_insight_ids').eq('client_id', clientId).eq('run_id', runId),
   ])
 
-  // Videos by platform — counted rows, not an estimate.
+  // ── the third wave: what depends on the second ─────────────────────────
+  // Videos by platform (counted rows, not an estimate) need the gathering
+  // run; the theme list needs the themed run; the recommendation's supporting
+  // insights need the market-insight evidence. Independent of each other, so
+  // they go together.
   const videoRunId = (latestVidRes.data?.run_id as string | undefined) ?? runId
-  const platformRows = await selectAll<{ platform: string | null }>(() =>
-    supabase.from('videos').select('platform').eq('client_id', clientId).eq('run_id', videoRunId),
-  )
+  const themedRunId = latestThemedRes.data?.run_id as string | undefined
+  const recs = (recRes.data ?? []) as RecRow[]
+  const oneThing = topRecommendation(recs)
+  const marketInsights = (miRes.data ?? []) as { id: string; evidence: { supporting_theme_ids?: string[] } | null }[]
+  const miEvidenceById = new Map(marketInsights.map((m) => [m.id, m.evidence]))
+  const supportIds: string[] = []
+  if (oneThing) for (const id of oneThing.based_on?.insight_ids ?? []) supportIds.push(...(miEvidenceById.get(id)?.supporting_theme_ids ?? []))
+  const [platformRows, themeRowsRes, earlierRes, supportInsights] = await Promise.all([
+    selectAll<{ platform: string | null }>(() =>
+      supabase.from('videos').select('platform').eq('client_id', clientId).eq('run_id', videoRunId),
+    ),
+    themedRunId
+      ? supabase.from('themes')
+          .select('label, description, category, bucket, member_themes, evidence_count, strength_score, rank_score, first_seen')
+          .eq('client_id', clientId).eq('run_id', themedRunId)
+      : Promise.resolve({ data: null }),
+    themedRunId ? earlierThemesQ.neq('run_id', themedRunId).limit(1) : Promise.resolve({ data: null }),
+    oneThing ? fetchInsightsByIds<{ id: string; theme: string }>(supabase, supportIds, 'id, theme') : Promise.resolve([]),
+  ])
 
   // The latest update = the run we anchored on; everything before it is history.
   // A run's summary is written before the run closes, so an in-flight run can
@@ -180,7 +209,6 @@ export default async function DashboardPage({ searchParams }: { searchParams?: P
   const platforms = platformSplit(platformRows)
   const platformMax = platforms[0]?.count ?? 0
 
-  const themedRunId = latestThemedRes.data?.run_id as string | undefined
   const tiers = themeTiers(tierRows.filter((t) => t.run_id === themedRunId))
   const confirmedByRun = new Map<string, number>()
   for (const t of tierRows) if (!t.single_source) confirmedByRun.set(t.run_id, (confirmedByRun.get(t.run_id) ?? 0) + 1)
@@ -234,32 +262,17 @@ export default async function DashboardPage({ searchParams }: { searchParams?: P
   let themes: ReturnType<typeof topThemes> = []
   let analysedConversations = 0
   if (themedRunId) {
-    const [{ data: themeRows }, { data: earlier }] = await Promise.all([
-      supabase.from('themes')
-        .select('label, description, category, bucket, member_themes, evidence_count, strength_score, rank_score, first_seen')
-        .eq('client_id', clientId).eq('run_id', themedRunId),
-      earlierThemesQ.neq('run_id', themedRunId).limit(1),
-    ])
-    themes = topThemes((themeRows ?? []) as ThemeRankRow[], 8, (earlier?.length ?? 0) > 0)
+    themes = topThemes((themeRowsRes.data ?? []) as ThemeRankRow[], 8, (earlierRes.data?.length ?? 0) > 0)
     analysedConversations = Object.values(summary?.share_of_voice ?? {}).reduce((t, e) => t + Number(e?.analysed_videos ?? 0), 0)
   }
   const themeMax = themes[0]?.conversations ?? 0
 
   // ── the one thing to do + the voices behind it (shared lib/quotes) ─────
-  const recs = (recRes.data ?? []) as RecRow[]
-  const oneThing = topRecommendation(recs)
   let oneThingQuotes: string[] = []
   let oneThingVoices = 0
   if (oneThing) {
-    const marketInsights = (miRes.data ?? []) as { id: string; evidence: { supporting_theme_ids?: string[] } | null }[]
-    const miEvidenceById = new Map(marketInsights.map((m) => [m.id, m.evidence]))
-    const { data: bucketData } = await supabase.from('themes').select('bucket, supporting_insight_ids').eq('client_id', clientId).eq('run_id', runId)
-    const bucketById = bucketByAudienceId((bucketData ?? []) as ThemeBucketRow[])
-    const supportIds: string[] = []
-    for (const id of oneThing.based_on?.insight_ids ?? []) supportIds.push(...(miEvidenceById.get(id)?.supporting_theme_ids ?? []))
-    const themeSlugById = new Map(
-      (await fetchInsightsByIds<{ id: string; theme: string }>(supabase, supportIds, 'id, theme')).map((a) => [a.id, a.theme]),
-    )
+    const bucketById = bucketByAudienceId((bucketRes.data ?? []) as ThemeBucketRow[])
+    const themeSlugById = new Map(supportInsights.map((a) => [a.id, a.theme]))
     const scopedIds = scopeToClientVoices(supportIds, bucketById)
     oneThingVoices = scopedIds.length
     const claim = `${oneThing.title} ${oneThing.reasoning}`

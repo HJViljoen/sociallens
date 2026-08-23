@@ -28,17 +28,42 @@ interface MessageRow {
 export default async function AgentThreadPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params
   const { supabase, clientId, userId } = await getSessionContext()
-  const canSend = await isPlatformAdmin(userId)
-
-  // RLS already scopes to the tenant; the explicit client_id filter makes a
-  // cross-tenant id a 404 rather than an empty page.
-  const { data: thread } = await supabase
-    .from('agent_threads')
-    .select('id, kind, title, plan_check_id, created_at')
-    .eq('id', id)
-    .eq('client_id', clientId)
-    .maybeSingle()
+  // Admin check, the thread, and its turns all key on what the request already
+  // knows, so they go out in one wave — round trips, not rows, are the cost
+  // (the DB pays a ~0.5s wake-up on the first requests after idle, and every
+  // sequential wave pays it again). The turns are read through RLS too, and
+  // are discarded below if the thread is not this tenant's.
+  const [canSend, { data: thread }, { data: rows }] = await Promise.all([
+    isPlatformAdmin(userId),
+    // RLS already scopes to the tenant; the explicit client_id filter makes a
+    // cross-tenant id a 404 rather than an empty page.
+    supabase
+      .from('agent_threads')
+      .select('id, kind, title, plan_check_id, created_at')
+      .eq('id', id)
+      .eq('client_id', clientId)
+      .maybeSingle(),
+    supabase
+      .from('agent_messages')
+      .select('id, role, content, result, outcome, created_at')
+      .eq('thread_id', id)
+      .order('created_at', { ascending: true }),
+  ])
   if (!thread) notFound()
+  const messages = (rows ?? []) as MessageRow[]
+
+  // Stored answers carry comment IDS, not words. Resolve the words now, through
+  // insight_evidence — so a comment the erasure sweep removed simply stops
+  // resolving and disappears from every stored answer at once. A quote that no
+  // longer resolves is dropped rather than shown blank. Kicked off here so it
+  // overlaps the document's own quote fetch below; awaited after.
+  const commentIds = messages.flatMap((m) =>
+    (m.result?.grounded ?? []).flatMap((g) => g.quotes.map((q) => q.commentId).filter((c): c is string => Boolean(c))),
+  )
+  const quoteTextP = commentIds.length ? fetchQuoteTextsByCommentId(supabase, commentIds) : Promise.resolve(new Map<string, string>())
+  // A rejection is surfaced at the await below; this only stops it counting as
+  // unhandled while the document branch is still in flight.
+  quoteTextP.catch(() => {})
 
   // A document thread wraps a plan_check. Quotes are resolved live from the
   // stored insight ids — no quote text is kept in either table, so an erased
@@ -99,21 +124,7 @@ export default async function AgentThreadPage({ params }: { params: Promise<{ id
     }
   }
 
-  const { data: rows } = await supabase
-    .from('agent_messages')
-    .select('id, role, content, result, outcome, created_at')
-    .eq('thread_id', id)
-    .order('created_at', { ascending: true })
-  const messages = (rows ?? []) as MessageRow[]
-
-  // Stored answers carry comment IDS, not words. Resolve the words now, through
-  // insight_evidence — so a comment the erasure sweep removed simply stops
-  // resolving and disappears from every stored answer at once. A quote that no
-  // longer resolves is dropped rather than shown blank.
-  const commentIds = messages.flatMap((m) =>
-    (m.result?.grounded ?? []).flatMap((g) => g.quotes.map((q) => q.commentId).filter((c): c is string => Boolean(c))),
-  )
-  const quoteText = commentIds.length ? await fetchQuoteTextsByCommentId(supabase, commentIds) : new Map<string, string>()
+  const quoteText = await quoteTextP
   for (const m of messages) {
     if (!m.result?.grounded) continue
     for (const g of m.result.grounded) {

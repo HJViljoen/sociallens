@@ -17,15 +17,19 @@ import { isPlatformAdmin } from '@/lib/agent/access'
 
 export default async function AgentPage() {
   const { supabase, clientId, userId } = await getSessionContext()
-  // Computed server-side and passed down — never a client-side check.
-  const canSend = await isPlatformAdmin(userId)
-
-  const { data: rows } = await supabase
-    .from('agent_threads')
-    .select('id, title, created_at')
-    .eq('client_id', clientId)
-    .order('created_at', { ascending: false })
-    .limit(50)
+  // The admin check and the thread list are independent — one wave (round
+  // trips, not rows, are the cost: the DB pays a ~0.5s wake-up on the first
+  // requests after idle, and every sequential wave pays it again).
+  const [canSend, { data: rows }] = await Promise.all([
+    // Computed server-side and passed down — never a client-side check.
+    isPlatformAdmin(userId),
+    supabase
+      .from('agent_threads')
+      .select('id, title, created_at')
+      .eq('client_id', clientId)
+      .order('created_at', { ascending: false })
+      .limit(50),
+  ])
   const threads = (rows ?? []) as ThreadRow[]
 
   return (

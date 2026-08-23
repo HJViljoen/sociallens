@@ -103,38 +103,18 @@ export default async function VoiceOfCustomerPage({ searchParams }: { searchPara
 
   // Latest COMPLETED update — an in-flight one has no themes yet, so the page
   // keeps serving the previous update's voices until the new one closes.
-  const [{ data: latestRun }, runningRes, { data: client }] = await Promise.all([
+  //
+  // Round trips, not rows, are the cost (the DB pays a ~0.5s wake-up on the
+  // first requests after idle, and every sequential wave pays it again), so
+  // everything keyed on client_id alone — theme history, update dates, the
+  // phrase pool, the mood read — goes out here, with the run lookup; only
+  // this update's themes wait for the run id.
+  const [{ data: latestRun }, runningRes, { data: client }, historyRows, summaryRows, samplesRes, emotionRows] = await Promise.all([
     supabase.from('pipeline_runs').select('id, started_at')
       .eq('client_id', clientId).in('status', ['completed', 'partial'])
       .order('started_at', { ascending: false }).limit(1).maybeSingle(),
     supabase.from('pipeline_runs').select('id').eq('client_id', clientId).eq('status', 'running'),
     supabase.from('clients').select('company_name').eq('id', clientId).maybeSingle(),
-  ])
-  const runningIds = ((runningRes.data ?? []) as { id: string }[]).map((r) => r.id)
-  const brand = client?.company_name ?? 'your brand'
-
-  if (!latestRun) {
-    return (
-      <PageFrame>
-        <PageBar title="Voice of Customer" context="What are they saying?">
-          <HowToRead items={LEGEND_ITEMS} open={showLegend} basePath="/dashboard/voice" />
-        </PageBar>
-        <PageGrid>
-          <Tile col={12} row={2} eyebrow="The conversation, by theme">
-            <TileEmpty>Your customer voices land with your first update — check back then.</TileEmpty>
-          </Tile>
-        </PageGrid>
-      </PageFrame>
-    )
-  }
-  const runId = latestRun.id as string
-
-  const [themesRes, historyRows, summaryRows, samplesRes, emotionRows] = await Promise.all([
-    supabase.from('themes')
-      .select('id, registry_id, bucket, category, label, description, member_themes, supporting_insight_ids, supporting_video_ids, evidence_count, strength_score, rank_score, dominant_emotion, dominant_sentiment_impact, single_source, first_seen')
-      .eq('client_id', clientId).eq('run_id', runId)
-      .order('evidence_count', { ascending: false })
-      .order('rank_score', { ascending: false, nullsFirst: false }),
     // Every update's themes, for the per-theme sparks and the movers (joined on
     // registry_id in lib/voice-tiles). selectAll: a tenant crosses 1000 rows in
     // three updates.
@@ -155,6 +135,30 @@ export default async function VoiceOfCustomerPage({ searchParams }: { searchPara
       supabase.from('audience_insights_current').select('id, emotion').eq('client_id', clientId).order('id', { ascending: true }),
     ),
   ])
+  const runningIds = ((runningRes.data ?? []) as { id: string }[]).map((r) => r.id)
+  const brand = client?.company_name ?? 'your brand'
+
+  if (!latestRun) {
+    return (
+      <PageFrame>
+        <PageBar title="Voice of Customer" context="What are they saying?">
+          <HowToRead items={LEGEND_ITEMS} open={showLegend} basePath="/dashboard/voice" />
+        </PageBar>
+        <PageGrid>
+          <Tile col={12} row={2} eyebrow="The conversation, by theme">
+            <TileEmpty>Your customer voices land with your first update — check back then.</TileEmpty>
+          </Tile>
+        </PageGrid>
+      </PageFrame>
+    )
+  }
+  const runId = latestRun.id as string
+
+  const themesRes = await supabase.from('themes')
+    .select('id, registry_id, bucket, category, label, description, member_themes, supporting_insight_ids, supporting_video_ids, evidence_count, strength_score, rank_score, dominant_emotion, dominant_sentiment_impact, single_source, first_seen')
+    .eq('client_id', clientId).eq('run_id', runId)
+    .order('evidence_count', { ascending: false })
+    .order('rank_score', { ascending: false, nullsFirst: false })
 
   const themes = (themesRes.data ?? []) as ThemeRow[]
   // The updates that count for movement: closed updates that produced themes
@@ -188,25 +192,51 @@ export default async function VoiceOfCustomerPage({ searchParams }: { searchPara
   }
   const groupSize = (bucket: string) => groupConversations.get(bucket)?.size ?? 0
 
-  // Journey stage + platform per insight, read by id from the base table (the
-  // ids come from THIS update's themes; a newer in-flight update may already
-  // have superseded some of those videos' rows in the current view).
-  const insightMeta = new Map(
-    (await fetchInsightsByIds<{ id: string; journey_stage: string | null; platform: string | null }>(
-      supabase, themes.flatMap((t) => t.supporting_insight_ids ?? []), 'id, journey_stage, platform',
-    )).map((i) => [i.id, i]),
-  )
-  const stagesPresent = new Set([...insightMeta.values()].map((i) => i.journey_stage).filter(Boolean))
-
   // ---- filters ----
+  // The visible set depends on the per-insight journey stage ONLY when a
+  // stage filter is active — so in the common case the map pool, and with it
+  // the ribbon's insight ids, are known before the insight read returns, and
+  // the ribbon's quotes can be fetched in the same wave as the insight meta
+  // instead of two round trips later.
+  type InsightMeta = { id: string; journey_stage: string | null; platform: string | null }
   const inEntity = (t: ThemeRow) => entityFilter === 'all' || t.bucket === entityFilter
-  const shown = themes.filter((t) =>
+  const shownFor = (meta: Map<string, InsightMeta>) => themes.filter((t) =>
     inEntity(t) &&
     (!deepLinked || t.member_themes.some((slug) => groundingSlugs.has(slug))) &&
     (typeFilter === 'all' || t.category === typeFilter) &&
-    (stageFilter === 'all' || t.supporting_insight_ids.some((id) => insightMeta.get(id)?.journey_stage === stageFilter)) &&
+    (stageFilter === 'all' || t.supporting_insight_ids.some((id) => meta.get(id)?.journey_stage === stageFilter)) &&
     Number(t.strength_score ?? 0) >= minScore,
   )
+  // The map: the widest-heard confirmed themes under the current filters. A
+  // deep link shows exactly the themes behind that insight, singles included.
+  const poolFor = (shownThemes: ThemeRow[]) => (deepLinked ? shownThemes : voiceTiers(shownThemes).confirmed)
+    .slice()
+    .sort((a, b) => b.evidence_count - a.evidence_count || Number(b.rank_score ?? 0) - Number(a.rank_score ?? 0))
+  const ribbonIdsFor = (pool: ThemeRow[]) => pool.slice(0, RIBBON_THEMES).flatMap((t) => t.supporting_insight_ids.slice(0, QUOTE_IDS_PER_THEME))
+  const detailTheme = detail ? themes.find((t) => t.id === detail) ?? null : null
+
+  // Journey stage + platform per insight, read by id from the base table (the
+  // ids come from THIS update's themes; a newer in-flight update may already
+  // have superseded some of those videos' rows in the current view). In the
+  // same wave: the ribbon's citations (when the pool is already known) and the
+  // open theme drawer's evidence — none of the three depends on another.
+  const [insightRows, earlyCitations, detailEvidenceRes] = await Promise.all([
+    fetchInsightsByIds<InsightMeta>(supabase, themes.flatMap((t) => t.supporting_insight_ids ?? []), 'id, journey_stage, platform'),
+    stageFilter === 'all'
+      ? fetchQuoteCitationsByAudience(supabase, ribbonIdsFor(poolFor(shownFor(new Map()))))
+      : Promise.resolve(null),
+    // Counts-not-quotes: demographic evidence cites but never quotes — its rows
+    // carry redacted = true and an empty quote; counted here, never rendered.
+    detailTheme
+      ? supabase
+          .from('insight_evidence').select('audience_insight_id, quote, relevance_rank, redacted')
+          .in('audience_insight_id', detailTheme.supporting_insight_ids.slice(0, QUOTE_IDS_PER_THEME))
+          .order('relevance_rank', { ascending: true })
+      : Promise.resolve({ data: null }),
+  ])
+  const insightMeta = new Map(insightRows.map((i) => [i.id, i]))
+  const stagesPresent = new Set([...insightMeta.values()].map((i) => i.journey_stage).filter(Boolean))
+  const shown = shownFor(insightMeta)
   const tiers = voiceTiers(shown)
   const tiersAll = voiceTiers(themes)
   const tiersEntity = voiceTiers(themes.filter(inEntity))
@@ -235,11 +265,8 @@ export default async function VoiceOfCustomerPage({ searchParams }: { searchPara
   const movers = moversAll.filter((t) => t.movement !== 'steady')
   const steadyCount = moversAll.length - movers.length
 
-  // ---- the map: the widest-heard confirmed themes under the current filters.
-  // A deep link shows exactly the themes behind that insight, singles included.
-  const mapPool = (deepLinked ? shown : tiers.confirmed)
-    .slice()
-    .sort((a, b) => b.evidence_count - a.evidence_count || Number(b.rank_score ?? 0) - Number(a.rank_score ?? 0))
+  // ---- the map (pool defined with the filters above) ----
+  const mapPool = poolFor(shown)
   const blocks: ThemeBlock[] = mapPool.slice(0, MAP_BLOCKS).map((t) => ({
     id: t.id,
     label: t.label,
@@ -254,9 +281,9 @@ export default async function VoiceOfCustomerPage({ searchParams }: { searchPara
   // ---- the ribbon: five verbatim voices from the top themes, scoped to the
   // current audience; redacted (demographic) evidence never reaches it.
   const ribbonThemes = mapPool.slice(0, RIBBON_THEMES)
-  const citations = await fetchQuoteCitationsByAudience(
-    supabase, ribbonThemes.flatMap((t) => t.supporting_insight_ids.slice(0, QUOTE_IDS_PER_THEME)),
-  )
+  // Fetched a wave earlier unless a stage filter made the pool wait for the
+  // insight meta — then it is fetched now, against the real pool.
+  const citations = earlyCitations ?? await fetchQuoteCitationsByAudience(supabase, ribbonIdsFor(mapPool))
   type Cand = { theme: ThemeRow; quote: string; citation: QuoteCitation; insightId: string }
   const seenQuote = new Set<string>()
   const candidatesByTheme: Cand[][] = ribbonThemes.map((theme) => {
@@ -305,19 +332,12 @@ export default async function VoiceOfCustomerPage({ searchParams }: { searchPara
   const moodMax = moods[0]?.pct ?? 0
   const MOOD_COLOR = { positive: 'var(--positive)', negative: 'var(--accent-clay)', neutral: 'var(--input)' } as const
 
-  // ---- theme drawer (?detail=<themeId>) ----
-  const detailTheme = detail ? themes.find((t) => t.id === detail) ?? null : null
+  // ---- theme drawer (?detail=<themeId>) — evidence fetched above ----
   const detailQuotes: string[] = []
   let detailWithheld = 0
   if (detailTheme) {
-    // Counts-not-quotes: demographic evidence cites but never quotes — its rows
-    // carry redacted = true and an empty quote; counted here, never rendered.
-    const { data } = await supabase
-      .from('insight_evidence').select('audience_insight_id, quote, relevance_rank, redacted')
-      .in('audience_insight_id', detailTheme.supporting_insight_ids.slice(0, QUOTE_IDS_PER_THEME))
-      .order('relevance_rank', { ascending: true })
     const seen = new Set<string>()
-    for (const ev of (data ?? []) as { quote: string; redacted: boolean | null }[]) {
+    for (const ev of (detailEvidenceRes.data ?? []) as { quote: string; redacted: boolean | null }[]) {
       if (ev.redacted || !ev.quote) { detailWithheld++; continue }
       const q = cleanQuote(ev.quote)
       if (seen.has(q.toLowerCase()) || detailQuotes.length >= DETAIL_QUOTES) continue
