@@ -510,7 +510,7 @@ export default async function DashboardPage({ searchParams }: { searchParams?: P
           footer={oneThing ? <Link href="/dashboard/market">Why, and the voices{oneThingVoices > 0 ? ` (${oneThingVoices})` : ''} →</Link> : undefined}
         >
           {oneThing ? (
-            <p className="line-clamp-2 text-[13.5px] font-semibold leading-[1.3] tracking-[-0.01em]">{oneThing.title}</p>
+            <p className="line-clamp-2 text-[13px] font-semibold leading-[1.25] tracking-[-0.01em]">{oneThing.title}</p>
           ) : <TileEmpty>Recommendations land with the next update.</TileEmpty>}
         </Tile>
 
