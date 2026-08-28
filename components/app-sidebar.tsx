@@ -2,7 +2,7 @@
 
 import {
   Sidebar, SidebarContent, SidebarFooter, SidebarGroup, SidebarGroupContent, SidebarGroupLabel,
-  SidebarHeader, SidebarMenu, SidebarMenuButton, SidebarMenuItem, SidebarRail,
+  SidebarHeader, SidebarMenu, SidebarMenuButton, SidebarMenuItem,
   useSidebar,
 } from "@/components/ui/sidebar"
 import { LayoutDashboard, Target, MessageCircle, Swords, Play, FileText, Users, UserRound, Sparkles, CreditCard, Settings, LogOut } from "lucide-react"
@@ -104,7 +104,6 @@ export function AppSidebar({ showAgent = false }: { showAgent?: boolean }) {
           </SidebarMenuItem>
         </SidebarMenu>
       </SidebarFooter>
-      <SidebarRail />
     </Sidebar>
   )
 }

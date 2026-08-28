@@ -61,15 +61,15 @@ const LEGEND_ITEMS: GlossaryKey[] = ['conversations', 'sentiment']
 // drawer has them all.
 const VISIBLE_FINDINGS = 3
 
-// Kind chips — greens / warm reds-golds / neutrals only; class strings written
-// out in full so Tailwind v4 sees them. lead = green tint, threat = clay tint,
-// gap = gold tint, tone (sentiment differential) and the rest = neutral stone.
+// Kind chips on the semantic tokens (2026-08-28): lead = green tint, threat =
+// red tint, gap = amber tint, tone and the rest = grey. Class strings written
+// out in full so Tailwind v4 sees them.
 const KIND_CHIP: Record<KindTone, string> = {
-  lead: 'bg-[#E3EEE3] text-positive',
-  threat: 'bg-[#F3DFD5] text-[#8B3A22]',
-  gap: 'bg-[#F6E7D2] text-[#8A5A1B]',
-  tone: 'bg-slate/15 text-[#5C564C]',
-  other: 'bg-muted text-muted-foreground',
+  lead: 'bg-accent text-accent-foreground',
+  threat: 'bg-negative/12 text-negative',
+  gap: 'bg-warning/15 text-warning',
+  tone: 'bg-inner text-muted-foreground',
+  other: 'bg-inner text-muted-foreground',
 }
 const impactWord = (l: string | null) => (l === 'high' ? 'high impact' : l === 'medium' ? 'medium impact' : l === 'low' ? 'low impact' : null)
 
