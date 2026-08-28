@@ -39,7 +39,7 @@ type NavItem = { href: string; label: string; icon: typeof LayoutDashboard }
 // page). No pill fill — the shadcn default paints bg-sidebar-accent on
 // data-active, which is overridden here.
 const ITEM_CLASS =
-  "relative h-9 gap-2.5 rounded-md px-2.5 text-[13px] font-normal text-sidebar-foreground " +
+  "relative h-9 gap-2.5 rounded-md px-2.5 text-[14px] font-normal text-sidebar-foreground " +
   "hover:bg-sidebar-accent hover:text-foreground " +
   "data-[active=true]:bg-transparent data-[active=true]:font-semibold data-[active=true]:text-foreground " +
   "data-[active=true]:before:absolute data-[active=true]:before:-left-2 data-[active=true]:before:top-2 data-[active=true]:before:bottom-2 " +
@@ -60,7 +60,7 @@ export function AppSidebar({ showAgent = false }: { showAgent?: boolean }) {
   }
 
   const renderGroup = (label: string, items: NavItem[]) => (
-    <SidebarGroup className="px-2">
+    <SidebarGroup className="px-1.5">
       <SidebarGroupLabel className="h-7 px-2.5 font-mono text-[10px] uppercase tracking-[0.08em] text-muted-foreground/80">
         {label}
       </SidebarGroupLabel>
@@ -85,7 +85,7 @@ export function AppSidebar({ showAgent = false }: { showAgent?: boolean }) {
     <Sidebar variant="sidebar" collapsible="offcanvas">
       <SidebarHeader>
         <div className="flex items-baseline gap-2 px-4 pt-5 pb-1">
-          <span className="text-[16px] font-bold tracking-[-0.02em] text-foreground">Verbatim</span>
+          <span className="text-[17px] font-bold tracking-[-0.02em] text-foreground">Verbatim</span>
         </div>
       </SidebarHeader>
 

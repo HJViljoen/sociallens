@@ -11,8 +11,10 @@ import { agentEnabled } from "@/lib/config"
 // duration. The proxy already gates anonymous users; the page resolves the
 // session (request-cached) and the billing banner streams in behind Suspense.
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
+  // Sidebar 14rem, not shadcn's 16rem: labels sit closer to the edge and the
+  // page gets the width back (Heinrich, 2026-08-28 walk-through).
   return (
-    <SidebarProvider>
+    <SidebarProvider style={{ '--sidebar-width': '14rem' } as React.CSSProperties}>
       <AppSidebar showAgent={agentEnabled()} />
       {/* min-w-0: without it this flex item refuses to shrink below the
           intrinsic width of wide children (the Content page's 9-column table),
