@@ -179,7 +179,8 @@ export default async function CompetitiveIntelligencePage({ searchParams }: { se
   // ── selection ──────────────────────────────────────────────────────────
   const group: Group = sp.group === 'findings' ? 'findings' : 'faceoff'
   const kind = sp.kind && kinds.some((g) => g.category === sp.kind) ? sp.kind : null
-  const vsFilter = sp.vs && competitors.some((c) => c.name.toLowerCase() === sp.vs!.toLowerCase()) ? competitors.find((c) => c.name.toLowerCase() === sp.vs!.toLowerCase())!.name : null
+  const knownNames = [...new Set([...competitors.map((c) => c.name), ...findingsByCompetitor.keys()])]
+  const vsFilter = sp.vs ? knownNames.find((n) => n.toLowerCase() === sp.vs!.toLowerCase()) ?? null : null
   const findingsShown = insights.filter((ci) => (!kind || ci.category === kind) && (!vsFilter || group !== 'findings' || ci.competitor_name === vsFilter))
   const listIds = group === 'faceoff' ? competitors.map((c) => c.name) : findingsShown.map((ci) => ci.id)
   const requested = sp.item ?? (group === 'faceoff' ? vsFilter ?? undefined : undefined)

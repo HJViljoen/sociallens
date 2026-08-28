@@ -267,7 +267,9 @@ export default async function MarketIntelligencePage({ searchParams }: { searchP
 
   // ── selection: ?group= & ?item= (with ?rec= from the Dashboard/email) ───
   const filter: Filter = isFilter(sp.f) ? sp.f : 'all'
-  const group: Group = isGroup(sp.group) ? sp.group : sp.rec ? 'recs' : 'recs'
+  // Old drawer links (?detail=recs|claims|insights|about|news) land on their group.
+  const legacy = sp.detail && isGroup(sp.detail) ? sp.detail : null
+  const group: Group = isGroup(sp.group) ? sp.group : legacy ?? 'recs'
   const tierPass = (tier: GateTier) => filter === 'all' || (filter === 'strong' && tier === 'confirmed') || (filter === 'early' && tier === 'early_signal')
   const agendaShown = agenda.filter((a) => tierPass(a.tier))
   const insightsShown = insights.filter((mi) => tierPass(tierById.get(mi.id) ?? 'archive'))

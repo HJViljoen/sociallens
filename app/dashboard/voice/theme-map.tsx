@@ -76,7 +76,7 @@ export function ThemeMap({ blocks, className }: { blocks: ThemeBlock[]; classNam
             <span className="mt-auto flex min-w-0 items-center gap-1.5">
               <span className={`font-mono font-semibold tabular-nums leading-none ${big ? 'text-[15px]' : 'text-[12px]'}`}>{b.count}</span>
               {big && <Chip className="bg-tile/75 text-muted-foreground">{b.category}</Chip>}
-              {b.isNew && mid && <Chip className="bg-accent text-accent-foreground">New</Chip>}
+              {b.isNew && mid && <Chip className="bg-tile/85 text-muted-foreground">New</Chip>}
               {big && b.series && b.series.length >= 2 && (
                 <Sparkline values={b.series} color={edge} width={54} height={14} endDot={false} className="ml-auto" />
               )}

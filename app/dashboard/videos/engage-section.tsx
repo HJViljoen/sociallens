@@ -177,7 +177,7 @@ export function EngageInboxTile({
       key={href}
       href={href}
       scroll={false}
-      className={`inline-flex h-[20px] shrink-0 items-center rounded-full px-2 text-[10.5px] font-medium whitespace-nowrap ${active ? 'bg-accent text-accent-foreground' : 'bg-inner text-secondary-foreground hover:text-foreground'}`}
+      className={`inline-flex h-[20px] shrink-0 items-center rounded-full px-2 text-[10.5px] font-medium whitespace-nowrap ${active ? 'bg-foreground text-tile' : 'bg-inner text-secondary-foreground hover:text-foreground'}`}
     >
       {label}
     </Link>

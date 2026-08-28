@@ -13,7 +13,7 @@ export default function Loading() {
   return (
     <PageFrame className="min-h-0 flex-1">
       <PageBar title="Market Intelligence" context={<Bone className="h-3 w-56" />} />
-      <div className="flex min-h-0 flex-1 gap-3">
+      <div className="flex min-h-0 flex-1 gap-3 md:h-[calc(100dvh_-_6.75rem)] md:flex-none">
         <Pane className="hidden w-[20%] md:flex">
           <div className="border-b border-border/70 px-4 pt-3.5 pb-3"><Bone className="h-2.5 w-20" /></div>
           <div className="flex flex-col gap-1.5 p-3">

@@ -365,11 +365,11 @@ export default async function VoiceOfCustomerPage({ searchParams }: { searchPara
   // they move into the map tile's header row.
   const entityPills = themes.length > 0 && entities.length > 1 ? (
     <>
-      <Link href={hrefWith({ entity: null, type: null, themes: null, detail: null })} scroll={false}>
+      <Link href={hrefWith({ entity: null, type: null, themes: null, detail: null, theme: null })} scroll={false}>
         <BarPill active={entityFilter === 'all'}>All audiences</BarPill>
       </Link>
       {entities.map((e) => (
-        <Link key={e.bucket} href={hrefWith({ entity: e.bucket, type: null, themes: null, detail: null })} scroll={false}>
+        <Link key={e.bucket} href={hrefWith({ entity: e.bucket, type: null, themes: null, detail: null, theme: null })} scroll={false}>
           <BarPill active={entityFilter === e.bucket}>
             {e.bucket === 'client' ? 'Yours' : e.bucket === 'industry-other' ? 'Category' : `${competitorName(e.bucket)}’s`}
             <span className="font-mono text-[11px] font-medium tabular-nums text-muted-foreground">{e.confirmed}</span>
@@ -408,9 +408,9 @@ export default async function VoiceOfCustomerPage({ searchParams }: { searchPara
           )}
           {themes.length > 0 && (
             <div className="-mx-4 flex flex-wrap items-center gap-0.5 border-b border-border/80 px-4 pb-2">
-              <TabLink label="All" count={tiersEntity.confirmed.length} active={typeFilter === 'all'} href={hrefWith({ type: null, detail: null })} />
+              <TabLink label="All" count={tiersEntity.confirmed.length} active={typeFilter === 'all'} href={hrefWith({ type: null, detail: null, theme: null })} />
               {tabs.map((t) => (
-                <TabLink key={t.category} label={t.label} count={t.count} active={typeFilter === t.category} href={hrefWith({ type: t.category, detail: null })} />
+                <TabLink key={t.category} label={t.label} count={t.count} active={typeFilter === t.category} href={hrefWith({ type: t.category, detail: null, theme: null })} />
               ))}
             </div>
           )}
@@ -441,7 +441,7 @@ export default async function VoiceOfCustomerPage({ searchParams }: { searchPara
                 <span title={glossaryRule(prevalence)} className={`${chip} ${PREVALENCE_BADGE[prevalence]}`}>{PREVALENCE_LABEL[prevalence]}</span>
                 <span className={`${chip} ${categoryChip(detailTheme.category)}`}>{categoryLabel(detailTheme.category)}</span>
                 {detailTheme.dominant_emotion && <span className={`${chip} capitalize bg-inner text-muted-foreground`}>{detailTheme.dominant_emotion}</span>}
-                {showNew && detailTheme.first_seen && <span title={glossaryRule('new')} className={`${chip} bg-accent text-accent-foreground`}>New</span>}
+                {showNew && detailTheme.first_seen && <span title={glossaryRule('new')} className={`${chip} bg-inner text-muted-foreground`}>New</span>}
               </div>
               {detailTheme.description && <p className="text-[13px] leading-[1.5] text-foreground/90">{detailTheme.description}</p>}
               <div className="space-y-1.5 border-t border-border/70 pt-3">
@@ -604,11 +604,11 @@ function TabLink({ label, count, active, href }: { label: string; count: number;
       href={href}
       scroll={false}
       className={`inline-flex h-[22px] shrink-0 items-center gap-1 whitespace-nowrap rounded-md px-2 text-[11.5px] font-medium transition-colors ${
-        active ? 'bg-accent text-accent-foreground' : 'text-muted-foreground hover:bg-inner hover:text-foreground'
+        active ? 'bg-foreground text-tile' : 'text-muted-foreground hover:bg-inner hover:text-foreground'
       }`}
     >
       {label}
-      <span className={`font-mono text-[10.5px] tabular-nums ${active ? 'text-accent-foreground/70' : 'text-muted-foreground/80'}`}>{count}</span>
+      <span className={`font-mono text-[10.5px] tabular-nums ${active ? 'text-tile/70' : 'text-muted-foreground/80'}`}>{count}</span>
     </Link>
   )
 }
@@ -621,7 +621,7 @@ function MoverRow({ t, competitorName, sparkWidth }: { t: Trajectory; competitor
   const suffix = kind === 'competitor' ? ` · ${competitorName(t.bucket)}’s` : kind === 'client' ? ' · yours' : ''
   const label = (
     <span className="flex min-w-0 items-center gap-1.5">
-      {t.movement === 'emerging' && <span className={`${chip} bg-accent text-accent-foreground`}>New</span>}
+      {t.movement === 'emerging' && <span className={`${chip} bg-inner text-muted-foreground`}>New</span>}
       <span className="truncate">{t.label}{suffix ? <span className="text-muted-foreground">{suffix}</span> : null}</span>
     </span>
   )
@@ -659,7 +659,7 @@ function ThemeList({ title, hint, rows, hrefWith, showNew, compact }: {
           <Link key={t.id} href={hrefWith({ theme: t.id })} scroll={false} className="flex items-center gap-2 rounded-sm py-[3px] hover:bg-inner">
             <span className="size-1.5 shrink-0 rounded-full" style={{ background: EDGE[bucketKind(t.bucket)] }} aria-hidden />
             <span className={`min-w-0 flex-1 truncate ${compact ? 'text-[12px] text-muted-foreground' : 'text-[12.5px]'}`}>{t.label}</span>
-            {showNew && t.first_seen && <span className={`${chip} bg-accent text-accent-foreground`}>New</span>}
+            {showNew && t.first_seen && <span className={`${chip} bg-inner text-muted-foreground`}>New</span>}
             {!compact && <span className={`${chip} hidden sm:inline-flex ${categoryChip(t.category)}`}>{categoryLabel(t.category)}</span>}
             <span className="w-7 shrink-0 text-right font-mono text-[11.5px] font-semibold tabular-nums">{t.evidence_count}</span>
           </Link>

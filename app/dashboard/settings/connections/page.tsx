@@ -15,11 +15,12 @@ export default async function ConnectionsPage() {
   const { supabase, clientId } = await getSessionContext()
   const [{ data: client }, { data: tc }] = await Promise.all([
     supabase.from('clients').select('company_name').eq('id', clientId).maybeSingle(),
-    supabase.from('tracking_configs').select('platforms, own_handles, report_emails').eq('client_id', clientId).maybeSingle(),
+    supabase.from('tracking_configs').select('platforms, own_handles, report_emails, report_period').eq('client_id', clientId).maybeSingle(),
   ])
   const platforms = new Set<string>((tc?.platforms as string[] | null) ?? [])
   const handles = (tc?.own_handles as Record<string, string> | null) ?? {}
   const emails = (tc?.report_emails as string[] | null) ?? []
+  const paused = tc?.report_period === 'paused'
 
   return (
     <SettingsFrame active="connections" title="Settings" context={client?.company_name ?? undefined} contentTitle="Connections" contentMeta="what we read · where reports go">
@@ -39,8 +40,8 @@ export default async function ConnectionsPage() {
         <SettingsCard title="Where reports go" description="The weekly report is the product’s main surface. Email is live; chat destinations are next.">
           <ConnectionRow
             name="Email"
-            what={emails.length > 0 ? `${emails.length} recipient${emails.length === 1 ? '' : 's'} — edit the list under Tracking & reports` : 'No recipients yet — add them under Tracking & reports'}
-            status={emails.length > 0 ? 'connected' : 'not-connected'}
+            what={paused ? 'Updates are paused for this workspace — nothing is being sent' : emails.length > 0 ? `${emails.length} recipient${emails.length === 1 ? '' : 's'} — edit the list under Tracking & reports` : 'No recipients yet — add them under Tracking & reports'}
+            status={paused ? 'paused' : emails.length > 0 ? 'connected' : 'not-connected'}
             action={<Link href="/dashboard/settings#reports" className="text-[12px] font-medium hover:underline">Edit →</Link>}
           />
           <ConnectionRow name="Slack" what="The weekly report and movement alerts in a channel" status="coming-soon" />

@@ -12,15 +12,25 @@ import { cn } from '@/lib/utils'
 // the page itself stays a server component; this wrapper is the only client
 // code, and it holds no state beyond the pane widths, which it restores from
 // localStorage AFTER mount (never during render — the server has no storage
-// and the first client paint must match the server HTML). Below `md` the
-// panes stack in reading order.
+// and the first client paint must match the server HTML).
+//
+// The panes are rendered exactly once. Below `md` the same group stacks in
+// reading order by CSS (the library sizes panels with inline styles, so the
+// overrides are `!important`) and the drag handles hide. One DOM, one set of
+// ids — the pane search always filters the list the reader is looking at.
 //
 // The three panes are the tile level of the nesting discipline (map §1,
 // decision 2): white, ambient shadow. Rows inside them are the inner level.
 
-const RAIL_ID = 'rail'
-const LIST_ID = 'list'
-const DETAIL_ID = 'detail'
+
+// Panel drops `className`, so the stacking lives on the wrapper as descendant
+// rules. Tailwind 4: the important marker is a suffix (`flex-none!`) — it has
+// to beat the library's inline sizes.
+const STACK = [
+  'max-md:[&_[data-slot=resizable-panel-group]]:h-auto! max-md:[&_[data-slot=resizable-panel-group]]:flex-col! max-md:[&_[data-slot=resizable-panel-group]]:overflow-visible!',
+  'max-md:[&_[data-panel]]:h-auto! max-md:[&_[data-panel]]:max-h-none! max-md:[&_[data-panel]]:w-full! max-md:[&_[data-panel]]:basis-auto! max-md:[&_[data-panel]]:flex-none! max-md:[&_[data-panel]]:overflow-visible!',
+].join(' ')
+const HANDLE = 'w-1 rounded-full bg-transparent after:w-1 hover:bg-border data-[resize-handle-state=drag]:bg-border max-md:hidden'
 
 export function MasterDetail({
   id, rail, list, detail, className,
@@ -50,44 +60,34 @@ export function MasterDetail({
   }
 
   return (
-    // The three panes fill the shell's height and scroll inside themselves — the
-    // page-inside-the-page keeps its frame still (component-map §2).
-    <div className={cn('flex min-h-0 flex-col md:h-[calc(100dvh_-_6.75rem)] md:flex-none', className)}>
-      {/* ≥ md: three panes side by side. The wrapper carries the breakpoint —
-          the panel group sets display:flex inline, so `hidden` on it is ignored. */}
-      <div className="hidden min-h-0 flex-1 md:flex">
+    // Desktop: the panes fill the shell's height and scroll inside themselves —
+    // the page-inside-the-page keeps its frame still. Phones: they stack.
+    <div className={cn('flex min-h-0 flex-col md:h-[calc(100dvh_-_6.75rem)] md:flex-none', STACK, className)}>
       <ResizablePanelGroup
         orientation="horizontal"
         groupRef={group}
         onLayoutChanged={remember}
         className="min-h-0 flex-1 gap-3"
       >
-        <ResizablePanel id={RAIL_ID} defaultSize="20" minSize={168} maxSize="32" className="min-h-0">
-          <Pane>{rail}</Pane>
+        <ResizablePanel id={`${id}-rail`} defaultSize="20" minSize={168} maxSize="32" className="min-h-0">
+          <Pane className="max-md:max-h-[40vh]">{rail}</Pane>
         </ResizablePanel>
-        <ResizableHandle className="w-1 rounded-full bg-transparent after:w-1 hover:bg-border data-[resize-handle-state=drag]:bg-border" />
-        <ResizablePanel id={LIST_ID} defaultSize="34" minSize={260} className="min-h-0">
-          <Pane>{list}</Pane>
+        <ResizableHandle className={HANDLE} />
+        <ResizablePanel id={`${id}-list`} defaultSize="34" minSize={260} className="min-h-0">
+          <Pane className="max-md:max-h-[60vh]">{list}</Pane>
         </ResizablePanel>
-        <ResizableHandle className="w-1 rounded-full bg-transparent after:w-1 hover:bg-border data-[resize-handle-state=drag]:bg-border" />
-        <ResizablePanel id={DETAIL_ID} minSize={320} className="min-h-0">
+        <ResizableHandle className={HANDLE} />
+        <ResizablePanel id={`${id}-detail`} minSize={320} className="min-h-0">
           <Pane>{detail}</Pane>
         </ResizablePanel>
       </ResizablePanelGroup>
-      </div>
-      {/* < md: stacked, each pane its own tile */}
-      <div className="flex flex-col gap-3 md:hidden">
-        <Pane className="max-h-[40vh]">{rail}</Pane>
-        <Pane className="max-h-[60vh]">{list}</Pane>
-        <Pane>{detail}</Pane>
-      </div>
     </div>
   )
 }
 
 function Pane({ children, className }: { children: ReactNode; className?: string }) {
   return (
-    <section className={cn('flex h-full min-h-0 flex-col overflow-hidden rounded-lg bg-tile shadow-tile', className)}>
+    <section className={cn('flex h-full min-h-0 flex-col overflow-hidden rounded-lg bg-tile shadow-tile max-md:h-auto max-md:w-full', className)}>
       {children}
     </section>
   )

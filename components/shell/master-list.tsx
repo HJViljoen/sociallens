@@ -57,13 +57,12 @@ export function RailLink({ href, active = false, count, children }: { href: stri
 /** Segmented filter for a list header: links, one active. */
 export function Segmented({ items }: { items: { href: string; label: ReactNode; active?: boolean; count?: number }[] }) {
   return (
-    <div className="flex flex-wrap gap-1" role="tablist">
+    <div className="flex flex-wrap gap-1">
       {items.map((it, i) => (
         <Link
           key={i}
           href={it.href}
-          role="tab"
-          aria-selected={!!it.active}
+          aria-current={it.active ? 'true' : undefined}
           className={cn(
             'inline-flex h-6 items-center gap-1 rounded-full px-2.5 text-[11.5px] font-medium transition-colors',
             it.active ? 'bg-foreground text-tile' : 'bg-inner text-secondary-foreground hover:text-foreground',

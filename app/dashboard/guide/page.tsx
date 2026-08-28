@@ -116,13 +116,13 @@ export default function GuidePage() {
                 <div>
                   <p className="mb-1 text-[10.5px] font-semibold uppercase tracking-[0.06em] text-muted-foreground">What to do with it each week</p>
                   <ul className="flex flex-col gap-1">
-                    {s.weekly.map((w, i) => <li key={i} className="flex gap-2 text-[12px] leading-[1.45]"><span className="mt-[7px] size-1 shrink-0 rounded-full bg-you" aria-hidden />{w}</li>)}
+                    {s.weekly.map((w, i) => <li key={i} className="flex gap-2 text-[12px] leading-[1.45]"><span className="mt-[7px] size-1 shrink-0 rounded-full bg-muted-foreground/60" aria-hidden />{w}</li>)}
                   </ul>
                 </div>
                 <div>
                   <p className="mb-1 text-[10.5px] font-semibold uppercase tracking-[0.06em] text-muted-foreground">What it can’t tell you</p>
                   <ul className="flex flex-col gap-1">
-                    {s.cannot.map((w, i) => <li key={i} className="flex gap-2 text-[12px] leading-[1.45] text-secondary-foreground"><span className="mt-[7px] size-1 shrink-0 rounded-full bg-cat" aria-hidden />{w}</li>)}
+                    {s.cannot.map((w, i) => <li key={i} className="flex gap-2 text-[12px] leading-[1.45] text-secondary-foreground"><span className="mt-[7px] size-1 shrink-0 rounded-full bg-muted-foreground/60" aria-hidden />{w}</li>)}
                   </ul>
                 </div>
               </div>

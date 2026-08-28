@@ -111,7 +111,7 @@ export default async function ReportsPage({ searchParams }: { searchParams?: Pro
           srcDoc={html}
           sandbox="allow-popups allow-popups-to-escape-sandbox"
           title={selected.subject ?? 'Report'}
-          className="min-h-0 w-full flex-1 bg-tile"
+          className="min-h-0 w-full flex-1 bg-tile max-md:h-[70vh]"
         />
       ) : (
         <PaneEmpty>This report has no stored content.</PaneEmpty>
