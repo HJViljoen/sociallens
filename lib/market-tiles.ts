@@ -89,10 +89,10 @@ export function openAgendaId<T extends RecLike>(shown: AgendaItem<T>[], requeste
   return shown[0]?.rec.id ?? null
 }
 
-/** Priority dot colour by stored priority: high gold, medium sage, low sand. */
+/** Priority dot colour by stored priority: high amber, medium grey, low hairline. */
 export function priorityDot(priority: string | null | undefined): string {
-  if (priority === 'high') return 'var(--accent-ochre)'
-  if (priority === 'medium') return 'var(--chart-4)'
+  if (priority === 'high') return 'var(--warning)'
+  if (priority === 'medium') return 'var(--cat)'
   return 'var(--input)'
 }
 

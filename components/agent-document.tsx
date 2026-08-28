@@ -15,8 +15,8 @@ import type { ClaimResult, Judgement, AskSummary, Verdict } from '@/lib/ask/type
 // explanation, no filler. The blank is the information.
 
 const VERDICT_META: Record<Verdict, { label: string; fg: string; bg: string }> = {
-  echoes: { label: 'Supported', fg: 'text-primary', bg: 'bg-primary/10' },
-  contradicts: { label: 'Contradicted', fg: 'text-clay', bg: 'bg-clay/10' },
+  echoes: { label: 'Supported', fg: 'text-accent-foreground', bg: 'bg-accent' },
+  contradicts: { label: 'Contradicted', fg: 'text-negative', bg: 'bg-negative/12' },
   // Same visual weight as the other two. It is the verdict that keeps the
   // product honest, and shrinking it would quietly turn "we don't know" into
   // "nothing to see".

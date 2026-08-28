@@ -31,7 +31,7 @@ export function FindingTile({ finding }: { finding: Finding }) {
         <CardHeader className="pb-2">
           <div className="flex items-start gap-3">
             {rank != null && (
-              <span className="text-3xl font-bold leading-none text-primary/25" aria-hidden>{rank}</span>
+              <span className="text-3xl font-bold leading-none text-muted-foreground/40" aria-hidden>{rank}</span>
             )}
             <div className="space-y-1.5">
               <div className="flex flex-wrap items-center gap-2">
@@ -56,7 +56,7 @@ export function FindingTile({ finding }: { finding: Finding }) {
         <CardContent className="space-y-2">
           <p className="text-xs text-muted-foreground">{description}</p>
           <p className="text-[10px] text-muted-foreground">
-            {evidenceLabel} · <span className="text-primary">{ctaLabel}</span>
+            {evidenceLabel} · <span className="font-medium text-foreground">{ctaLabel}</span>
           </p>
         </CardContent>
       </Card>

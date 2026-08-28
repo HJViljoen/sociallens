@@ -33,7 +33,7 @@ export default function ResetRequestPage() {
         </form>
 
         <p className="mt-6 text-center text-sm text-muted-foreground">
-          Remembered it? <Link href="/login" className="text-primary underline">Sign in</Link>
+          Remembered it? <Link href="/login" className="text-foreground underline">Sign in</Link>
         </p>
       </div>
     </div>

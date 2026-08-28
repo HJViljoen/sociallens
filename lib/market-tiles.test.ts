@@ -72,9 +72,9 @@ describe('agenda ordering', () => {
     expect(openAgendaId([], 'a')).toBeNull()
   })
 
-  it('priority dots: high gold, medium sage, low/unknown sand', () => {
-    expect(priorityDot('high')).toBe('var(--accent-ochre)')
-    expect(priorityDot('medium')).toBe('var(--chart-4)')
+  it('priority dots: high amber, medium grey, low/unknown hairline', () => {
+    expect(priorityDot('high')).toBe('var(--warning)')
+    expect(priorityDot('medium')).toBe('var(--cat)')
     expect(priorityDot('low')).toBe('var(--input)')
     expect(priorityDot(null)).toBe('var(--input)')
   })

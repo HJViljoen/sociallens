@@ -163,7 +163,7 @@ export function AgentComposer({
         </p>
       )}
 
-      {error && <p className="mt-3 text-center text-sm text-clay">{error}</p>}
+      {error && <p className="mt-3 text-center text-sm text-negative">{error}</p>}
     </div>
   )
 }

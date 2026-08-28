@@ -55,7 +55,7 @@ export function VoiceFilters({ stage, min, deepLinked, showStage }: {
         <button
           type="button"
           onClick={() => push((p) => p.delete('themes'))}
-          className="inline-flex h-[22px] cursor-pointer items-center gap-1 rounded-md bg-sidebar-accent px-2 text-[11px] font-medium text-primary transition-colors hover:bg-sidebar-accent/80"
+          className="inline-flex h-[22px] cursor-pointer items-center gap-1 rounded-md bg-accent px-2 text-[11px] font-medium text-accent-foreground transition-colors hover:bg-accent/80"
         >
           Behind a selected insight
           <span aria-hidden>✕</span>

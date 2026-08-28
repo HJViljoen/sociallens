@@ -29,7 +29,7 @@ export function InsightNarrative({
   return (
     <Card className="ring-1 ring-primary/20">
       <CardContent className="space-y-5 py-7 sm:px-9">
-        <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-primary">
+        <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-secondary-foreground">
           <span aria-hidden>✦</span> Executive brief
         </div>
 
@@ -52,7 +52,7 @@ export function InsightNarrative({
 
         {verdict && (
           <div className="flex flex-wrap items-center gap-x-3 gap-y-2 border-t border-border/60 pt-4">
-            <span className="rounded-full bg-primary/10 px-2.5 py-0.5 text-xs font-semibold text-primary">{verdict.word}</span>
+            <span className="rounded-full bg-accent px-2.5 py-0.5 text-xs font-semibold text-accent-foreground">{verdict.word}</span>
             <span className="text-sm font-medium">{verdict.title}</span>
             <Link
               href={verdict.href}

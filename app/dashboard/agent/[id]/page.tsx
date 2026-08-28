@@ -199,7 +199,7 @@ export default async function AgentThreadPage({ params }: { params: Promise<{ id
             last-turn-is-a-question test would otherwise report every
             successful check as a failure. */}
         {!doc && messages.length > 0 && messages[messages.length - 1].role === 'user' && (
-          <p className="text-sm text-clay">
+          <p className="text-sm text-negative">
             That question did not get an answer &mdash; something went wrong on our side rather than in
             your data. Asking it again is safe.
           </p>

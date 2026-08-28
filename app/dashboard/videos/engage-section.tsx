@@ -127,7 +127,7 @@ function ReplyLink({ c, className }: { c: EngageCandidate; className?: string })
   const link = engageDeepLink(c.comment)
   if (!link.href) return <span className={className} />
   return (
-    <a href={link.href} target="_blank" rel="noopener noreferrer" className={`font-medium text-primary hover:underline ${className ?? ''}`} title={link.commentLevel ? 'Open the comment' : 'Open the post'}>
+    <a href={link.href} target="_blank" rel="noopener noreferrer" className={`font-medium text-foreground hover:underline ${className ?? ''}`} title={link.commentLevel ? 'Open the comment' : 'Open the post'}>
       Reply →
     </a>
   )

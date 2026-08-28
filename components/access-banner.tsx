@@ -35,7 +35,7 @@ export function AccessBanner({ access }: { access: BillingAccess }) {
       <p className="text-sm font-semibold">{c.title}</p>
       <p className="mt-1 text-sm text-muted-foreground">{c.body}</p>
       {c.cta && (
-        <Link href="/dashboard/billing" className="mt-2 inline-block cursor-pointer text-sm font-semibold text-primary underline-offset-4 hover:underline">
+        <Link href="/dashboard/billing" className="mt-2 inline-block cursor-pointer text-sm font-semibold text-foreground underline-offset-4 hover:underline">
           {c.cta}
         </Link>
       )}

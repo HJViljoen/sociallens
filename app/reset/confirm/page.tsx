@@ -37,7 +37,7 @@ export default function ResetConfirmPage() {
         </form>
 
         <p className="mt-6 text-center text-sm text-muted-foreground">
-          Need a new link? <Link href="/reset" className="text-primary underline">Start over</Link>
+          Need a new link? <Link href="/reset" className="text-foreground underline">Start over</Link>
         </p>
       </div>
     </div>

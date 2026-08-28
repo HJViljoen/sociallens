@@ -56,7 +56,7 @@ export function AgentDocumentSplit({
 
   const verdictMark: Record<string, string> = {
     echoes: 'bg-primary/15 hover:bg-primary/25',
-    contradicts: 'bg-clay/15 hover:bg-clay/25',
+    contradicts: 'bg-negative/12 hover:bg-negative/20',
   }
   const verdictOf = new Map(claims.map((c) => [c.ref, c.verdict]))
 
@@ -70,7 +70,7 @@ export function AgentDocumentSplit({
             type="button"
             onClick={() => setPane(p)}
             className={`rounded-full px-3 py-1.5 text-xs font-medium transition-colors ${
-              pane === p ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-muted/60'
+              pane === p ? 'bg-foreground text-tile' : 'text-muted-foreground hover:bg-inner'
             }`}
           >
             {p === 'check' ? 'The check' : 'Your document'}

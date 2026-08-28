@@ -36,7 +36,7 @@ export default function SignupPage() {
             <Input name="invite_code" required placeholder="From your invitation" disabled={pending} />
             <p className="mt-1 text-xs text-muted-foreground">
               Verbatim is invite-only while we work with our first partners.{' '}
-              <a href="https://verbatimintel.com" className="cursor-pointer text-primary underline">Request access</a>.
+              <a href="https://verbatimintel.com" className="cursor-pointer text-foreground underline">Request access</a>.
             </p>
           </div>
 
@@ -58,7 +58,7 @@ export default function SignupPage() {
 
         <p className="mt-6 text-center text-sm text-muted-foreground">
           Already have an account?{' '}
-          <Link href="/login" className="text-primary underline">Sign in</Link>
+          <Link href="/login" className="text-foreground underline">Sign in</Link>
         </p>
       </div>
     </div>

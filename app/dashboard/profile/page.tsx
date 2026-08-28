@@ -248,8 +248,8 @@ export default async function ConsumerProfilePage({
 
   const scopeLabel =
     active.scope === 'client'
-      ? { text: 'Your audience', Icon: Users, fg: 'text-primary', bg: 'bg-primary/10' }
-      : { text: 'Wider category', Icon: Layers, fg: 'text-slate', bg: 'bg-slate/10' }
+      ? { text: 'Your audience', Icon: Users, fg: 'text-accent-foreground', bg: 'bg-accent' }
+      : { text: 'Wider category', Icon: Layers, fg: 'text-muted-foreground', bg: 'bg-inner' }
 
   return (
     // min-h-full + flex: the grid must be able to claim the remaining height,

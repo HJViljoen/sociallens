@@ -603,7 +603,7 @@ export default async function ContentPage({
                   <tr key={v.id} data-search={`${v.account_name} ${label} ${platformLabel(v.platform)} ${v.classified_type ?? ''} ${v.hook_style ?? ''} ${(v.topics ?? []).join(' ')} ${v.sentiment ?? ''}`.toLowerCase()} className="border-b align-top last:border-0">
                     <td className="py-1.5 pr-2 capitalize">{platformLabel(v.platform)}</td>
                     <td className="py-1.5 pr-2" data-v={v.account_name ?? ''}>
-                      <a href={v.video_url} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">@{v.account_name}</a>
+                      <a href={v.video_url} target="_blank" rel="noopener noreferrer" className="text-foreground hover:underline">@{v.account_name}</a>
                       {v.transcript_status === 'ok' && (
                         <Captions className="ml-1 inline size-3 align-[-1px] text-muted-foreground" aria-label="Speech transcript captured" />
                       )}

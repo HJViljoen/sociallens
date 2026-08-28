@@ -43,12 +43,6 @@
   --color-neutral-seg: var(--neutral-seg);
   /* Inner block inside a tile (two-level nesting: tile with shadow → flat tinted block) */
   --color-inner: var(--inner);
-  /* Compat aliases for pages not yet migrated (Phase 1) — remove page by page */
-  --color-pine: var(--accent-pine);
-  --color-clay: var(--accent-clay);
-  --color-ochre: var(--accent-ochre);
-  --color-plum: var(--accent-plum);
-  --color-slate: var(--accent-slate);
   --color-ring: var(--ring);
   --color-input: var(--input);
   --color-border: var(--border);
@@ -130,13 +124,6 @@
   --chart-4: #9AA1A9;
   --chart-5: #CDD2D7;
 
-  /* Compat aliases (Phase 1) — pages still on the old names get the new hues */
-  --accent-pine: #0E8A5F;
-  --accent-clay: #F0742B;
-  --accent-ochre: #E6B03C;
-  --accent-plum: #8A3A2A;
-  --accent-slate: #9AA1A9;
-
   /* Elevation */
   --shadow-tile: 0 0 0 1px rgba(38, 41, 44, 0.04), 0 1px 3px rgba(38, 41, 44, 0.05), 0 0 16px rgba(38, 41, 44, 0.09);
   --shadow-tile-hover: 0 0 0 1px rgba(38, 41, 44, 0.05), 0 2px 6px rgba(38, 41, 44, 0.07), 0 0 24px rgba(38, 41, 44, 0.13);
@@ -189,11 +176,6 @@
   --chart-3: #9AA0A6;
   --chart-4: #6B7178;
   --chart-5: #3A3F45;
-  --accent-pine: #2FBF85;
-  --accent-clay: #F58A4A;
-  --accent-ochre: #E9BC55;
-  --accent-plum: #B85A48;
-  --accent-slate: #7C838B;
   --shadow-tile: 0 0 0 1px rgba(255, 255, 255, 0.06), 0 1px 3px rgba(0, 0, 0, 0.3), 0 0 16px rgba(0, 0, 0, 0.35);
   --shadow-tile-hover: 0 0 0 1px rgba(255, 255, 255, 0.08), 0 2px 6px rgba(0, 0, 0, 0.35), 0 0 24px rgba(0, 0, 0, 0.45);
   --sidebar: #1B1D20;

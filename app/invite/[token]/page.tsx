@@ -28,7 +28,7 @@ export default async function InvitePage({ params }: { params: Promise<{ token: 
     return (
       <Shell title="Invite unavailable">
         <p className="text-sm text-muted-foreground">{reason}</p>
-        <Link href="/login" className="mt-4 inline-block text-sm text-primary underline">Go to sign in</Link>
+        <Link href="/login" className="mt-4 inline-block text-sm text-foreground underline">Go to sign in</Link>
       </Shell>
     )
   }

@@ -19,9 +19,9 @@ export function LegalConsent({ disabled }: { disabled?: boolean }) {
       />
       <span>
         I agree to the{' '}
-        <a href={TERMS_URL} target="_blank" rel="noopener noreferrer" className="cursor-pointer text-primary underline underline-offset-2">terms</a>{' '}
+        <a href={TERMS_URL} target="_blank" rel="noopener noreferrer" className="cursor-pointer text-foreground underline underline-offset-2">terms</a>{' '}
         and the{' '}
-        <a href={PRIVACY_URL} target="_blank" rel="noopener noreferrer" className="cursor-pointer text-primary underline underline-offset-2">privacy notice</a>.
+        <a href={PRIVACY_URL} target="_blank" rel="noopener noreferrer" className="cursor-pointer text-foreground underline underline-offset-2">privacy notice</a>.
       </span>
     </label>
   )
