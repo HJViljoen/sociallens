@@ -116,7 +116,7 @@ export function TileBlock({ children, className, as: As = 'div' }: { children: R
 export function StripCell({ eyebrow, children, className }: { eyebrow: ReactNode; children?: ReactNode; className?: string }) {
   return (
     <div className={cn('flex min-h-0 min-w-0 flex-1 flex-col justify-center gap-[3px] overflow-hidden px-4 py-2.5', className)}>
-      <h2 className="truncate text-[10.5px] font-semibold uppercase tracking-[0.06em] text-secondary-foreground">{eyebrow}</h2>
+      <h2 className="shrink-0 truncate text-[10.5px] font-semibold uppercase tracking-[0.06em] text-secondary-foreground">{eyebrow}</h2>
       {children}
     </div>
   )
