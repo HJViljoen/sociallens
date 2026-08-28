@@ -14,12 +14,15 @@ css = open('app/globals.css').read()
 app_css = css.split('/* ── Marketing theme')[0]
 hexes = re.findall(r'#([0-9A-Fa-f]{6})\b', app_css)
 allowed_green = {'0E8A5F','DDF3E9','0B6E4C','2FBF85','173B2D','7EDDB4','0B1F16'}
+retired = {'F6F1E7','FDFAF3','F7F3EA','ECE7DA','E4DCCC','DED6C4','FCF9F1','E7DFD0','14503A','14291F','E1E8DA','E7ECE1'}  # the 2026-07 cream/pine set
 bad = []
 for h in set(x.upper() for x in hexes):
     r,g,b = int(h[0:2],16), int(h[2:4],16), int(h[4:6],16)
     hue,l,s = colorsys.rgb_to_hls(r/255,g/255,b/255)
     hue *= 360
-    if max(r,g,b)-min(r,g,b) <= 12:          # a neutral
+    if h in retired: bad.append(f'retired token #{h} is back'); continue
+    # a neutral: low chroma, OR a very light surface with modest saturation (cream lives here)
+    if max(r,g,b)-min(r,g,b) <= 28 or (l > 0.85 and s < 0.5):
         if b < r: bad.append(f'warm neutral #{h} (blue {b} < red {r})')
     elif 100 <= hue <= 175 and s > 0.25:      # a saturated green
         if h not in allowed_green: bad.append(f'unlisted green #{h} (hue {hue:.0f})')

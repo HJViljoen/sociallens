@@ -255,10 +255,13 @@
 }
 [data-ring-sync] [data-seg]:not(circle) {
   border-radius: 4px;
-  transition: background-color 120ms ease-out;
 }
 [data-ring-sync] [data-seg][data-active]:not(circle) {
   background-color: var(--inner);
+}
+@media (prefers-reduced-motion: no-preference) {
+  .vi-hover { transition: stroke-width 120ms ease-out; }
+  [data-ring-sync] [data-seg]:not(circle) { transition: background-color 120ms ease-out; }
 }
 
 /* Ambient crowd layer — kept for the login page only (MASTER rule 6: the crowd

@@ -44,13 +44,20 @@ export function ClaimPopover({ evidence, children, className }: { evidence: Clai
       setOpen(false)
     }
     function onKey(e: KeyboardEvent) { if (e.key === 'Escape') { setOpen(false); btn.current?.focus() } }
+    function onFocus(e: FocusEvent) {
+      const t = e.target as Node | null
+      if (t && (panel.current?.contains(t) || btn.current?.contains(t))) return
+      setOpen(false)
+    }
     window.addEventListener('mousedown', onDown)
     window.addEventListener('keydown', onKey)
+    window.addEventListener('focusin', onFocus)
     window.addEventListener('resize', place)
     window.addEventListener('scroll', place, true)
     return () => {
       window.removeEventListener('mousedown', onDown)
       window.removeEventListener('keydown', onKey)
+      window.removeEventListener('focusin', onFocus)
       window.removeEventListener('resize', place)
       window.removeEventListener('scroll', place, true)
     }
@@ -63,6 +70,7 @@ export function ClaimPopover({ evidence, children, className }: { evidence: Clai
         type="button"
         aria-expanded={open}
         aria-controls={id}
+        aria-haspopup="dialog"
         onClick={() => { if (!open) place(); setOpen((o) => !o) }}
         className={[
           'cursor-pointer rounded-[2px] text-left underline decoration-dotted decoration-1 underline-offset-[3px]',

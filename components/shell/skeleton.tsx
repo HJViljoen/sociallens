@@ -11,7 +11,8 @@ import { Tile, StripCell, type TileVariant } from '@/components/shell/tile'
 // content reads as a broken page when the guess is wrong.
 
 /** One shimmering bar. Width via className (w-1/2, w-24 …). `tone` follows
- *  the tile it sits on — the hero tile is dark. */
+ *  the tile it sits on (every tile is white since 2026-08-28; `dark` is kept
+ *  for any future inverted surface). */
 export function Bone({ className, tone = 'light' }: { className?: string; tone?: 'light' | 'dark' }) {
   return (
     <div
@@ -87,7 +88,7 @@ export function BoneTable({ rows = 8, cols = 5, tone = 'light' }: { rows?: numbe
 export function SkeletonTile({
   col, row, variant = 'default', lines, eyebrow = true, meta = false, className, children,
 }: { col: number; row: number; variant?: TileVariant; lines?: number; eyebrow?: boolean; meta?: boolean; className?: string; children?: ReactNode }) {
-  const tone = variant === 'hero' ? 'dark' : 'light'
+  const tone = 'light' as const
   const body = children ?? <BoneLines tone={tone} lines={lines ?? Math.max(2, row * 2)} />
   return (
     <Tile

@@ -48,7 +48,7 @@ export function Ring({
       {arcs.map((a) => (
         <circle
           key={`${a.idx}-${a.label}`}
-          className={animate ? 'vi-anim-ring' : undefined}
+          className={animate ? 'vi-anim-ring vi-hover' : 'vi-hover'}
           data-seg={interactive ? a.idx : undefined}
           data-label={interactive ? a.label : undefined}
           data-pct={interactive ? `${a.pct.toFixed(1)}%` : undefined}
@@ -59,7 +59,6 @@ export function Ring({
           strokeDasharray={`${a.len.toFixed(2)} ${(C - a.len).toFixed(2)}`}
           strokeDashoffset={-a.offset}
           transform={`rotate(-90 ${c} ${c})`}
-          style={{ transition: 'stroke-width 120ms ease-out' }}
         >
           <title>{`${a.label}: ${a.value}`}</title>
         </circle>

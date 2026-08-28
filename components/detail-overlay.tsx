@@ -10,7 +10,7 @@ export function DetailOverlay({ closeHref, children }: { closeHref: string; chil
   return (
     <div role="dialog" aria-modal="true" className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-8">
       <Link href={closeHref} scroll={false} aria-label="Close" className="absolute inset-0 bg-foreground/25" />
-      <Card className="relative z-10 w-full max-w-2xl max-h-[85vh] overflow-y-auto shadow-xl">
+      <Card className="relative z-10 w-full max-w-2xl max-h-[85vh] overflow-y-auto shadow-tile-hover">
         <Link
           href={closeHref}
           scroll={false}

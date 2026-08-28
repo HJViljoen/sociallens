@@ -41,9 +41,9 @@ type NavItem = { href: string; label: string; icon: typeof LayoutDashboard }
 const ITEM_CLASS =
   "relative h-9 gap-2.5 rounded-md px-2.5 text-[13px] font-normal text-sidebar-foreground " +
   "hover:bg-sidebar-accent hover:text-foreground " +
-  "data-active:bg-transparent data-active:font-semibold data-active:text-foreground " +
-  "data-active:before:absolute data-active:before:-left-2 data-active:before:top-2 data-active:before:bottom-2 " +
-  "data-active:before:w-0.5 data-active:before:rounded-full data-active:before:bg-primary data-active:before:content-['']"
+  "data-[active=true]:bg-transparent data-[active=true]:font-semibold data-[active=true]:text-foreground " +
+  "data-[active=true]:before:absolute data-[active=true]:before:-left-2 data-[active=true]:before:top-2 data-[active=true]:before:bottom-2 " +
+  "data-[active=true]:before:w-0.5 data-[active=true]:before:rounded-full data-[active=true]:before:bg-primary data-[active=true]:before:content-['']"
 
 export function AppSidebar({ showAgent = false }: { showAgent?: boolean }) {
   const pathname = usePathname()
@@ -70,7 +70,7 @@ export function AppSidebar({ showAgent = false }: { showAgent?: boolean }) {
             <SidebarMenuItem key={item.href}>
               <SidebarMenuButton asChild isActive={pathname === item.href} className={ITEM_CLASS}>
                 <Link href={item.href} onClick={() => setOpenMobile(false)}>
-                  <item.icon className="size-4 text-muted-foreground group-data-active/menu-button:text-foreground" aria-hidden />
+                  <item.icon className="size-4 text-muted-foreground group-data-[active=true]/menu-button:text-foreground" aria-hidden />
                   <span>{item.label}</span>
                 </Link>
               </SidebarMenuButton>

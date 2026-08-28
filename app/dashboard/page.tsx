@@ -479,9 +479,9 @@ export default async function DashboardPage({ searchParams }: { searchParams?: P
           {share && shareSegments.length > 0 ? (
             <RingSync className="flex flex-1 items-center gap-4">
               <Ring interactive segments={shareSegments.map((s) => ({ label: s.label, value: s.value, color: s.color }))} size={128} thickness={16} center={share.client ? fmtPct(share.client.pct) : undefined} sub={share.client ? 'you' : undefined} />
-              <div className="flex min-w-0 flex-1 flex-col gap-1 text-[11.5px]">
+              <div role="list" className="flex min-w-0 flex-1 flex-col gap-1 text-[11.5px]">
                 {shareSegments.map((s, i) => (
-                  <div key={s.label} data-seg={i} tabIndex={0} className="flex items-center gap-1.5 px-1.5 py-0.5 -mx-1.5 outline-none focus-visible:ring-1 focus-visible:ring-ring">
+                  <div key={s.label} data-seg={i} tabIndex={0} role="listitem" aria-label={`${s.label} ${fmtPct(s.pct)}`} className="flex items-center gap-1.5 px-1.5 py-0.5 -mx-1.5 outline-none focus-visible:ring-1 focus-visible:ring-ring">
                     <span className="size-2 shrink-0 rounded-[2px]" style={{ background: s.color }} aria-hidden />
                     <span className="min-w-0 flex-1 truncate text-secondary-foreground">{s.label}</span>
                     <span className="font-mono text-[11.5px] font-semibold tabular-nums">{fmtPct(s.pct)}</span>

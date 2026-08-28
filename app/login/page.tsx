@@ -13,7 +13,7 @@ export default function LoginPage() {
     <div className="relative min-h-screen flex items-center justify-center bg-background px-4 overflow-hidden">
       <div className="crowd-bg" aria-hidden />
 
-      <div className="relative z-10 w-full max-w-md rounded-2xl bg-card ring-1 ring-border/70 shadow-[0_24px_60px_-24px_rgba(18,42,31,0.35)] p-8">
+      <div className="relative z-10 w-full max-w-md rounded-2xl bg-card ring-1 ring-border/70 shadow-tile-hover p-8">
         <div className="flex items-center gap-2.5 mb-1.5">
           <span className="h-6 w-6 rounded-md bg-primary" aria-hidden />
           <h1 className="text-2xl font-bold tracking-tight text-foreground">Verbatim</h1>

@@ -97,7 +97,7 @@ export function Tile({
         <div className={cn('flex min-h-0 flex-1 flex-col gap-2.5', distribute === 'between' && 'justify-between', distribute === 'center' && 'justify-center', bodyClassName)}>{children}</div>
       )}
       {!isStrip && (footer || footerNote) && (
-        <footer className="relative z-[1] mt-auto flex items-center justify-between gap-2 border-t border-border/70 bg-tile pt-2 text-[12px] font-medium text-foreground">
+        <footer className={cn('mt-auto flex items-center justify-between gap-2 border-t border-border/70 bg-tile pt-2 text-[12px] font-medium text-foreground', hoverable ? 'static' : 'relative z-[1]')}>
           <span className="min-w-0 truncate [&_a:hover]:underline">{footer}</span>
           {footerNote && <span className="shrink-0 font-mono text-[11px] font-normal text-muted-foreground">{footerNote}</span>}
         </footer>

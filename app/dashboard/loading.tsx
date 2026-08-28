@@ -11,12 +11,12 @@ export default function DashboardLoading() {
 
       <SkeletonTile col={7} row={3} variant="hero" meta>
         <div className="flex flex-col gap-3">
-          <Bone tone="dark" className="h-5 w-4/5" />
-          <BoneLines tone="dark" lines={4} />
+          <Bone className="h-5 w-4/5" />
+          <BoneLines lines={4} />
         </div>
         <div className="mt-auto flex flex-col gap-2">
-          <Bone tone="dark" className="h-3 w-2/3" />
-          <Bone tone="dark" className="h-3 w-1/2" />
+          <Bone className="h-3 w-2/3" />
+          <Bone className="h-3 w-1/2" />
         </div>
       </SkeletonTile>
 
