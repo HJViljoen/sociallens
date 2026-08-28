@@ -12,10 +12,17 @@ import { createAdminClient } from '@/lib/supabase-admin'
 
 export const metadata = { robots: { index: false, follow: false } }
 
-export default async function HealthPage() {
-  await connection()
+/** One cheap read, timed. Lives outside the component so the timing calls
+ *  stay out of render (the React Compiler lint treats Date.now() there as
+ *  impure, even in a server component). */
+async function probeDb(): Promise<string> {
   const t0 = Date.now()
   const { error } = await createAdminClient().from('clients').select('id').limit(1)
-  const db = error ? `db:error ${error.message}` : `db:${Date.now() - t0}ms`
+  return error ? `db:error ${error.message}` : `db:${Date.now() - t0}ms`
+}
+
+export default async function HealthPage() {
+  await connection()
+  const db = await probeDb()
   return <pre style={{ fontFamily: 'monospace', fontSize: 12, padding: 16 }}>ok · {db}</pre>
 }

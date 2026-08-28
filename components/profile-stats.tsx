@@ -79,17 +79,17 @@ function Donut({ row, platforms }: { row: PlatformRow; platforms: string[] }) {
   const C = 2 * Math.PI * R
   const GAP = 2.5
 
+  // A plain loop, not map(): the running offset is reassigned per segment,
+  // which the React Compiler lint refuses inside a callback.
+  const segments: { p: string; count: number; len: number; offset: number }[] = []
   let offset = 0
-  const segments = platforms
-    .map((p) => {
-      const count = row.counts[p] ?? 0
-      if (count <= 0) return null
-      const len = (count / row.total) * C
-      const seg = { p, count, len, offset }
-      offset += len
-      return seg
-    })
-    .filter((s): s is { p: string; count: number; len: number; offset: number } => s != null)
+  for (const p of platforms) {
+    const count = row.counts[p] ?? 0
+    if (count <= 0) continue
+    const len = (count / row.total) * C
+    segments.push({ p, count, len, offset })
+    offset += len
+  }
 
   return (
     <figure className="flex flex-col items-center gap-2">
