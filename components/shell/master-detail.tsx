@@ -52,7 +52,7 @@ export function MasterDetail({
   return (
     // The three panes fill the shell's height and scroll inside themselves — the
     // page-inside-the-page keeps its frame still (component-map §2).
-    <div className={cn('flex min-h-0 flex-1 flex-col md:h-[calc(100dvh_-_6.75rem)]', className)}>
+    <div className={cn('flex min-h-0 flex-col md:h-[calc(100dvh_-_6.75rem)] md:flex-none', className)}>
       {/* ≥ md: three panes side by side */}
       <ResizablePanelGroup
         orientation="horizontal"

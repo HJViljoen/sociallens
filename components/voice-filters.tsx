@@ -62,13 +62,13 @@ export function VoiceFilters({ stage, min, deepLinked, showStage }: {
         </button>
       )}
       {showStage && (
-        <select className={selectCls} value={stage} onChange={(e) => setParam('stage', e.target.value, 'all')} aria-label="Filter by journey stage">
+        <select id="voice-stage" name="stage" className={selectCls} value={stage} onChange={(e) => setParam('stage', e.target.value, 'all')} aria-label="Filter by journey stage">
           {STAGES.map((s) => (
             <option key={s.value} value={s.value}>{s.label}</option>
           ))}
         </select>
       )}
-      <select className={selectCls} value={min} onChange={(e) => setParam('min', e.target.value, '0')} aria-label="Filter by signal strength">
+      <select id="voice-min" name="min" className={selectCls} value={min} onChange={(e) => setParam('min', e.target.value, '0')} aria-label="Filter by signal strength">
         {STRENGTH.map((s) => (
           <option key={s.value} value={s.value}>{s.label}</option>
         ))}

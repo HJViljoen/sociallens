@@ -277,7 +277,7 @@ const FAMILY_CHIP = {
   green: 'bg-positive/12 text-positive',
   red: 'bg-negative/12 text-negative',
   gold: 'bg-warning/15 text-warning',
-  neutral: 'bg-muted text-muted-foreground',
+  neutral: 'bg-inner text-muted-foreground',
 } as const
 export const categoryChip = (category: string): string => FAMILY_CHIP[CATEGORY_FAMILY[category] ?? 'neutral']
 

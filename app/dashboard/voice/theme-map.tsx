@@ -30,14 +30,14 @@ export interface ThemeBlock {
 // your audience, stone for the wider category, clay for a competitor), and
 // they still read on the dark tile. Class strings can't carry these, so inline.
 const FILL: Record<Bucket, string> = {
-  client: 'color-mix(in srgb, var(--positive) 14%, var(--tile))',
-  category: 'color-mix(in srgb, var(--accent-slate) 14%, var(--tile))',
-  competitor: 'color-mix(in srgb, var(--accent-clay) 16%, var(--tile))',
+  client: 'color-mix(in srgb, var(--you) 12%, var(--tile))',
+  category: 'color-mix(in srgb, var(--cat) 14%, var(--tile))',
+  competitor: 'color-mix(in srgb, var(--comp) 14%, var(--tile))',
 }
 export const EDGE: Record<Bucket, string> = {
-  client: 'var(--positive)',
-  category: 'var(--accent-slate)',
-  competitor: 'var(--accent-clay)',
+  client: 'var(--you)',
+  category: 'var(--cat)',
+  competitor: 'var(--comp)',
 }
 
 /** Reference frame the layout is solved on (the hero tile's map area at 1440×900). */
@@ -76,7 +76,7 @@ export function ThemeMap({ blocks, className }: { blocks: ThemeBlock[]; classNam
             <span className="mt-auto flex min-w-0 items-center gap-1.5">
               <span className={`font-mono font-semibold tabular-nums leading-none ${big ? 'text-[15px]' : 'text-[12px]'}`}>{b.count}</span>
               {big && <Chip className="bg-tile/75 text-muted-foreground">{b.category}</Chip>}
-              {b.isNew && mid && <Chip className="bg-sidebar-accent text-primary">New</Chip>}
+              {b.isNew && mid && <Chip className="bg-accent text-accent-foreground">New</Chip>}
               {big && b.series && b.series.length >= 2 && (
                 <Sparkline values={b.series} color={edge} width={54} height={14} endDot={false} className="ml-auto" />
               )}
