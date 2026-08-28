@@ -19,17 +19,21 @@ import { Tile, StripCell, TileEmpty } from '@/components/shell/tile'
 import { DetailDrawer } from '@/components/shell/detail-drawer'
 import { DrawerLink } from '@/components/shell/drawer-link'
 import { Sparkline } from '@/components/charts/sparkline'
-import { StatValue, Delta } from '@/components/charts/stat'
+import { StatValue, StatSentence, Delta } from '@/components/charts/stat'
 import { RankedBar } from '@/components/charts/ranked-bar'
 import { Ring } from '@/components/charts/ring'
+import { RingSync } from '@/components/charts/ring-sync'
+import { ClaimPopover } from '@/components/claim-popover'
 import { Mover } from '@/components/charts/mover'
 import { PlatformIcon } from '@/components/charts/platform-icon'
 
-// Dashboard — "where do we stand?", on one screen (one-screen redesign,
-// 2026-08-22). A strip of counted receipts · the executive brief as the dark
-// hero · sentiment · share of tracked conversation · what the market is talking
-// about · movement since the first update (the part of Trends that belongs
-// here) · the top recommendation · your own accounts. Every tile gates on its
+// Dashboard — "where do we stand?" (one-screen composition 2026-08-22; visual
+// identity 2026-08-28, MASTER.md §Visual identity). A strip of counted receipts
+// · the executive brief as a white hero with a serif lead line · sentiment ·
+// share of tracked conversation · what the market is talking about · movement
+// since the first update · the top recommendation · your own accounts.
+// Colour means something here: you = green, competitor = orange, category =
+// grey; the only underlined claim is the one that opens its voices (rule 5). Every tile gates on its
 // data and shows an honest empty line at its size — the grid never collapses.
 // Numbers rule: every figure is a stored count or share (run_summary, themes,
 // snapshots); model scores only gate and order. Client-facing copy: no run /
@@ -59,9 +63,11 @@ interface RecRow {
   hero_quote: string | null
 }
 
-const BUCKET_COLOR: Record<Bucket, string> = { client: 'var(--positive)', category: 'var(--accent-slate)', competitor: 'var(--accent-clay)' }
-const COMPETITOR_COLORS = ['var(--accent-clay)', 'var(--accent-ochre)', 'var(--accent-plum)', 'var(--accent-slate)']
-const REST_COLOR = 'var(--input)'
+const BUCKET_COLOR: Record<Bucket, string> = { client: 'var(--you)', category: 'var(--cat)', competitor: 'var(--comp)' }
+// First competitor in the full orange; further ones step toward the surface so
+// they stay "competitor" in hue without competing with the first.
+const COMPETITOR_COLORS = ['var(--comp)', 'color-mix(in srgb, var(--comp) 70%, var(--tile))', 'color-mix(in srgb, var(--comp) 48%, var(--tile))', 'var(--mixed)']
+const REST_COLOR = 'var(--neutral-seg)'
 
 const priorityWord = (p: string | null | undefined) => (p === 'high' ? 'Act now' : p === 'medium' ? 'Plan next' : 'Worth considering')
 
@@ -184,7 +190,7 @@ export default async function DashboardPage({ searchParams }: { searchParams?: P
           .eq('client_id', clientId).eq('run_id', themedRunId)
       : Promise.resolve({ data: null }),
     themedRunId ? earlierThemesQ.neq('run_id', themedRunId).limit(1) : Promise.resolve({ data: null }),
-    oneThing ? fetchInsightsByIds<{ id: string; theme: string }>(supabase, supportIds, 'id, theme') : Promise.resolve([]),
+    oneThing ? fetchInsightsByIds<{ id: string; theme: string; platform: string | null }>(supabase, supportIds, 'id, theme, platform') : Promise.resolve([]),
   ])
 
   // The latest update = the run we anchored on; everything before it is history.
@@ -207,6 +213,7 @@ export default async function DashboardPage({ searchParams }: { searchParams?: P
   // gathered, else the cumulative totals — one layer per series, zeros kept.
   const videoSeries = history.map((s) => Number((periodVideos ? s.period_videos : s.total_videos) ?? 0))
   const commentSeries = history.map((s) => Number((periodComments ? s.period_comments : s.total_comments) ?? 0))
+  const historyLabels = history.map((s) => shortDate(s.run_date))
   const platforms = platformSplit(platformRows)
   const platformMax = platforms[0]?.count ?? 0
 
@@ -224,9 +231,9 @@ export default async function DashboardPage({ searchParams }: { searchParams?: P
   const sentTier = sent ? sentimentTier(Math.round(sent.positivePct), Math.round((sent.counts.negative / sent.judged) * 100)) : null
   const sentimentSegments: Segment[] = sent
     ? ([
-        { label: 'Positive', count: sent.counts.positive, color: 'bg-chart-2' },
+        { label: 'Positive', count: sent.counts.positive, color: 'bg-positive' },
         { label: 'Mixed', count: sent.counts.mixed, color: 'bg-warning' },
-        { label: 'Neutral', count: sent.counts.neutral, color: 'bg-input' },
+        { label: 'Neutral', count: sent.counts.neutral, color: 'bg-neutral-seg' },
         { label: 'Negative', count: sent.counts.negative, color: 'bg-negative' },
       ] as const)
         .filter((s) => s.count > 0)
@@ -249,7 +256,7 @@ export default async function DashboardPage({ searchParams }: { searchParams?: P
   const clientShareDelta = shareVerdict?.state === 'moved' ? shareVerdict.change : null
   const shareSegments = share
     ? [
-        ...(share.client ? [{ label: brandShort, value: share.client.videos, pct: share.client.pct, color: 'var(--primary)', delta: clientShareDelta, good: 'up' as const }] : []),
+        ...(share.client ? [{ label: brandShort, value: share.client.videos, pct: share.client.pct, color: 'var(--you)', delta: clientShareDelta, good: 'up' as const }] : []),
         ...share.competitors.map((c, i) => ({
           label: c.name, value: c.videos, pct: c.pct, color: COMPETITOR_COLORS[Math.min(i, COMPETITOR_COLORS.length - 1)],
           delta: pointDelta(c.pct, sharePrev?.competitors.find((p) => p.name === c.name)?.pct), good: 'neutral' as const,
@@ -271,11 +278,18 @@ export default async function DashboardPage({ searchParams }: { searchParams?: P
   // ── the one thing to do + the voices behind it (shared lib/quotes) ─────
   let oneThingQuotes: string[] = []
   let oneThingVoices = 0
+  let oneThingPlatforms: { label: string; count: number }[] = []
   if (oneThing) {
     const bucketById = bucketByAudienceId((bucketRes.data ?? []) as ThemeBucketRow[])
     const themeSlugById = new Map(supportInsights.map((a) => [a.id, a.theme]))
     const scopedIds = scopeToClientVoices(supportIds, bucketById)
     oneThingVoices = scopedIds.length
+    // Where those voices were heard — a count per platform over the same ids
+    // the "N voices" figure counts, so the split always sums to N.
+    const platformById = new Map(supportInsights.map((a) => [a.id, a.platform]))
+    const byPlatform = new Map<string, number>()
+    for (const id of scopedIds) { const pl = platformById.get(id) ?? 'other'; byPlatform.set(pl, (byPlatform.get(pl) ?? 0) + 1) }
+    oneThingPlatforms = [...byPlatform.entries()].sort((a, b) => b[1] - a[1]).map(([pl, count]) => ({ label: pl === 'other' ? 'Other' : platformLabel(pl), count }))
     const claim = `${oneThing.title} ${oneThing.reasoning}`
     const pool = rankByTheme(scopedIds, claim, themeSlugById).slice(0, 120)
     const quotesByAudience = await fetchQuotesByAudience(supabase, pool)
@@ -298,11 +312,11 @@ export default async function DashboardPage({ searchParams }: { searchParams?: P
   // ── movement since the first update (Trends' numbers, on the page they belong to) ──
   const mv = movement(history as HistoryRow[], confirmedByRun)
   const MOVE_STYLE: Record<string, { color: string; good: 'up' | 'down' | 'neutral'; unit: string; fmt: (n: number) => string }> = {
-    yourShare: { color: 'var(--primary)', good: 'up', unit: 'pt', fmt: (n) => fmtPct(n) },
-    compShare: { color: 'var(--accent-clay)', good: 'down', unit: 'pt', fmt: (n) => fmtPct(n) },
+    yourShare: { color: 'var(--you)', good: 'up', unit: 'pt', fmt: (n) => fmtPct(n) },
+    compShare: { color: 'var(--comp)', good: 'down', unit: 'pt', fmt: (n) => fmtPct(n) },
     positive: { color: 'var(--positive)', good: 'up', unit: 'pt', fmt: (n) => fmtPct(n, 0) },
-    volume: { color: 'var(--primary)', good: 'up', unit: '', fmt: fmtCompact },
-    themes: { color: 'var(--accent-slate)', good: 'up', unit: '', fmt: fmtInt },
+    volume: { color: 'var(--you)', good: 'up', unit: '', fmt: fmtCompact },
+    themes: { color: 'var(--cat)', good: 'up', unit: '', fmt: fmtInt },
   }
 
   // ── your accounts ──────────────────────────────────────────────────────
@@ -326,6 +340,10 @@ export default async function DashboardPage({ searchParams }: { searchParams?: P
   const updatesCount = history.length
   const context = `${brand} · updated ${weekdayDate(runDate)}${nextUpdate ? ` · ${nextUpdate}` : ''}`
 
+  const claimEvidence = oneThing && oneThingVoices > 0
+    ? { voices: oneThingVoices, platforms: oneThingPlatforms, quotes: oneThingQuotes, href: `/dashboard/market?rec=${encodeURIComponent(oneThing.id)}`, hrefLabel: 'See all the voices in Market Intelligence →' }
+    : null
+
   return (
     <PageFrame>
       <PageBar title="Dashboard" context={context}>
@@ -338,48 +356,50 @@ export default async function DashboardPage({ searchParams }: { searchParams?: P
         <Tile col={12} row={1} variant="strip">
           <StripCell eyebrow="Tracking">
             {termTotal > 0 ? (
-              <>
-                <StatValue unit="terms">{termTotal}</StatValue>
-                <span className="truncate text-[11.5px] text-muted-foreground">{termCounts.brand} brand · {termCounts.competitor} competitor · {termCounts.category} category</span>
-                <span className="flex items-center gap-1.5 truncate text-[11.5px] text-muted-foreground">
-                  <span className="flex items-center gap-1 text-secondary-foreground">{(tc?.platforms ?? []).map((p: string) => <PlatformIcon key={p} platform={p} />)}</span>
-                  {(tc?.platforms?.length ?? 0)} platforms{cadence ? ` · ${cadence}` : ''}
-                </span>
-              </>
+              <StatSentence
+                value={termTotal}
+                unit="terms"
+                base={<span className="text-secondary-foreground">{termCounts.brand} brand · {termCounts.competitor} competitor · {termCounts.category} category</span>}
+                aside={<span className="ml-auto flex items-center gap-1 text-muted-foreground">{(tc?.platforms ?? []).map((p: string) => <PlatformIcon key={p} platform={p} />)}{cadence && <span className="ml-1 text-[11px]">{cadence}</span>}</span>}
+              />
             ) : <TileEmpty>Add search terms in Settings to start tracking.</TileEmpty>}
           </StripCell>
           <StripCell eyebrow={periodVideos ? "Videos this update" : "Videos tracked"}>
             {videosNow != null ? (
-              <>
-                <span className="flex items-center gap-2"><StatValue>{fmtInt(videosNow)}</StatValue>{videoSeries.length > 1 && <Sparkline values={videoSeries} fill />}</span>
-                <Delta value={videosPrev != null ? videosNow - videosPrev : null} good="neutral" suffix={periodVideos ? 'vs last update' : 'added since last update'} />
-                <span className="truncate text-[11.5px] text-muted-foreground">{periodVideos && summary?.total_videos != null ? `${fmtInt(summary.total_videos)} all-time` : 'all-time, across every update'}</span>
-              </>
+              <StatSentence
+                value={fmtInt(videosNow)}
+                delta={videosPrev != null ? videosNow - videosPrev : null}
+                good="neutral"
+                base={periodVideos ? (summary?.total_videos != null ? `vs last update · ${fmtInt(summary.total_videos)} all-time` : 'vs last update') : 'all-time, across every update'}
+                aside={videoSeries.length > 1 ? <Sparkline values={videoSeries} color="var(--you)" fill hover={{ labels: historyLabels }} /> : undefined}
+              />
             ) : <TileEmpty>Counted with the first update.</TileEmpty>}
           </StripCell>
           <StripCell eyebrow={periodComments ? "Comments analysed" : "Comments read"}>
             {commentsNow != null ? (
-              <>
-                <span className="flex items-center gap-2"><StatValue>{fmtInt(commentsNow)}</StatValue>{commentSeries.length > 1 && <Sparkline values={commentSeries} fill />}</span>
-                <Delta value={commentsPrev != null ? commentsNow - commentsPrev : null} good="up" suffix={periodComments ? 'vs last update' : 'added since last update'} />
-                <span className="truncate text-[11.5px] text-muted-foreground">{periodComments && summary?.total_comments != null ? `${fmtInt(summary.total_comments)} all-time` : 'all-time, across every update'}</span>
-              </>
+              <StatSentence
+                value={fmtInt(commentsNow)}
+                delta={commentsPrev != null ? commentsNow - commentsPrev : null}
+                good="up"
+                base={periodComments ? (summary?.total_comments != null ? `vs last update · ${fmtInt(summary.total_comments)} all-time` : 'vs last update') : 'all-time, across every update'}
+                aside={commentSeries.length > 1 ? <Sparkline values={commentSeries} color="var(--you)" fill hover={{ labels: historyLabels }} /> : undefined}
+              />
             ) : <TileEmpty>Counted with the first update.</TileEmpty>}
           </StripCell>
           <StripCell eyebrow="Themes heard">
             {tiers.confirmed + tiers.early + tiers.once > 0 ? (
-              <>
-                <StatValue unit="confirmed">{tiers.confirmed}</StatValue>
-                <span className="truncate font-mono text-[11.5px] tabular-nums text-secondary-foreground">{tiers.early} early <span className="text-muted-foreground/70">·</span> {tiers.once} heard once</span>
-                {registryCount > 0 && <span className="truncate text-[11.5px] text-muted-foreground">{fmtInt(registryCount)} themes followed over time</span>}
-              </>
+              <StatSentence
+                value={tiers.confirmed}
+                unit="confirmed"
+                base={<span className="font-mono tabular-nums text-secondary-foreground">{tiers.early} early · {tiers.once} heard once{registryCount > 0 ? ` · ${fmtInt(registryCount)} followed over time` : ''}</span>}
+              />
             ) : <TileEmpty>Themes land with the first analysed update.</TileEmpty>}
           </StripCell>
           <StripCell eyebrow="Where the conversation is">
             {platforms.length > 0 ? (
-              <div className="flex flex-col gap-[2px] text-[11.5px] leading-[1.3]">
+              <div className="flex flex-col gap-[3px] text-[11.5px] leading-[1.3]">
                 {platforms.slice(0, 4).map((p) => (
-                  <RankedBar key={p.platform} label={<span className="flex items-center gap-1.5"><PlatformIcon platform={p.platform} className="text-secondary-foreground" />{platformLabel(p.platform)}</span>} pct={(p.count / platformMax) * 100} color="var(--primary)" count={p.count} barWidth={70} />
+                  <RankedBar key={p.platform} label={<span className="flex items-center gap-1.5"><PlatformIcon platform={p.platform} className="text-muted-foreground" />{platformLabel(p.platform)}</span>} pct={(p.count / platformMax) * 100} color="var(--you)" count={p.count} barWidth={70} />
                 ))}
               </div>
             ) : <TileEmpty>Counted with the first update.</TileEmpty>}
@@ -388,34 +408,40 @@ export default async function DashboardPage({ searchParams }: { searchParams?: P
 
         {/* ── hero: the executive brief ──────────────────────────────── */}
         <Tile col={7} row={3} variant="hero" distribute="between" eyebrow="Executive brief · this update" meta={weekdayDate(runDate)}
+          lead={showHero ? narrative.headline : undefined}
           footer={oneThing ? (
-            <Link href="/dashboard/market" className="inline-flex max-w-full items-center rounded-full border border-border bg-inner px-3.5 py-1.5 text-[12px] font-medium text-foreground hover:bg-inner">
-              <span className="truncate">The one thing to do → {oneThing.title}</span>
-            </Link>
+            <span className="inline-flex max-w-full items-baseline gap-2">
+              <span className="font-mono text-muted-foreground">→</span>
+              <span className="min-w-0 truncate">
+                The one thing to do:{' '}
+                {claimEvidence
+                  ? <ClaimPopover evidence={claimEvidence}>{oneThing.title}</ClaimPopover>
+                  : <Link href="/dashboard/market" className="hover:underline">{oneThing.title}</Link>}
+              </span>
+            </span>
           ) : null}
-          footerNote={<DrawerLink href="/dashboard?detail=brief" className="font-medium text-foreground hover:text-white">Read the full brief →</DrawerLink>}
+          footerNote={<DrawerLink href="/dashboard?detail=brief" className="font-medium text-foreground hover:underline">Read the full brief →</DrawerLink>}
         >
           {showHero ? (
             <>
-              <p className="line-clamp-3 max-w-[38rem] text-[19px] font-semibold leading-[1.25] tracking-[-0.012em] [text-wrap:balance]">{narrative.headline}</p>
               {narrative.beats.length > 0 && (
                 <div className="grid grid-cols-1 gap-x-6 gap-y-3 sm:grid-cols-3">
                   {narrative.beats.slice(0, 3).map((b) => (
                     <div key={b.metric} className="min-w-0">
                       <div className="font-mono text-[18px] font-semibold leading-none tabular-nums tracking-[-0.02em]">{b.figure}</div>
-                      <p className="mt-1.5 line-clamp-4 text-[12.5px] leading-[1.5] text-foreground/90">{b.before}<span className="font-semibold text-foreground">{b.figure}</span>{b.after}</p>
+                      <p className="mt-1.5 line-clamp-3 text-[12.5px] leading-[1.55] text-secondary-foreground">{b.before}<span className="font-semibold text-foreground">{b.figure}</span>{b.after}</p>
                     </div>
                   ))}
                 </div>
               )}
               {oneThingQuotes.length > 0 && (
-                <div className="flex flex-col gap-2">
+                <div className="flex flex-col gap-1.5 border-l-2 border-border pl-3">
                   {oneThingQuotes.slice(0, 2).map((q, i) => (
-                    <blockquote key={i} className="max-w-[40rem] border-l-2 border-border pl-3 text-[13px] italic leading-[1.45] text-foreground">
-                      <span className="line-clamp-2">“{q}”</span>
+                    <blockquote key={i} className="max-w-[44rem] font-serif text-[14px] leading-[1.45] text-foreground">
+                      <span className="line-clamp-1">“{q}”</span>
                     </blockquote>
                   ))}
-                  {oneThingVoices > 0 && <span className="text-[10.5px] text-muted-foreground">{oneThingQuotes.length > 1 ? 'two' : 'one'} of {oneThingVoices} voices behind the top recommendation</span>}
+                  {oneThingVoices > 0 && <span className="font-mono text-[10.5px] text-muted-foreground">{oneThingQuotes.length > 1 ? 'two' : 'one'} of {fmtInt(oneThingVoices)} voices behind the top recommendation</span>}
                 </div>
               )}
             </>
@@ -431,14 +457,14 @@ export default async function DashboardPage({ searchParams }: { searchParams?: P
               <div className="flex items-end gap-3">
                 <StatValue size="lg" unit="positive">{fmtPct(sent.positivePct, 0)}</StatValue>
                 {sentDeltaText && (
-                  <span className={`mb-0.5 font-mono text-[11px] ${sentDeltaText.good === null ? 'text-muted-foreground' : sentDeltaText.good ? 'text-positive' : 'text-clay'}`}>{sentDeltaText.text}</span>
+                  <span className={`mb-0.5 font-mono text-[11px] ${sentDeltaText.good === null ? 'text-muted-foreground' : sentDeltaText.good ? 'text-positive' : 'text-negative'}`}>{sentDeltaText.text}</span>
                 )}
                 {sentTier && <span className="mb-0.5 ml-auto text-[11px] text-muted-foreground">{SENTIMENT_TIER_LABEL[sentTier]}</span>}
               </div>
               <ProportionBar segments={sentimentSegments} of="videos" />
               <div className="flex flex-wrap gap-x-3 text-[11px] text-secondary-foreground">
                 {sentimentSegments.map((s) => (
-                  <span key={s.label} className="flex items-center gap-1"><span className={`size-1.5 rounded-full ${s.color}`} aria-hidden />{s.label} {fmtInt(s.count)}</span>
+                  <span key={s.label} className="flex items-center gap-1"><span className={`size-1.5 rounded-[2px] ${s.color}`} aria-hidden />{s.label} {fmtInt(s.count)}</span>
                 ))}
               </div>
             </>
@@ -451,23 +477,23 @@ export default async function DashboardPage({ searchParams }: { searchParams?: P
           distribute="center"
         >
           {share && shareSegments.length > 0 ? (
-            <div className="flex flex-1 items-center gap-4">
-              <Ring segments={shareSegments.map((s) => ({ label: s.label, value: s.value, color: s.color }))} size={128} thickness={16} center={share.client ? fmtPct(share.client.pct) : undefined} sub={share.client ? 'you' : undefined} />
-              <div className="flex min-w-0 flex-1 flex-col gap-1.5 text-[11.5px]">
-                {shareSegments.map((s) => (
-                  <div key={s.label} className="flex items-center gap-1.5">
-                    <span className="size-1.5 shrink-0 rounded-full" style={{ background: s.color }} aria-hidden />
+            <RingSync className="flex flex-1 items-center gap-4">
+              <Ring interactive segments={shareSegments.map((s) => ({ label: s.label, value: s.value, color: s.color }))} size={128} thickness={16} center={share.client ? fmtPct(share.client.pct) : undefined} sub={share.client ? 'you' : undefined} />
+              <div className="flex min-w-0 flex-1 flex-col gap-1 text-[11.5px]">
+                {shareSegments.map((s, i) => (
+                  <div key={s.label} data-seg={i} tabIndex={0} className="flex items-center gap-1.5 px-1.5 py-0.5 -mx-1.5 outline-none focus-visible:ring-1 focus-visible:ring-ring">
+                    <span className="size-2 shrink-0 rounded-[2px]" style={{ background: s.color }} aria-hidden />
                     <span className="min-w-0 flex-1 truncate text-secondary-foreground">{s.label}</span>
                     <span className="font-mono text-[11.5px] font-semibold tabular-nums">{fmtPct(s.pct)}</span>
                     <span className="w-14 text-right"><Delta value={s.delta} unit="pt" good={s.good} /></span>
                   </div>
                 ))}
-                <p className="mt-1 line-clamp-2 text-[11px] leading-[1.4] text-muted-foreground">
+                <p className="mt-1 line-clamp-2 px-0 text-[11px] leading-[1.4] text-muted-foreground">
                   {share.client ? `${fmtInt(share.client.videos)} of your videos` : 'none of your videos'}{topCompetitor ? ` · ${fmtInt(topCompetitor.videos)} ${topCompetitor.name}` : ''}{share.rest ? ` · ${fmtInt(share.rest.videos)} category` : ''}.
                   {share.client && topCompetitor ? (share.client.pct >= topCompetitor.pct ? ` You lead the tracked brands; ${topCompetitor.name} follows.` : ` ${topCompetitor.name} leads the tracked brands.`) : ''}
                 </p>
               </div>
-            </div>
+            </RingSync>
           ) : <TileEmpty>Share lands once a competitor is tracked and analysed.</TileEmpty>}
         </Tile>
 
@@ -475,10 +501,10 @@ export default async function DashboardPage({ searchParams }: { searchParams?: P
         <Tile col={5} row={2} eyebrow="What your market is talking about" meta="conversations per theme"
           footer={<Link href="/dashboard/voice">All {tiers.confirmed > 0 ? `${tiers.confirmed} confirmed ` : ''}themes →</Link>}
           footerNote={
-            <span className="flex items-center gap-2">
-              <span className="flex items-center gap-1"><span className="size-1.5 rounded-full" style={{ background: BUCKET_COLOR.client }} aria-hidden />your audience</span>
-              <span className="flex items-center gap-1"><span className="size-1.5 rounded-full" style={{ background: BUCKET_COLOR.category }} aria-hidden />category</span>
-              {topCompetitor && <span className="flex items-center gap-1"><span className="size-1.5 rounded-full" style={{ background: BUCKET_COLOR.competitor }} aria-hidden />{topCompetitor.name}’s</span>}
+            <span className="flex items-center gap-2.5">
+              <span className="flex items-center gap-1"><span className="size-2 rounded-[2px]" style={{ background: BUCKET_COLOR.client }} aria-hidden />you</span>
+              <span className="flex items-center gap-1"><span className="size-2 rounded-[2px]" style={{ background: BUCKET_COLOR.category }} aria-hidden />category</span>
+              {topCompetitor && <span className="flex items-center gap-1"><span className="size-2 rounded-[2px]" style={{ background: BUCKET_COLOR.competitor }} aria-hidden />{topCompetitor.name}</span>}
             </span>
           }
         >
@@ -492,7 +518,7 @@ export default async function DashboardPage({ searchParams }: { searchParams?: P
                   color={BUCKET_COLOR[t.bucket]}
                   pct={(t.conversations / themeMax) * 100}
                   count={t.conversations}
-                  badge={t.isNew ? <span className="rounded-full bg-sidebar-accent px-1.5 py-px text-[10px] font-medium text-primary">New</span> : undefined}
+                  badge={t.isNew ? <span className="rounded-full bg-accent px-1.5 py-px text-[10px] font-medium text-accent-foreground">New</span> : undefined}
                   href={`/dashboard/voice?themes=${encodeURIComponent(t.memberThemes.join(','))}`}
                 />
               ))}
@@ -518,11 +544,15 @@ export default async function DashboardPage({ searchParams }: { searchParams?: P
         </Tile>
 
         {/* ── top recommendation ─────────────────────────────────────── */}
-        <Tile col={3} row={1} variant={oneThing ? 'warm' : 'default'} distribute="center" eyebrow="Top recommendation" meta={oneThing ? priorityWord(oneThing.priority) : undefined}
-          footer={oneThing ? <Link href="/dashboard/market">Why, and the voices{oneThingVoices > 0 ? ` (${oneThingVoices})` : ''} →</Link> : undefined}
+        <Tile col={3} row={1} distribute="center" hoverable={!!oneThing} className="py-3" eyebrow="Top recommendation" meta={oneThing ? priorityWord(oneThing.priority) : undefined}
+          footer={oneThing ? (
+            <Link href={`/dashboard/market?rec=${encodeURIComponent(oneThing.id)}`} className="after:absolute after:inset-0">
+              {oneThingVoices > 0 ? `Grounded in ${fmtInt(oneThingVoices)} voices${oneThingPlatforms.length > 1 ? ` · ${oneThingPlatforms.length} platforms` : ''} →` : 'Why, and the voices →'}
+            </Link>
+          ) : undefined}
         >
           {oneThing ? (
-            <p className="line-clamp-2 text-[13px] font-semibold leading-[1.25] tracking-[-0.01em]">{oneThing.title}</p>
+            <p className="line-clamp-2 text-[12.5px] font-semibold leading-[1.2] tracking-[-0.01em]">{oneThing.title}</p>
           ) : <TileEmpty>Recommendations land with the next update.</TileEmpty>}
         </Tile>
 
@@ -534,9 +564,9 @@ export default async function DashboardPage({ searchParams }: { searchParams?: P
             <div className="flex flex-col gap-[3px]">
               {accounts.slice(0, 3).map((a) => (
                 <div key={a.platform} className="flex items-center gap-2 text-[12px]">
-                  <PlatformIcon platform={a.platform} className="text-secondary-foreground" />
+                  <PlatformIcon platform={a.platform} className="text-muted-foreground" />
                   <span className="min-w-0 flex-1 truncate text-[11.5px]">{platformLabel(a.platform)}</span>
-                  <Sparkline values={a.values} width={48} height={16} />
+                  <Sparkline values={a.values} color="var(--you)" width={48} height={16} />
                   <span className="w-10 text-right font-mono text-[11.5px] font-semibold tabular-nums">{fmtCompact(a.latest)}</span>
                   <span className="w-11 text-right"><Delta value={a.deltaPct} unit="%" decimals={1} good="up" /></span>
                 </div>
@@ -549,33 +579,33 @@ export default async function DashboardPage({ searchParams }: { searchParams?: P
       {/* ── drawers: one click deeper ────────────────────────────────── */}
       <DetailDrawer value="brief" closeHref="/dashboard" title="The executive brief" description={`${brand} · ${weekdayDate(runDate)}`}>
         <div className="space-y-4">
-          <p className="text-[16px] font-semibold leading-snug">{narrative.headline}</p>
+          <p className="font-serif text-[17px] font-medium leading-snug">{narrative.headline}</p>
           {narrative.beats.map((b) => (
             <p key={b.metric} className="text-[13px] leading-[1.5]">{b.before}<strong className="font-semibold">{b.figure}</strong>{b.after}</p>
           ))}
           {narrative.fallback && <p className="text-[11px] text-muted-foreground">Composed from this update’s counted figures.</p>}
           {oneThing && (
-            <div className="rounded-lg bg-muted/40 p-3">
-              <p className="text-[10.5px] font-semibold uppercase tracking-[0.07em] text-muted-foreground">{priorityWord(oneThing.priority)}</p>
+            <div className="rounded-[4px] bg-inner p-3">
+              <p className="text-[10.5px] font-semibold uppercase tracking-[0.06em] text-muted-foreground">{priorityWord(oneThing.priority)}</p>
               <p className="mt-1 text-[13.5px] font-semibold">{oneThing.title}</p>
-              <p className="mt-1 text-[12.5px] text-foreground/85">{oneThing.reasoning}</p>
-              <Link href="/dashboard/market" className="mt-2 inline-block text-[12px] font-medium text-primary">See the full picture →</Link>
+              <p className="mt-1 text-[12.5px] text-secondary-foreground">{oneThing.reasoning}</p>
+              <Link href={`/dashboard/market?rec=${encodeURIComponent(oneThing.id)}`} className="mt-2 inline-block text-[12px] font-medium underline underline-offset-2">See the full picture →</Link>
             </div>
           )}
           {oneThingQuotes.length > 0 && (
             <div>
-              <p className="mb-2 text-[10.5px] font-semibold uppercase tracking-[0.07em] text-muted-foreground">In their words</p>
+              <p className="mb-2 text-[10.5px] font-semibold uppercase tracking-[0.06em] text-muted-foreground">In their words</p>
               <Quotes items={oneThingQuotes} />
             </div>
           )}
           {funnel.length > 0 && (
-            <DrawerLink href="/dashboard?detail=funnel" className="inline-block text-[12px] font-medium text-primary">How this update was built →</DrawerLink>
+            <DrawerLink href="/dashboard?detail=funnel" className="inline-block text-[12px] font-medium underline underline-offset-2">How this update was built →</DrawerLink>
           )}
         </div>
       </DetailDrawer>
 
       <DetailDrawer value="funnel" closeHref="/dashboard" title="How this update was built" description="every figure is counted from stored data — nothing is estimated">
-        <ol className="space-y-2.5 border-l-2 border-primary/20 pl-4">
+        <ol className="space-y-2.5 border-l-2 border-border pl-4">
           {funnel.map((s) => (
             <li key={s.label} className="flex items-baseline gap-3">
               <span className="w-16 shrink-0 text-right font-mono text-[18px] font-semibold tabular-nums">{fmtInt(s.n)}</span>

@@ -14,7 +14,7 @@ export interface Segment {
 /** Proportional segmented bar with 2px surface gaps + per-segment tooltips. */
 export function ProportionBar({ segments, of }: { segments: Segment[]; of: string }) {
   return (
-    <div className="flex h-2.5 w-full gap-0.5 overflow-hidden rounded-full">
+    <div className="flex h-2.5 w-full shrink-0 gap-0.5 overflow-hidden rounded-full">
       {segments.map((s) => (
         <span
           key={s.label}

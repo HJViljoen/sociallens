@@ -91,13 +91,13 @@ export function Tile({
         </header>
       )}
       {isHero && lead && (
-        <p className="font-serif text-[18px] font-medium leading-[1.35] tracking-[-0.005em] text-foreground">{lead}</p>
+        <p className="line-clamp-3 font-serif text-[17px] font-medium leading-[1.35] tracking-[-0.005em] text-foreground [text-wrap:pretty]">{lead}</p>
       )}
       {isStrip ? children : (
         <div className={cn('flex min-h-0 flex-1 flex-col gap-2.5', distribute === 'between' && 'justify-between', distribute === 'center' && 'justify-center', bodyClassName)}>{children}</div>
       )}
       {!isStrip && (footer || footerNote) && (
-        <footer className="mt-auto flex items-center justify-between gap-2 border-t border-border/70 pt-2 text-[12px] font-medium text-foreground">
+        <footer className="relative z-[1] mt-auto flex items-center justify-between gap-2 border-t border-border/70 bg-tile pt-2 text-[12px] font-medium text-foreground">
           <span className="min-w-0 truncate [&_a:hover]:underline">{footer}</span>
           {footerNote && <span className="shrink-0 font-mono text-[11px] font-normal text-muted-foreground">{footerNote}</span>}
         </footer>
