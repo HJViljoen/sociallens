@@ -53,12 +53,14 @@ export function MasterDetail({
     // The three panes fill the shell's height and scroll inside themselves — the
     // page-inside-the-page keeps its frame still (component-map §2).
     <div className={cn('flex min-h-0 flex-col md:h-[calc(100dvh_-_6.75rem)] md:flex-none', className)}>
-      {/* ≥ md: three panes side by side */}
+      {/* ≥ md: three panes side by side. The wrapper carries the breakpoint —
+          the panel group sets display:flex inline, so `hidden` on it is ignored. */}
+      <div className="hidden min-h-0 flex-1 md:flex">
       <ResizablePanelGroup
         orientation="horizontal"
         groupRef={group}
         onLayoutChanged={remember}
-        className="hidden min-h-0 flex-1 gap-3 md:flex"
+        className="min-h-0 flex-1 gap-3"
       >
         <ResizablePanel id={RAIL_ID} defaultSize="20" minSize={168} maxSize="32" className="min-h-0">
           <Pane>{rail}</Pane>
@@ -72,6 +74,7 @@ export function MasterDetail({
           <Pane>{detail}</Pane>
         </ResizablePanel>
       </ResizablePanelGroup>
+      </div>
       {/* < md: stacked, each pane its own tile */}
       <div className="flex flex-col gap-3 md:hidden">
         <Pane className="max-h-[40vh]">{rail}</Pane>
