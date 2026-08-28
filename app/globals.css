@@ -222,6 +222,12 @@
   }
 }
 
+/* The sidebar sits on the canvas with the same elevation as a tile (rule 3):
+   white, ambient shadow, hairline on its right edge. */
+[data-slot="sidebar"][data-variant="sidebar"] [data-slot="sidebar-inner"] {
+  box-shadow: var(--shadow-tile);
+}
+
 /* One-time draw-in for the SSR SVG charts (component-map §5): bars grow from
    their baseline, lines trace left→right, the ring sweeps. CSS only, runs once
    on mount, never loops, and does nothing under reduced motion. */

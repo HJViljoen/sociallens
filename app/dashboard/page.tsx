@@ -342,7 +342,7 @@ export default async function DashboardPage({ searchParams }: { searchParams?: P
                 <StatValue unit="terms">{termTotal}</StatValue>
                 <span className="truncate text-[11.5px] text-muted-foreground">{termCounts.brand} brand · {termCounts.competitor} competitor · {termCounts.category} category</span>
                 <span className="flex items-center gap-1.5 truncate text-[11.5px] text-muted-foreground">
-                  <span className="flex items-center gap-1 text-[#55605A]">{(tc?.platforms ?? []).map((p: string) => <PlatformIcon key={p} platform={p} />)}</span>
+                  <span className="flex items-center gap-1 text-secondary-foreground">{(tc?.platforms ?? []).map((p: string) => <PlatformIcon key={p} platform={p} />)}</span>
                   {(tc?.platforms?.length ?? 0)} platforms{cadence ? ` · ${cadence}` : ''}
                 </span>
               </>
@@ -370,7 +370,7 @@ export default async function DashboardPage({ searchParams }: { searchParams?: P
             {tiers.confirmed + tiers.early + tiers.once > 0 ? (
               <>
                 <StatValue unit="confirmed">{tiers.confirmed}</StatValue>
-                <span className="truncate font-mono text-[11.5px] tabular-nums text-[#3F4B44]">{tiers.early} early <span className="text-muted-foreground/70">·</span> {tiers.once} heard once</span>
+                <span className="truncate font-mono text-[11.5px] tabular-nums text-secondary-foreground">{tiers.early} early <span className="text-muted-foreground/70">·</span> {tiers.once} heard once</span>
                 {registryCount > 0 && <span className="truncate text-[11.5px] text-muted-foreground">{fmtInt(registryCount)} themes followed over time</span>}
               </>
             ) : <TileEmpty>Themes land with the first analysed update.</TileEmpty>}
@@ -379,7 +379,7 @@ export default async function DashboardPage({ searchParams }: { searchParams?: P
             {platforms.length > 0 ? (
               <div className="flex flex-col gap-[2px] text-[11.5px] leading-[1.3]">
                 {platforms.slice(0, 4).map((p) => (
-                  <RankedBar key={p.platform} label={<span className="flex items-center gap-1.5"><PlatformIcon platform={p.platform} className="text-[#55605A]" />{platformLabel(p.platform)}</span>} pct={(p.count / platformMax) * 100} color="var(--primary)" count={p.count} barWidth={70} />
+                  <RankedBar key={p.platform} label={<span className="flex items-center gap-1.5"><PlatformIcon platform={p.platform} className="text-secondary-foreground" />{platformLabel(p.platform)}</span>} pct={(p.count / platformMax) * 100} color="var(--primary)" count={p.count} barWidth={70} />
                 ))}
               </div>
             ) : <TileEmpty>Counted with the first update.</TileEmpty>}
@@ -389,11 +389,11 @@ export default async function DashboardPage({ searchParams }: { searchParams?: P
         {/* ── hero: the executive brief ──────────────────────────────── */}
         <Tile col={7} row={3} variant="hero" distribute="between" eyebrow="Executive brief · this update" meta={weekdayDate(runDate)}
           footer={oneThing ? (
-            <Link href="/dashboard/market" className="inline-flex max-w-full items-center rounded-full border border-[#F5F1E6]/35 bg-[#F5F1E6]/10 px-3.5 py-1.5 text-[12px] font-medium text-[#F5F1E6] hover:bg-[#F5F1E6]/15">
+            <Link href="/dashboard/market" className="inline-flex max-w-full items-center rounded-full border border-border bg-inner px-3.5 py-1.5 text-[12px] font-medium text-foreground hover:bg-inner">
               <span className="truncate">The one thing to do → {oneThing.title}</span>
             </Link>
           ) : null}
-          footerNote={<DrawerLink href="/dashboard?detail=brief" className="font-medium text-[#DCE8DD] hover:text-white">Read the full brief →</DrawerLink>}
+          footerNote={<DrawerLink href="/dashboard?detail=brief" className="font-medium text-foreground hover:text-white">Read the full brief →</DrawerLink>}
         >
           {showHero ? (
             <>
@@ -403,7 +403,7 @@ export default async function DashboardPage({ searchParams }: { searchParams?: P
                   {narrative.beats.slice(0, 3).map((b) => (
                     <div key={b.metric} className="min-w-0">
                       <div className="font-mono text-[18px] font-semibold leading-none tabular-nums tracking-[-0.02em]">{b.figure}</div>
-                      <p className="mt-1.5 line-clamp-4 text-[12.5px] leading-[1.5] text-[#F5F1E6]/88">{b.before}<span className="font-semibold text-[#F5F1E6]">{b.figure}</span>{b.after}</p>
+                      <p className="mt-1.5 line-clamp-4 text-[12.5px] leading-[1.5] text-foreground/90">{b.before}<span className="font-semibold text-foreground">{b.figure}</span>{b.after}</p>
                     </div>
                   ))}
                 </div>
@@ -411,11 +411,11 @@ export default async function DashboardPage({ searchParams }: { searchParams?: P
               {oneThingQuotes.length > 0 && (
                 <div className="flex flex-col gap-2">
                   {oneThingQuotes.slice(0, 2).map((q, i) => (
-                    <blockquote key={i} className="max-w-[40rem] border-l-2 border-[#D99A7A] pl-3 text-[13px] italic leading-[1.45] text-[#F1EBDD]">
+                    <blockquote key={i} className="max-w-[40rem] border-l-2 border-border pl-3 text-[13px] italic leading-[1.45] text-foreground">
                       <span className="line-clamp-2">“{q}”</span>
                     </blockquote>
                   ))}
-                  {oneThingVoices > 0 && <span className="text-[10.5px] text-[#F5F1E6]/60">{oneThingQuotes.length > 1 ? 'two' : 'one'} of {oneThingVoices} voices behind the top recommendation</span>}
+                  {oneThingVoices > 0 && <span className="text-[10.5px] text-muted-foreground">{oneThingQuotes.length > 1 ? 'two' : 'one'} of {oneThingVoices} voices behind the top recommendation</span>}
                 </div>
               )}
             </>
@@ -436,7 +436,7 @@ export default async function DashboardPage({ searchParams }: { searchParams?: P
                 {sentTier && <span className="mb-0.5 ml-auto text-[11px] text-muted-foreground">{SENTIMENT_TIER_LABEL[sentTier]}</span>}
               </div>
               <ProportionBar segments={sentimentSegments} of="videos" />
-              <div className="flex flex-wrap gap-x-3 text-[11px] text-[#3F4B44]">
+              <div className="flex flex-wrap gap-x-3 text-[11px] text-secondary-foreground">
                 {sentimentSegments.map((s) => (
                   <span key={s.label} className="flex items-center gap-1"><span className={`size-1.5 rounded-full ${s.color}`} aria-hidden />{s.label} {fmtInt(s.count)}</span>
                 ))}
@@ -457,7 +457,7 @@ export default async function DashboardPage({ searchParams }: { searchParams?: P
                 {shareSegments.map((s) => (
                   <div key={s.label} className="flex items-center gap-1.5">
                     <span className="size-1.5 shrink-0 rounded-full" style={{ background: s.color }} aria-hidden />
-                    <span className="min-w-0 flex-1 truncate text-[#3F4B44]">{s.label}</span>
+                    <span className="min-w-0 flex-1 truncate text-secondary-foreground">{s.label}</span>
                     <span className="font-mono text-[11.5px] font-semibold tabular-nums">{fmtPct(s.pct)}</span>
                     <span className="w-14 text-right"><Delta value={s.delta} unit="pt" good={s.good} /></span>
                   </div>
@@ -534,7 +534,7 @@ export default async function DashboardPage({ searchParams }: { searchParams?: P
             <div className="flex flex-col gap-[3px]">
               {accounts.slice(0, 3).map((a) => (
                 <div key={a.platform} className="flex items-center gap-2 text-[12px]">
-                  <PlatformIcon platform={a.platform} className="text-[#55605A]" />
+                  <PlatformIcon platform={a.platform} className="text-secondary-foreground" />
                   <span className="min-w-0 flex-1 truncate text-[11.5px]">{platformLabel(a.platform)}</span>
                   <Sparkline values={a.values} width={48} height={16} />
                   <span className="w-10 text-right font-mono text-[11.5px] font-semibold tabular-nums">{fmtCompact(a.latest)}</span>

@@ -142,7 +142,7 @@ function InboxRowView({ row }: { row: InboxItem }) {
       <div className="flex items-center gap-2">
         <IntentChip intent={row.intent} />
         <span className="flex min-w-0 flex-1 items-center gap-1.5 text-[11px] text-muted-foreground">
-          <PlatformIcon platform={c.comment.platform} className="shrink-0 text-[#55605A]" />
+          <PlatformIcon platform={c.comment.platform} className="shrink-0 text-secondary-foreground" />
           <span className="truncate">
             {platformLabel(c.comment.platform)} · <span className="font-mono tabular-nums">{row.age ?? '—'}</span> · {row.context}
           </span>
@@ -177,7 +177,7 @@ export function EngageInboxTile({
       key={href}
       href={href}
       scroll={false}
-      className={`inline-flex h-[20px] shrink-0 items-center rounded-full px-2 text-[10.5px] font-medium whitespace-nowrap ${active ? 'bg-sidebar-accent text-primary' : 'bg-muted text-[#3F4B44] hover:bg-muted/70'}`}
+      className={`inline-flex h-[20px] shrink-0 items-center rounded-full px-2 text-[10.5px] font-medium whitespace-nowrap ${active ? 'bg-sidebar-accent text-primary' : 'bg-muted text-secondary-foreground hover:bg-muted/70'}`}
     >
       {label}
     </Link>
@@ -256,7 +256,7 @@ export function EngageDrawers({
                       <IntentChip intent={row.intent} />
                       <span className="truncate text-[11px] text-muted-foreground">{row.context}</span>
                       <span className="ml-auto flex shrink-0 items-center gap-1.5 text-[11px] text-muted-foreground">
-                        <PlatformIcon platform={c.comment.platform} className="text-[#55605A]" />{platformLabel(c.comment.platform)} · {row.age ?? '—'}
+                        <PlatformIcon platform={c.comment.platform} className="text-secondary-foreground" />{platformLabel(c.comment.platform)} · {row.age ?? '—'}
                       </span>
                     </div>
                     <p className="mt-1.5 border-l-2 border-clay/80 pl-2 text-[12.5px] italic leading-[1.45]">“{c.comment.text}”</p>

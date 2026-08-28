@@ -23,12 +23,12 @@ export function FaceOffHeader({
     <div className={cn(GRID, 'items-end')}>
       <div className="flex min-w-0 flex-col items-end text-right">
         <span className="block max-w-full truncate text-[10.5px] font-semibold uppercase tracking-[0.07em] text-positive">{you}</span>
-        {youLine && <span className="block max-w-full truncate text-[12.5px] font-medium text-[#2B3A31]">{youLine}</span>}
+        {youLine && <span className="block max-w-full truncate text-[12.5px] font-medium text-foreground">{youLine}</span>}
       </div>
-      <div className="truncate text-center text-[10.5px] font-semibold uppercase tracking-[0.07em] text-[#6B756B]">{centre}</div>
+      <div className="truncate text-center text-[10.5px] font-semibold uppercase tracking-[0.07em] text-muted-foreground">{centre}</div>
       <div className="flex min-w-0 flex-col">
         <span className="block max-w-full truncate text-[10.5px] font-semibold uppercase tracking-[0.07em] text-clay">{them}</span>
-        {themLine && <span className="block max-w-full truncate text-[12.5px] font-medium text-[#2B3A31]">{themLine}</span>}
+        {themLine && <span className="block max-w-full truncate text-[12.5px] font-medium text-foreground">{themLine}</span>}
       </div>
     </div>
   )
@@ -44,7 +44,7 @@ export function FaceOffRowView({ row, className }: { row: FaceOffRow; className?
           <span className="block h-full rounded-full" style={{ width: `${row.youPct}%`, background: YOU_COLOR }} />
         </span>
       </div>
-      <div className="truncate text-center text-[11.5px] font-medium text-[#3F4B44]">{row.label}</div>
+      <div className="truncate text-center text-[11.5px] font-medium text-secondary-foreground">{row.label}</div>
       <div className="flex min-w-0 items-center gap-2">
         <span className="flex h-2.5 min-w-0 flex-1" aria-hidden>
           <span className="block h-full rounded-full" style={{ width: `${row.themPct}%`, background: THEM_COLOR }} />

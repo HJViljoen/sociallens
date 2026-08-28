@@ -465,7 +465,7 @@ export default async function ContentPage({
             <div className="flex flex-col">
               {voices.map((v) => (
                 <div key={v.name} className="flex items-center gap-2.5 border-t border-border/70 py-2 first:border-t-0 first:pt-0 last:pb-0">
-                  <span className="grid size-[26px] shrink-0 place-items-center rounded-full text-[10px] font-semibold text-[#F5F1E6]" style={{ background: ROLE_COLOR[v.role] }} aria-hidden>{initials(v.name)}</span>
+                  <span className="grid size-[26px] shrink-0 place-items-center rounded-full text-[10px] font-semibold text-foreground" style={{ background: ROLE_COLOR[v.role] }} aria-hidden>{initials(v.name)}</span>
                   <div className="min-w-0 flex-1">
                     <div className="truncate text-[12.5px] font-semibold">@{v.name}</div>
                     <div className="truncate text-[11px] text-muted-foreground">{voiceLine(v)}</div>
@@ -491,7 +491,7 @@ export default async function ContentPage({
               <div className="flex flex-col gap-2">
                 {accounts.slice(0, 3).map((a) => (
                   <div key={a.platform} className="flex items-center gap-3">
-                    <PlatformIcon platform={a.platform} size={14} className="shrink-0 text-[#55605A]" />
+                    <PlatformIcon platform={a.platform} size={14} className="shrink-0 text-secondary-foreground" />
                     <span className="sr-only">{platformLabel(a.platform)}</span>
                     <div className="min-w-0 flex-1"><Sparkline values={a.values} width={270} height={28} fill /></div>
                     <div className="flex min-w-[96px] flex-col items-end">

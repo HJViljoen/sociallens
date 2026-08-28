@@ -19,17 +19,18 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           so the whole page overflows the phone viewport instead of the table
           scrolling inside its own overflow-x-auto container.
           h-dvh + inner-scrolling <main>: the app scrolls inside its own pane
-          instead of the document. On mobile the browser toolbar therefore
-          never collapses — which was the only way to stop the toolbar
-          animation visibly shifting the (previously window-fixed) crowd
-          backdrop; the browser moves everything glued to the window edge
-          while the bar animates, and no CSS on the layer can prevent that. */}
+          instead of the document, so the sidebar stays put while content
+          scrolls (this also stopped the mobile browser toolbar from animating,
+          which used to shift the old window-fixed crowd backdrop).
+          2026-08-28 (MASTER.md rules 6 + 8): the crowd art left the shell and
+          the 48px header — which only ever held the mobile sidebar trigger —
+          is gone; on phones the trigger floats in the top-left corner. */}
       <div className="relative flex flex-col flex-1 min-w-0 h-dvh overflow-hidden">
-        <div className="crowd-bg" aria-hidden />
-        <header className="relative z-10 flex shrink-0 items-center h-12 px-4 border-b border-border/60">
-          <SidebarTrigger />
-        </header>
-        <main className="relative z-10 flex-1 min-h-0 overflow-y-auto p-6">
+        <SidebarTrigger
+          aria-label="Open navigation"
+          className="absolute left-3 top-3 z-20 size-9 rounded-full bg-tile text-foreground shadow-tile md:hidden"
+        />
+        <main className="relative z-10 flex-1 min-h-0 overflow-y-auto p-6 pt-14 md:pt-6">
           <Suspense fallback={null}>
             <AccessBannerLoader />
           </Suspense>

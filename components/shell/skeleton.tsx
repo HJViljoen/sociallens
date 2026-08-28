@@ -18,7 +18,7 @@ export function Bone({ className, tone = 'light' }: { className?: string; tone?:
       aria-hidden
       className={cn(
         'animate-pulse rounded-[4px]',
-        tone === 'light' ? 'bg-muted' : 'bg-[#F5F1E6]/12',
+        tone === 'light' ? 'bg-muted' : 'bg-inner',
         className,
       )}
     />

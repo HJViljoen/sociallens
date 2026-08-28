@@ -366,7 +366,7 @@ export default async function MarketIntelligencePage({ searchParams }: { searchP
                   return (
                     <li key={a.rec.id} className="flex min-h-0 flex-col border-t border-border/80 first:border-t-0">
                       <Link href={`${BASE}?rec=${a.rec.id}`} scroll={false} className="group -mx-2 flex items-center gap-3 rounded-md px-2 py-3 transition-colors hover:bg-muted/40">
-                        <span className="w-3.5 shrink-0 font-mono text-[12px] font-semibold tabular-nums text-[#9AA39A]">{i + 1}</span>
+                        <span className="w-3.5 shrink-0 font-mono text-[12px] font-semibold tabular-nums text-muted-foreground">{i + 1}</span>
                         <PriorityDot priority={a.rec.priority} />
                         <span className="line-clamp-2 min-w-0 flex-1 text-[13px] font-semibold leading-[1.3] group-hover:text-primary">{a.rec.title}</span>
                         <span className="w-14 shrink-0 text-right font-mono text-[11px] tabular-nums text-muted-foreground">{conv > 0 ? `${fmtInt(conv)} conv.` : ''}</span>
@@ -379,7 +379,7 @@ export default async function MarketIntelligencePage({ searchParams }: { searchP
                 return (
                   <li key={a.rec.id} className="flex flex-col gap-3 border-t border-border/80 py-3.5 first:border-t-0 first:pt-0">
                     <div className="flex items-start gap-3">
-                      <span className="w-3.5 shrink-0 font-mono text-[12px] font-semibold tabular-nums leading-[1.25] text-[#9AA39A]">{i + 1}</span>
+                      <span className="w-3.5 shrink-0 font-mono text-[12px] font-semibold tabular-nums leading-[1.25] text-muted-foreground">{i + 1}</span>
                       <PriorityDot priority={a.rec.priority} className="mt-[7px]" />
                       <h3 className="line-clamp-3 flex-1 text-[17px] font-semibold leading-[1.25] tracking-[-0.01em] [text-wrap:balance]">{a.rec.title}</h3>
                     </div>
@@ -431,7 +431,7 @@ export default async function MarketIntelligencePage({ searchParams }: { searchP
         >
           {claims.length > 0 ? (
             <>
-              <div className="grid grid-cols-[1fr_108px_1.3fr] gap-3 text-[10.5px] font-semibold uppercase tracking-[0.05em] text-[#7A847A]">
+              <div className="grid grid-cols-[1fr_108px_1.3fr] gap-3 text-[10.5px] font-semibold uppercase tracking-[0.05em] text-muted-foreground">
                 <span>You say</span><span className="text-center">Verdict</span><span>They hear</span>
               </div>
               <div className="flex min-h-0 flex-1 flex-col">
@@ -627,7 +627,7 @@ export default async function MarketIntelligencePage({ searchParams }: { searchP
 function Quadrant({ title, items, dot, className = '' }: { title: string; items: string[]; dot: string; className?: string }) {
   return (
     <div className={`flex min-h-0 flex-col justify-center-safe gap-1.5 overflow-hidden px-4 py-2 ${className}`}>
-      <span className="flex items-center gap-1.5 text-[10.5px] font-semibold uppercase tracking-[0.07em] text-[#6B756B]">
+      <span className="flex items-center gap-1.5 text-[10.5px] font-semibold uppercase tracking-[0.07em] text-muted-foreground">
         <span className={`size-1.5 shrink-0 rounded-full ${dot}`} aria-hidden />
         {title}
       </span>
@@ -662,7 +662,7 @@ function RecDrawerRow({ item, index, themes, conversations }: { item: AgendaItem
   const { rec, tier } = item
   return (
     <li className="flex gap-2.5 border-t border-border/70 pt-3 first:border-t-0 first:pt-0">
-      <span className="w-4 shrink-0 font-mono text-[12px] font-semibold text-[#9AA39A]">{index + 1}</span>
+      <span className="w-4 shrink-0 font-mono text-[12px] font-semibold text-muted-foreground">{index + 1}</span>
       <div className="min-w-0 flex-1 space-y-1.5">
         <div className="flex flex-wrap items-center gap-1">
           <PriorityDot priority={rec.priority} />

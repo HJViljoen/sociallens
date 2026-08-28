@@ -587,7 +587,7 @@ function TabLink({ label, count, active, href }: { label: string; count: number;
       href={href}
       scroll={false}
       className={`inline-flex h-[22px] shrink-0 items-center gap-1 whitespace-nowrap rounded-md px-2 text-[11.5px] font-medium transition-colors ${
-        active ? 'bg-sidebar-accent text-primary' : 'text-[#6B756B] hover:bg-muted/60 hover:text-foreground'
+        active ? 'bg-sidebar-accent text-primary' : 'text-muted-foreground hover:bg-muted/60 hover:text-foreground'
       }`}
     >
       {label}

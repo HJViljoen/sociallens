@@ -1,11 +1,15 @@
 import type { ReactNode } from 'react'
 import { cn } from '@/lib/utils'
 
-// The one-screen grid's unit. Every tile has the same anatomy — eyebrow + meta
-// on top, content, a footer that links deeper — so the pages read as one
-// system even though each page composes its tiles differently. Tiles never
-// scroll the page: they are fixed-height cells on ≥xl and clamp their own
-// content (overflow hidden, min-h-0); below xl the grid stacks and scrolls.
+// The grid's unit. Every tile has the same anatomy — eyebrow + meta on top,
+// content, a footer that links deeper — so the pages read as one system even
+// though each page composes its tiles differently.
+//
+// 2026-08-28 (MASTER §Visual identity): a tile is a white surface with the
+// ambient --shadow-tile, no border. Depth comes from elevation, never tone.
+// Inside a tile, items may sit in a TileBlock — a flat, faintly tinted inner
+// block with no shadow and no border. Two levels only, never a third
+// (component-map §1, nesting discipline).
 //
 // Class strings are written out in full (never interpolated) so Tailwind v4's
 // scanner sees them — hence the lookup maps for spans.
@@ -31,81 +35,88 @@ export type TileVariant = 'default' | 'hero' | 'warm' | 'strip'
 export interface TileProps {
   /** Column span on the 12-column grid (≥xl). */
   col: number
-  /** Row span on the 6-row grid (≥xl). */
+  /** Row span in 116px row units (≥xl). */
   row: number
   variant?: TileVariant
   eyebrow?: ReactNode
   meta?: ReactNode
+  /** Hero only: a serif lead line under the eyebrow — the page's one sentence. */
+  lead?: ReactNode
   /** Left side of the footer — usually a Link deeper. */
   footer?: ReactNode
   /** Right side of the footer — a quiet note. */
   footerNote?: ReactNode
+  /** The whole tile is a link target: lifts on hover (only clickable tiles lift). */
+  hoverable?: boolean
   className?: string
   bodyClassName?: string
   /** How the body's groups share spare height: packed at the top, spread
-   *  between, or centred — a tile that is shorter than its cell should not
-   *  leave all its air at the bottom. */
+   *  between, or centred. */
   distribute?: 'start' | 'between' | 'center'
   children?: ReactNode
 }
 
 export function Tile({
-  col, row, variant = 'default', eyebrow, meta, footer, footerNote, className, bodyClassName, distribute = 'start', children,
+  col, row, variant = 'default', eyebrow, meta, lead, footer, footerNote, hoverable = false, className, bodyClassName, distribute = 'start', children,
 }: TileProps) {
   const isHero = variant === 'hero'
   const isStrip = variant === 'strip'
   return (
     <section
       className={cn(
-        'relative flex min-h-0 flex-col overflow-hidden rounded-[10px] text-[12.5px] leading-[1.45]',
+        'relative flex min-h-0 flex-col overflow-hidden rounded-lg bg-tile text-[12.5px] leading-[1.45] shadow-tile',
         COL[col] ?? 'xl:col-span-12',
         ROW[row] ?? 'xl:row-span-1',
         MIN_H[row] ?? 'min-h-[116px]',
         'xl:min-h-0',
-        variant === 'default' && 'gap-2.5 bg-tile px-4 py-3.5 ring-1 ring-border/90 shadow-[0_1px_2px_rgba(18,42,31,0.05),0_10px_24px_-14px_rgba(18,42,31,0.22)]',
-        variant === 'warm' && 'gap-2.5 bg-tile px-4 py-3.5 ring-1 ring-clay/45 shadow-[0_1px_2px_rgba(18,42,31,0.05),0_10px_24px_-14px_rgba(18,42,31,0.22)]',
-        isHero && 'stat-hero gap-3 px-6 py-5 shadow-[0_1px_2px_rgba(18,42,31,0.10),0_18px_40px_-16px_rgba(18,42,31,0.45)]',
-        isStrip && 'flex-col divide-y divide-border/80 bg-tile p-0 ring-1 ring-border/90 shadow-[0_1px_2px_rgba(18,42,31,0.05),0_10px_24px_-14px_rgba(18,42,31,0.22)] sm:flex-row sm:items-stretch sm:divide-x sm:divide-y-0',
+        (variant === 'default' || variant === 'warm') && 'gap-2.5 px-4 py-3.5',
+        isHero && 'gap-3 px-5 py-4',
+        isStrip && 'flex-col divide-y divide-border/70 p-0 sm:flex-row sm:items-stretch sm:divide-x sm:divide-y-0',
+        hoverable && 'motion-safe:transition-[transform,box-shadow] motion-safe:duration-150 hover:-translate-y-0.5 hover:shadow-tile-hover',
         className,
       )}
     >
       {!isStrip && (eyebrow || meta) && (
         <header className="flex items-baseline justify-between gap-2">
           {eyebrow ? (
-            <h2
-              className={cn(
-                'truncate text-[10.5px] font-semibold uppercase tracking-[0.07em]',
-                isHero ? 'text-[#F5F1E6]/70' : 'text-[#6B756B]',
-              )}
-            >
+            <h2 className="truncate text-[10.5px] font-semibold uppercase tracking-[0.06em] text-secondary-foreground">
               {eyebrow}
             </h2>
           ) : <span />}
           {meta && (
-            <span className={cn('shrink-0 whitespace-nowrap text-[11px]', isHero ? 'text-[#F5F1E6]/60' : 'text-muted-foreground')}>
+            <span className="shrink-0 whitespace-nowrap font-mono text-[11px] text-muted-foreground">
               {meta}
             </span>
           )}
         </header>
       )}
+      {isHero && lead && (
+        <p className="font-serif text-[18px] font-medium leading-[1.35] tracking-[-0.005em] text-foreground">{lead}</p>
+      )}
       {isStrip ? children : (
         <div className={cn('flex min-h-0 flex-1 flex-col gap-2.5', distribute === 'between' && 'justify-between', distribute === 'center' && 'justify-center', bodyClassName)}>{children}</div>
       )}
       {!isStrip && (footer || footerNote) && (
-        <footer className={cn('mt-auto flex items-center justify-between gap-2 pt-1 text-[11px] font-medium', isHero ? 'text-[#DCE8DD]' : 'text-primary')}>
-          <span className="min-w-0 truncate">{footer}</span>
-          {footerNote && <span className={cn('shrink-0 font-normal', isHero ? 'text-[#F5F1E6]/60' : 'text-muted-foreground')}>{footerNote}</span>}
+        <footer className="mt-auto flex items-center justify-between gap-2 border-t border-border/70 pt-2 text-[12px] font-medium text-foreground">
+          <span className="min-w-0 truncate [&_a:hover]:underline">{footer}</span>
+          {footerNote && <span className="shrink-0 font-mono text-[11px] font-normal text-muted-foreground">{footerNote}</span>}
         </footer>
       )}
     </section>
   )
 }
 
+/** An inner block inside a tile — flat, faintly tinted, no shadow, no border.
+ *  The second (and last) nesting level. Pass `as="li"` inside lists. */
+export function TileBlock({ children, className, as: As = 'div' }: { children: ReactNode; className?: string; as?: 'div' | 'li' | 'article' }) {
+  return <As className={cn('rounded-[4px] bg-inner px-3 py-2.5', className)}>{children}</As>
+}
+
 /** One cell of a strip tile — a counted receipt. */
 export function StripCell({ eyebrow, children, className }: { eyebrow: ReactNode; children?: ReactNode; className?: string }) {
   return (
     <div className={cn('flex min-h-0 min-w-0 flex-1 flex-col justify-center gap-[3px] overflow-hidden px-4 py-2.5', className)}>
-      <h2 className="truncate text-[10.5px] font-semibold uppercase tracking-[0.07em] text-[#6B756B]">{eyebrow}</h2>
+      <h2 className="truncate text-[10.5px] font-semibold uppercase tracking-[0.06em] text-secondary-foreground">{eyebrow}</h2>
       {children}
     </div>
   )
