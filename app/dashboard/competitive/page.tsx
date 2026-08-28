@@ -12,7 +12,9 @@ import {
   kindOf, orderInsights, groupByKind, coverageOf, coverageText, SENTIMENT_MIN_JUDGED,
   type VideoStatRow, type KindTone,
 } from '@/lib/competitive-tiles'
-import { PageFrame, PageBar, BarPill } from '@/components/shell/page-grid'
+import { PageFrame, PageGrid, PageBar, BarPill } from '@/components/shell/page-grid'
+import { Tile, TileEmpty } from '@/components/shell/tile'
+import { cn } from '@/lib/utils'
 import { MasterDetail } from '@/components/shell/master-detail'
 import { PaneHeader, PaneBody, RailGroup, RailLink, ListRows, ListRow, PaneEmpty, DetailHeader, DetailSection, Verbatim } from '@/components/shell/master-list'
 import { ListSearch } from '@/components/shell/list-search'
@@ -20,12 +22,13 @@ import { LineChart } from '@/components/charts/line-chart'
 import { Delta } from '@/components/charts/stat'
 import { FaceOff, FaceOffHeader, YOU_COLOR, THEM_COLOR } from './face-off'
 
-// Competitive Intelligence — "where do we stand vs <competitor>?", as a page
-// inside the page (component-map §2, 2026-08-28). The rail holds the
-// face-off (one row per competitor) and the findings (all · by kind · per
-// competitor); the list shows the rows of the chosen group; the detail pane
-// shows the butterfly + share line + full comparison for a competitor, or a
-// finding with its voices. Every figure is a stored count or share; model
+// Competitive Intelligence — "where do we stand vs <competitor>?" (Heinrich,
+// 2026-08-28 evening): the face-off IS the top of the page — standings, the
+// butterfly vs the selected competitor, the share line and the full
+// comparison as tiles — and the findings sit beneath it as a page inside the
+// page (rail: all · by kind · about a competitor; list; the finding with its
+// voices). `?vs=` picks the competitor up top; `?kind=` / `?about=` / `?item=`
+// drive the findings block. Every figure is a stored count or share; model
 // judgments only gate, order and word. Client copy: no run / pass / gather.
 
 interface SummaryRow {
@@ -56,16 +59,17 @@ interface ThemeRow extends ThemeBucketRow {
   rank_score: number | null
 }
 
-type Group = 'faceoff' | 'findings'
 const BASE = '/dashboard/competitive'
 const LEGEND_ITEMS: GlossaryKey[] = ['conversations', 'sentiment']
 
-const href = (group: Group, item?: string | null, extra?: Record<string, string | undefined>) => {
-  const q = new URLSearchParams({ group })
-  for (const [k, v] of Object.entries(extra ?? {})) if (v) q.set(k, v)
-  if (item) q.set('item', item)
-  return `${BASE}?${q.toString()}`
+type Params = { vs?: string | null; kind?: string | null; about?: string | null; item?: string | null }
+const href = (p: Params, hash?: string) => {
+  const q = new URLSearchParams()
+  for (const k of ['vs', 'kind', 'about', 'item'] as const) if (p[k]) q.set(k, p[k]!)
+  const qs = q.toString()
+  return `${BASE}${qs ? `?${qs}` : ''}${hash ? `#${hash}` : ''}`
 }
+const COMP_DIM = 'color-mix(in srgb, var(--comp) 55%, var(--tile))'
 
 // Kind chips on the semantic tokens: lead = green tint, threat = red tint,
 // gap = amber tint, tone and the rest = grey. Full class strings for Tailwind.
@@ -83,7 +87,7 @@ function KindChip({ category }: { category: string }) {
   return <span className={`inline-flex shrink-0 items-center rounded-full px-2 py-px text-[10.5px] font-semibold ${KIND_CHIP[k.tone]}`}>{k.label}</span>
 }
 
-export default async function CompetitiveIntelligencePage({ searchParams }: { searchParams?: Promise<{ detail?: string; vs?: string; group?: string; item?: string; kind?: string }> }) {
+export default async function CompetitiveIntelligencePage({ searchParams }: { searchParams?: Promise<{ detail?: string; vs?: string; group?: string; item?: string; kind?: string; about?: string }> }) {
   const sp = (await searchParams) ?? {}
   const { supabase, clientId } = await getSessionContext()
 
@@ -177,17 +181,19 @@ export default async function CompetitiveIntelligencePage({ searchParams }: { se
   for (const ci of insights) if (ci.competitor_name) findingsByCompetitor.set(ci.competitor_name, (findingsByCompetitor.get(ci.competitor_name) ?? 0) + 1)
 
   // ── selection ──────────────────────────────────────────────────────────
-  const group: Group = sp.group === 'findings' ? 'findings' : 'faceoff'
+  const byName = (want: string | undefined | null, names: string[]) => (want ? names.find((n) => n.toLowerCase() === want.toLowerCase()) ?? null : null)
+  // Old links: ?group=faceoff&item=<competitor> meant "vs that competitor".
+  const legacyVs = sp.group === 'faceoff' && sp.item ? sp.item : null
+  const lead = byName(sp.vs ?? legacyVs, competitors.map((c) => c.name)) ?? competitors[0]?.name ?? null
   const kind = sp.kind && kinds.some((g) => g.category === sp.kind) ? sp.kind : null
-  const knownNames = [...new Set([...competitors.map((c) => c.name), ...findingsByCompetitor.keys()])]
-  const vsFilter = sp.vs ? knownNames.find((n) => n.toLowerCase() === sp.vs!.toLowerCase()) ?? null : null
-  const findingsShown = insights.filter((ci) => (!kind || ci.category === kind) && (!vsFilter || group !== 'findings' || ci.competitor_name === vsFilter))
-  const listIds = group === 'faceoff' ? competitors.map((c) => c.name) : findingsShown.map((ci) => ci.id)
-  const requested = sp.item ?? (group === 'faceoff' ? vsFilter ?? undefined : undefined)
-  const itemId = requested && listIds.includes(requested) ? requested : (listIds[0] ?? null)
+  const about = byName(sp.about, [...findingsByCompetitor.keys()])
+  const findingsShown = insights.filter((ci) => (!kind || ci.category === kind) && (!about || ci.competitor_name === about))
+  const itemId = sp.item && findingsShown.some((ci) => ci.id === sp.item) ? sp.item : (findingsShown[0]?.id ?? null)
+  const selected = itemId ? insights.find((ci) => ci.id === itemId) ?? null : null
+  // Findings links keep the overview's competitor; overview links keep the findings' state.
+  const keepFindings = { kind, about, item: itemId }
 
   // ── the face-off vs the selected competitor ────────────────────────────
-  const lead = group === 'faceoff' ? itemId : null
   const rows = lead ? faceOffRows({ sov: faceSov, layer: faceLayer, competitor: lead, stats, themes: themesByBucket, fmtInt, fmtPct }) : []
   const youPraise = praisedFor(themeRows, 'client')
   const themPraise = lead ? praisedFor(themeRows, competitorBucket(lead)) : null
@@ -197,7 +203,7 @@ export default async function CompetitiveIntelligencePage({ searchParams }: { se
   const fieldRows = share
     ? [
         ...(share.client ? [{ key: 'client', label: `${brandShort} · you`, color: YOU_COLOR, videos: share.client.videos, pct: share.client.pct }] : []),
-        ...share.competitors.map((c) => ({ key: competitorBucket(c.name), label: c.name, color: c.name === lead ? THEM_COLOR : 'color-mix(in srgb, var(--comp) 55%, var(--tile))', videos: c.videos, pct: c.pct })),
+        ...share.competitors.map((c) => ({ key: competitorBucket(c.name), label: c.name, color: c.name === lead ? THEM_COLOR : COMP_DIM, videos: c.videos, pct: c.pct })),
         ...(share.rest ? [{ key: 'industry-other', label: 'Wider category', color: 'var(--cat)', videos: share.rest.videos, pct: share.rest.pct }] : []),
       ].map((r) => {
         const s = stats?.get(r.key)
@@ -211,9 +217,9 @@ export default async function CompetitiveIntelligencePage({ searchParams }: { se
         }
       })
     : []
+  const maxPct = Math.max(share?.client?.pct ?? 0, ...competitors.map((c) => c.pct), 1)
 
   // ── the selected finding + its voices (shared lib/quotes) ──────────────
-  const selected = group === 'findings' ? insights.find((ci) => ci.id === itemId) ?? null : null
   const citedIds = new Set<string>()
   for (const ci of insights) for (const id of ci.evidence?.supporting_theme_ids ?? []) citedIds.add(id)
   for (const t of themeRows) for (const id of t.supporting_insight_ids ?? []) citedIds.add(id)
@@ -249,25 +255,148 @@ export default async function CompetitiveIntelligencePage({ searchParams }: { se
 
   const layerWord = faceLayer === 'period' ? 'this update' : 'all updates'
   const context = `${lead ? `Where do we stand vs ${lead}?` : 'Where do we stand?'} · ${weekdayDate(runDate)}`
+  const leadFindings = lead ? findingsByCompetitor.get(lead) ?? 0 : 0
 
-  // ── rail ────────────────────────────────────────────────────────────────
+  // ── the overview: standings · face-off · share line · full comparison ──
+  const standingRow = (opts: { name: string; you?: boolean; pct: number; videos: number; delta: number | null; rank?: number; color: string; active: boolean; href?: string }) => {
+    const inner = (
+      <>
+        <div className="flex items-center gap-2.5">
+          <span className="w-4 shrink-0 font-mono text-[11.5px] font-semibold tabular-nums text-muted-foreground">{opts.rank ?? ''}</span>
+          <span className="size-2 shrink-0 rounded-[2px]" style={{ background: opts.color }} aria-hidden />
+          <span className={cn('min-w-0 flex-1 truncate text-[12.5px]', opts.you ? 'text-secondary-foreground' : 'font-semibold')}>{opts.name}</span>
+          <span className="font-mono text-[12px] font-semibold tabular-nums">{fmtPct(opts.pct)}</span>
+          <span className="w-14 text-right"><Delta value={opts.delta} unit="pt" good={opts.you ? 'up' : 'down'} /></span>
+        </div>
+        <div className="mt-0.5 flex items-center gap-2 pl-[26px]">
+          <span className="h-1.5 flex-1 overflow-hidden rounded-full bg-inner"><span className="block h-full rounded-full" style={{ width: `${Math.max(2, (opts.pct / maxPct) * 100)}%`, background: opts.color }} /></span>
+          <span className="w-16 shrink-0 text-right font-mono text-[10.5px] tabular-nums text-muted-foreground">{fmtInt(opts.videos)} videos</span>
+        </div>
+      </>
+    )
+    const cls = cn('block rounded-[4px] px-2.5 py-1.5', opts.active && 'bg-inner', opts.href && 'hover:bg-inner/70')
+    return opts.href ? <Link href={opts.href} className={cls} aria-current={opts.active ? 'true' : undefined}>{inner}</Link> : <div className={cls}>{inner}</div>
+  }
+
+  const overview = competitors.length > 0 ? (
+    <>
+      <Tile col={4} row={3} eyebrow="Where you stand" meta={`by videos · ${layerWord}`}
+        footerNote={`${competitors.length} competitor${competitors.length === 1 ? '' : 's'} tracked`}
+        footer={<span className="text-[11.5px] font-normal text-muted-foreground">Select a competitor to face off →</span>}>
+        {share?.client && (
+          <div className="flex items-baseline gap-2">
+            <span className="font-mono text-[30px] font-semibold leading-none tabular-nums tracking-[-0.01em]">{fmtPct(share.client.pct)}</span>
+            <Delta value={youDelta} unit="pt" good="up" />
+            <span className="text-[11.5px] text-muted-foreground">of tracked conversation is you</span>
+          </div>
+        )}
+        <ol className="-mx-2.5 flex min-h-0 flex-1 flex-col gap-0.5 overflow-y-auto">
+          {competitors.map((c, i) => (
+            <li key={c.name}>
+              {standingRow({ name: c.name, pct: c.pct, videos: c.videos, delta: pointDelta(c.pct, sharePrev?.competitors.find((p) => p.name === c.name)?.pct), rank: i + 1, color: c.name === lead ? THEM_COLOR : COMP_DIM, active: c.name === lead, href: href({ vs: c.name, ...keepFindings }) })}
+            </li>
+          ))}
+          {share?.client && <li>{standingRow({ name: `${brandShort} · you`, you: true, pct: share.client.pct, videos: share.client.videos, delta: youDelta, color: YOU_COLOR, active: false })}</li>}
+        </ol>
+      </Tile>
+
+      <Tile col={8} row={3} eyebrow={lead ? `Face-off · ${brandShort} vs ${lead}` : 'Face-off'}
+        meta={layerWord}
+        footer={lead && leadFindings > 0 ? <Link href={href({ vs: lead, about: lead }, 'findings')}>{leadFindings} finding{leadFindings === 1 ? '' : 's'} about {lead} ↓</Link> : undefined}
+        footerNote={youDelta != null && themDelta != null ? `vs last update: ${brandShort} ${fmtDelta(youDelta, 'pt', 1)} · ${lead} ${fmtDelta(themDelta, 'pt', 1)}` : undefined}
+        bodyClassName="min-h-0 overflow-y-auto">
+        {lead && rows.length > 0 ? (
+          <div className="flex flex-col gap-3">
+            <FaceOffHeader
+              you={`${brandShort} · you`} youLine={youPraise ? `Praised for ${youPraise.toLowerCase()}` : undefined}
+              centre={faceLayer === 'period' ? 'This update' : 'All updates'}
+              them={lead} themLine={themPraise ? `Praised for ${themPraise.toLowerCase()}` : undefined}
+            />
+            <div className="flex flex-col gap-3"><FaceOff rows={rows} /></div>
+          </div>
+        ) : <TileEmpty>Nothing to compare against {lead} yet — the face-off fills in as their videos are tracked and analysed.</TileEmpty>}
+      </Tile>
+
+      <Tile col={7} row={2} eyebrow="Share of tracked conversation over time"
+        meta={series ? `${updatesCount} updates · ${series.layer === 'cumulative' ? 'all-time share' : 'share per update'}` : undefined}
+        footerNote={series ? `since your first update: ${brandShort} ${fmtDelta(series.youDelta, 'pt', 1)}${series.themDelta != null ? ` · ${lead} ${fmtDelta(series.themDelta, 'pt', 1)}` : ''}` : undefined}
+        bodyClassName="min-h-0 justify-center">
+        {series && lead ? (
+          <div className="overflow-x-auto">
+            <LineChart
+              series={[
+                { label: brandShort, values: series.you, color: YOU_COLOR },
+                ...(series.them ? [{ label: lead, values: series.them, color: THEM_COLOR }] : []),
+              ]}
+              labels={series.dates.map(shortDate)}
+              format={(v) => `${round1(v)}%`}
+              width={620} height={150} padL={40} padR={110}
+            />
+          </div>
+        ) : <TileEmpty>Two updates are needed to draw a line — the first comparison lands with the next update.</TileEmpty>}
+      </Tile>
+
+      <Tile col={5} row={2} eyebrow="The full comparison" meta="incl. the wider category" bodyClassName="min-h-0 overflow-auto">
+        {fieldRows.length > 0 ? (
+          <table className="w-full text-[11.5px]">
+            <thead>
+              <tr className="border-b border-border/70 text-[10px] uppercase tracking-[0.05em] text-muted-foreground">
+                <th className="pb-1 pr-2 text-left font-semibold">Who</th>
+                <th className="pb-1 pr-2 text-right font-semibold">Videos</th>
+                <th className="pb-1 pr-2 text-right font-semibold">Share</th>
+                <th className="pb-1 pr-2 text-right font-semibold">Comments</th>
+                <th className="pb-1 pr-2 text-right font-semibold">Eng.</th>
+                <th className="pb-1 pr-2 text-right font-semibold">Positive</th>
+                <th className="pb-1 text-right font-semibold">Themes</th>
+              </tr>
+            </thead>
+            <tbody className="font-mono tabular-nums">
+              {fieldRows.map((r) => (
+                <tr key={r.key} className={`border-b border-border/70 last:border-0 ${(lead && r.key === competitorBucket(lead)) || r.key === 'client' ? 'font-semibold' : ''}`}>
+                  <td className="py-1 pr-2 font-sans"><span className="flex items-center gap-1.5"><span className="size-2 shrink-0 rounded-[2px]" style={{ background: r.color }} aria-hidden />{r.label}</span></td>
+                  <td className="py-1 pr-2 text-right">{fmtInt(r.videos)}</td>
+                  <td className="py-1 pr-2 text-right">{fmtPct(r.pct)}</td>
+                  <td className="py-1 pr-2 text-right">{r.comments != null ? fmtInt(r.comments) : '—'}</td>
+                  <td className="py-1 pr-2 text-right">{r.engagement != null ? fmtPct(r.engagement) : '—'}</td>
+                  <td className="py-1 pr-2 text-right">{r.positive != null ? fmtPct(r.positive, 0) : '—'}</td>
+                  <td className="py-1 text-right">{r.themes != null ? fmtInt(r.themes) : '—'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        ) : <TileEmpty>The comparison fills in with the next update.</TileEmpty>}
+        {fieldRows.length > 0 && (
+          <p className="text-[10.5px] leading-[1.45] text-muted-foreground">
+            Videos and share are {faceLayer === 'period' ? 'this update’s' : 'all-time'} tracked conversation by who posted. Comments as platforms report them; engagement is the mean rate across this update’s videos that carry one. Positive is the share of rated videos, shown only with {SENTIMENT_MIN_JUDGED}+ rated{fieldRows.some((r) => r.judged > 0) ? ` — ${fieldRows.filter((r) => r.judged > 0).map((r) => `${r.label.replace(' · you', '')} ${fmtInt(r.judged)}`).join(', ')} rated` : ''}. Themes are those heard under each group’s videos in the latest analysed update.
+          </p>
+        )}
+      </Tile>
+    </>
+  ) : (
+    <Tile col={12} row={2} eyebrow="Where you stand" meta={layerWord}>
+      <TileEmpty>The face-off starts once a competitor’s videos are tracked — add competitors in Settings, and the next update compares you side by side.</TileEmpty>
+    </Tile>
+  )
+
+  // ── findings: rail ──────────────────────────────────────────────────────
   const rail = (
     <>
-      <PaneHeader title="This update" meta={weekdayDate(runDate)} />
+      <PaneHeader title="Findings" meta={insights.length > 0 ? `${insights.length} · ${weekdayDate(runDate)}` : undefined} />
       <PaneBody>
-        <RailGroup label="Where you stand">
-          <RailLink href={href('faceoff')} active={group === 'faceoff'} count={competitors.length}>Face-off</RailLink>
+        <RailGroup>
+          <RailLink href={href({ vs: lead })} active={!kind && !about} count={insights.length}>All findings</RailLink>
         </RailGroup>
-        <RailGroup label="Findings">
-          <RailLink href={href('findings')} active={group === 'findings' && !kind && !vsFilter} count={insights.length}>All findings</RailLink>
-          {kinds.map((g) => (
-            <RailLink key={g.category} href={href('findings', undefined, { kind: g.category })} active={group === 'findings' && kind === g.category} count={g.items.length}>{g.kind.label}</RailLink>
-          ))}
-        </RailGroup>
+        {kinds.length > 0 && (
+          <RailGroup label="By kind">
+            {kinds.map((g) => (
+              <RailLink key={g.category} href={href({ vs: lead, kind: g.category })} active={kind === g.category} count={g.items.length}>{g.kind.label}</RailLink>
+            ))}
+          </RailGroup>
+        )}
         {findingsByCompetitor.size > 0 && (
-          <RailGroup label="By competitor">
+          <RailGroup label="About a competitor">
             {[...findingsByCompetitor.entries()].sort((a, b) => b[1] - a[1]).map(([name, n]) => (
-              <RailLink key={name} href={href('findings', undefined, { vs: name })} active={group === 'findings' && vsFilter === name && !kind} count={n}>vs {name}</RailLink>
+              <RailLink key={name} href={href({ vs: lead, about: name })} active={about === name && !kind} count={n}>{name}</RailLink>
             ))}
           </RailGroup>
         )}
@@ -275,48 +404,11 @@ export default async function CompetitiveIntelligencePage({ searchParams }: { se
     </>
   )
 
-  // ── list ────────────────────────────────────────────────────────────────
+  // ── findings: list ──────────────────────────────────────────────────────
   const LIST_ID = 'competitive-list'
-  const list = group === 'faceoff' ? (
+  const list = (
     <>
-      <PaneHeader title="Competitors" meta={competitors.length > 0 ? `by videos · ${layerWord}` : undefined} />
-      <PaneBody>
-        <div id={LIST_ID}>
-          {competitors.length > 0 ? (
-            <ListRows>
-              {competitors.map((c, i) => {
-                const delta = pointDelta(c.pct, sharePrev?.competitors.find((p) => p.name === c.name)?.pct)
-                return (
-                  <ListRow key={c.name} href={href('faceoff', c.name)} active={c.name === itemId} search={c.name}>
-                    <div className="flex items-center gap-2.5">
-                      <span className="w-4 shrink-0 font-mono text-[12px] font-semibold tabular-nums text-muted-foreground">{i + 1}</span>
-                      <span className="size-2 shrink-0 rounded-[2px]" style={{ background: c.name === itemId ? THEM_COLOR : 'color-mix(in srgb, var(--comp) 55%, var(--tile))' }} aria-hidden />
-                      <span className="min-w-0 flex-1 truncate text-[13px] font-semibold">{c.name}</span>
-                      <span className="font-mono text-[12px] font-semibold tabular-nums">{fmtPct(c.pct)}</span>
-                      <span className="w-14 text-right"><Delta value={delta} unit="pt" good="down" /></span>
-                    </div>
-                    <p className="mt-0.5 pl-[26px] font-mono text-[10.5px] text-muted-foreground">{fmtInt(c.videos)} videos · {findingsByCompetitor.get(c.name) ?? 0} findings</p>
-                  </ListRow>
-                )
-              })}
-              {share?.client && (
-                <li className="px-2 pb-2">
-                  <div className="flex items-center gap-2.5 rounded-[4px] px-3 py-2.5 text-[12px] text-muted-foreground">
-                    <span className="w-4" /><span className="size-2 shrink-0 rounded-[2px]" style={{ background: YOU_COLOR }} aria-hidden />
-                    <span className="min-w-0 flex-1 truncate">{brandShort} · you</span>
-                    <span className="font-mono text-[12px] font-semibold tabular-nums text-foreground">{fmtPct(share.client.pct)}</span>
-                    <span className="w-14 text-right"><Delta value={youDelta} unit="pt" good="up" /></span>
-                  </div>
-                </li>
-              )}
-            </ListRows>
-          ) : <PaneEmpty>The face-off starts once a competitor’s videos are tracked — add competitors in Settings, and the next update compares you side by side.</PaneEmpty>}
-        </div>
-      </PaneBody>
-    </>
-  ) : (
-    <>
-      <PaneHeader title={kind ? kinds.find((g) => g.category === kind)?.kind.label ?? 'Findings' : vsFilter ? `vs ${vsFilter}` : 'All findings'} meta={findingsShown.length > 0 ? `${findingsShown.length} finding${findingsShown.length === 1 ? '' : 's'} · ${weekdayDate(runDate)}` : undefined}>
+      <PaneHeader title={kind ? kinds.find((g) => g.category === kind)?.kind.label ?? 'Findings' : about ? `About ${about}` : 'All findings'} meta={findingsShown.length > 0 ? `${findingsShown.length} finding${findingsShown.length === 1 ? '' : 's'}` : undefined}>
         {findingsShown.length > 3 && <ListSearch scope={LIST_ID} placeholder="Search findings…" />}
         {kind && kinds.find((g) => g.category === kind)?.kind.blurb && <p className="text-[11.5px] text-muted-foreground">{kinds.find((g) => g.category === kind)!.kind.blurb}</p>}
       </PaneHeader>
@@ -327,7 +419,7 @@ export default async function CompetitiveIntelligencePage({ searchParams }: { se
               {findingsShown.map((ci) => {
                 const cov = coverageFor(ci)
                 return (
-                  <ListRow key={ci.id} href={href('findings', ci.id, { kind: kind ?? undefined, vs: vsFilter ?? undefined })} active={ci.id === itemId} search={`${ci.title} ${ci.finding} ${ci.competitor_name ?? ''} ${kindOf(ci.category).label}`}>
+                  <ListRow key={ci.id} href={href({ vs: lead, kind, about, item: ci.id }, 'findings')} active={ci.id === itemId} search={`${ci.title} ${ci.finding} ${ci.competitor_name ?? ''} ${kindOf(ci.category).label}`}>
                     <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
                       <KindChip category={ci.category} />
                       {ci.competitor_name && <span className="min-w-0 truncate">vs {ci.competitor_name}</span>}
@@ -345,91 +437,9 @@ export default async function CompetitiveIntelligencePage({ searchParams }: { se
     </>
   )
 
-  // ── detail ──────────────────────────────────────────────────────────────
-  let detail: ReactNode = <PaneEmpty>Select a competitor or a finding.</PaneEmpty>
-
-  if (group === 'faceoff' && lead) {
-    detail = (
-      <>
-        <DetailHeader eyebrow={`Face-off · ${layerWord}`} title={`${brandShort} vs ${lead}`}
-          meta={youDelta != null && themDelta != null ? `${brandShort} ${fmtDelta(youDelta, 'pt', 1)} · ${lead} ${fmtDelta(themDelta, 'pt', 1)} vs last update` : undefined} />
-        <PaneBody>
-          <DetailSection>
-            {rows.length > 0 ? (
-              <div className="flex flex-col gap-3">
-                <FaceOffHeader
-                  you={`${brandShort} · you`} youLine={youPraise ? `Praised for ${youPraise.toLowerCase()}` : undefined}
-                  centre={faceLayer === 'period' ? 'This update' : 'All updates'}
-                  them={lead} themLine={themPraise ? `Praised for ${themPraise.toLowerCase()}` : undefined}
-                />
-                <div className="flex flex-col gap-3"><FaceOff rows={rows} /></div>
-              </div>
-            ) : <p className="text-[12px] text-muted-foreground">Nothing to compare against {lead} yet — the face-off fills in as their videos are tracked and analysed.</p>}
-          </DetailSection>
-          <DetailSection label="Share of tracked conversation over time" className="border-t border-border/70">
-            {series ? (
-              <div className="overflow-x-auto">
-                <LineChart
-                  series={[
-                    { label: brandShort, values: series.you, color: YOU_COLOR },
-                    ...(series.them ? [{ label: lead, values: series.them, color: THEM_COLOR }] : []),
-                  ]}
-                  labels={series.dates.map(shortDate)}
-                  format={(v) => `${round1(v)}%`}
-                  width={620} height={220} padL={40} padR={110}
-                />
-                <p className="mt-1 font-mono text-[10.5px] text-muted-foreground">
-                  {updatesCount} updates · {series.layer === 'cumulative' ? 'all-time share' : 'share per update'} · since your first update: {brandShort} {fmtDelta(series.youDelta, 'pt', 1)}{series.themDelta != null ? ` · ${lead} ${fmtDelta(series.themDelta, 'pt', 1)}` : ''}
-                </p>
-              </div>
-            ) : <p className="text-[12px] text-muted-foreground">Two updates are needed to draw a line — the first comparison lands with the next update.</p>}
-          </DetailSection>
-          {fieldRows.length > 0 && (
-            <DetailSection label="The full comparison, incl. the wider category" className="border-t border-border/70">
-              <div className="overflow-x-auto">
-                <table className="w-full text-[12px]">
-                  <thead>
-                    <tr className="border-b border-border/70 text-[10.5px] uppercase tracking-[0.05em] text-muted-foreground">
-                      <th className="pb-1.5 pr-2 text-left font-semibold">Who</th>
-                      <th className="pb-1.5 pr-2 text-right font-semibold">Videos</th>
-                      <th className="pb-1.5 pr-2 text-right font-semibold">Share</th>
-                      <th className="pb-1.5 pr-2 text-right font-semibold">Comments</th>
-                      <th className="pb-1.5 pr-2 text-right font-semibold">Engagement</th>
-                      <th className="pb-1.5 pr-2 text-right font-semibold">Positive</th>
-                      <th className="pb-1.5 text-right font-semibold">Themes</th>
-                    </tr>
-                  </thead>
-                  <tbody className="font-mono tabular-nums">
-                    {fieldRows.map((r) => (
-                      <tr key={r.key} className={`border-b border-border/70 last:border-0 ${r.key === competitorBucket(lead) || r.key === 'client' ? 'font-semibold' : ''}`}>
-                        <td className="py-1.5 pr-2 font-sans"><span className="flex items-center gap-1.5"><span className="size-2 shrink-0 rounded-[2px]" style={{ background: r.color }} aria-hidden />{r.label}</span></td>
-                        <td className="py-1.5 pr-2 text-right">{fmtInt(r.videos)}</td>
-                        <td className="py-1.5 pr-2 text-right">{fmtPct(r.pct)}</td>
-                        <td className="py-1.5 pr-2 text-right">{r.comments != null ? fmtInt(r.comments) : '—'}</td>
-                        <td className="py-1.5 pr-2 text-right">{r.engagement != null ? fmtPct(r.engagement) : '—'}</td>
-                        <td className="py-1.5 pr-2 text-right">{r.positive != null ? fmtPct(r.positive, 0) : '—'}</td>
-                        <td className="py-1.5 text-right">{r.themes != null ? fmtInt(r.themes) : '—'}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-              <p className="mt-2 text-[11px] leading-[1.45] text-muted-foreground">
-                Videos and share are {faceLayer === 'period' ? 'this update’s' : 'all-time'} tracked conversation by who posted. Comments are as platforms report them and engagement is the mean rate across this update’s videos that carry one. Positive is the share of rated videos, shown only with {SENTIMENT_MIN_JUDGED} or more rated{fieldRows.some((r) => r.judged > 0) ? ` — ${fieldRows.filter((r) => r.judged > 0).map((r) => `${r.label.replace(' · you', '')} ${fmtInt(r.judged)}`).join(', ')} rated` : ''}. Themes are those heard under each group’s videos in the latest analysed update.
-              </p>
-            </DetailSection>
-          )}
-          {(findingsByCompetitor.get(lead) ?? 0) > 0 && (
-            <DetailSection className="border-t border-border/70">
-              <Link href={href('findings', undefined, { vs: lead })} className="text-[12.5px] font-medium hover:underline">{findingsByCompetitor.get(lead)} finding{findingsByCompetitor.get(lead) === 1 ? '' : 's'} about {lead} →</Link>
-            </DetailSection>
-          )}
-        </PaneBody>
-      </>
-    )
-  }
-
-  if (group === 'findings' && selected) {
+  // ── findings: detail ────────────────────────────────────────────────────
+  let detail: ReactNode = <PaneEmpty>Select a finding to read it with its voices.</PaneEmpty>
+  if (selected) {
     const ci = selected
     const k = kindOf(ci.category)
     const cov = coverageFor(ci)
@@ -465,9 +475,9 @@ export default async function CompetitiveIntelligencePage({ searchParams }: { se
               </div>
             )}
           </DetailSection>
-          {ci.competitor_name && competitors.some((c) => c.name === ci.competitor_name) && (
+          {ci.competitor_name && competitors.some((c) => c.name === ci.competitor_name) && ci.competitor_name !== lead && (
             <DetailSection className="border-t border-border/70">
-              <Link href={href('faceoff', ci.competitor_name)} className="text-[12.5px] font-medium hover:underline">Face-off vs {ci.competitor_name} →</Link>
+              <Link href={href({ vs: ci.competitor_name, kind, about, item: ci.id })} className="text-[12.5px] font-medium hover:underline">Face-off vs {ci.competitor_name} ↑</Link>
             </DetailSection>
           )}
         </PaneBody>
@@ -481,7 +491,12 @@ export default async function CompetitiveIntelligencePage({ searchParams }: { se
         {updatesCount > 1 && <BarPill>Last {updatesCount} updates</BarPill>}
         <HowToRead items={LEGEND_ITEMS} open={showLegend} basePath={BASE} />
       </PageBar>
-      <MasterDetail id="competitive" rail={rail} list={list} detail={detail} />
+      <PageGrid>{overview}</PageGrid>
+      {/* The findings, as a page inside the page, beneath the overview. A fixed
+          height on desktop so the three panes scroll inside themselves. */}
+      <div id="findings" className="scroll-mt-3">
+        <MasterDetail id="competitive-findings" className="md:h-[600px]" rail={rail} list={list} detail={detail} />
+      </div>
     </PageFrame>
   )
 }
