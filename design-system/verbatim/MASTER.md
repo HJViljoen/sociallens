@@ -8,8 +8,92 @@
 
 **Project:** Verbatim
 **System:** the "green refresh" (live since June 2026)
-**Updated:** 2026-07-03 — replaces the stale April blue/amber system, which was never what shipped.
+**Updated:** 2026-08-28 — new visual-identity target added (see first section); 2026-07-03 replaced the stale April blue/amber system.
 **Source of truth:** `app/globals.css` (tokens) + `lib/ui-colors.ts` (accent/status helpers). This file describes them; if they disagree, the code wins.
+
+---
+
+## Visual identity — 2026-08-28 direction (APPROVED on the Dashboard mock · the target for the refresh)
+
+> **Status:** approved by Heinrich on 2026-08-28 after four mock rounds. **Not yet in code** — `app/globals.css`
+> still runs the 2026-07 green refresh until the refresh ships. Where this section and the sections below
+> disagree, **this section is the target**; the sections below describe the code as it is today.
+> Mock (open in a browser; click an underlined claim): `docs/redesign-2026-08/mock-dashboard-2026-08-28.html`.
+> Reasoning + research: vault `Decisions/Log` 2026-08-28 (evening).
+
+### Why
+Cream `#F6F1E7` + pine `#14503A` + serif display is the recognised AI-default look ("cluster 1"; Chayka, Nielsen,
+Unslop all name it). Banning colours only re-samples the next default — a tell is an *unspecified* default — so
+this is a positive spec: grey-scale chrome, colour reserved for meaning, and a green that is not the sage.
+
+### Tokens (light theme — derive dark from these; every surface must read in both)
+
+| Job | Hex | Notes |
+|---|---|---|
+| Canvas **and** tile | `#FFFFFF` | same white; depth comes from elevation, never tone |
+| Elevation | `0 0 0 1px rgba(38,41,44,.04), 0 1px 3px rgba(38,41,44,.05), 0 0 16px rgba(38,41,44,.09)` | **ambient** (no offset, no negative spread) so all edges/corners read alike; sidebar uses the same |
+| Ink | `#26292C` | charcoal — never black; no black blocks / dark heroes |
+| Ink-2 / muted / faint | `#45494D` / `#6E7378` / `#9AA0A6` | cool greys |
+| Hairline / hairline-2 | `#DCDFE3` / `#EBEDF0` | inside tiles only |
+| **Verbatim green** | `#0E8A5F` | primary button · active-nav mark · "you" in every chart · "good" (positive sentiment, up-deltas, evidence chip). Mid-light, higher chroma, blue-leaning — the shift from the old pine is lightness + chroma, not just hue |
+| Green tint | `#DDF3E9` | chips, hover fills only |
+| Competitor | `#F0742B` | data only |
+| Category / rest of field | `#9AA1A9` | data only |
+| Mixed / early | `#E6B03C` | data only |
+| Negative | `#DB3B2E` | data only |
+| Neutral segment | `#CDD2D7` | data only |
+| Retired | `#F6F1E7` cream · `#14503A` pine · `#FDFAF3` tile · all `--accent-*` bucket hues · glass/backdrop-blur | |
+
+### Rules (decided, 2026-08-28)
+1. **Chrome is grey-scale.** Green does exactly four jobs (above). Nothing else in the frame carries a hue.
+2. **Colour = meaning, in data only.** You green · competitor orange · category grey; valence green / amber / red.
+   Category chips are grey text labels — retire the hashed `ACCENT_TINTS` cycling in `lib/ui-colors.ts`.
+   Accepted: "you" and "positive" share the green; where a chart needs them apart, positive drops to the tint.
+3. **Depth by elevation, not tone or borders.** No 1px border on every card, no pill-everything; radius 6;
+   `rounded-full` only on single-line pills (existing rule).
+4. **Type — DECIDED 2026-08-28: IBM Plex Sans (UI) · IBM Plex Serif (verbatim quotes only — quotes are speech) ·
+   IBM Plex Mono (counts, metadata; tabular figures).** One superfamily, so all three share the same bones.
+   Google Fonts via `next/font` (replaces Plus Jakarta Sans + JetBrains Mono). Chosen by eye from three sets on
+   the Dashboard tile (Schibsted/Source Serif/JetBrains · Plex · Manrope/Literata/DM Mono). No Inter, no display
+   serifs. Marketing keeps its own `DESIGN.md` faces until it is migrated deliberately.
+5. **Claims are clickable evidence** (the Agent page's document-review pattern): a sentence with voices behind it
+   gets a quiet grey dotted underline; click → popover with count, platform split, two quotes, link to the page
+   that holds the rest. **Nothing is underlined that cannot be clicked.** No highlighter fills, no coloured tints.
+6. **The crowd art leaves the app shell.** Login and the Agent landing may keep it.
+7. **Pages may scroll.** The 2026-08-22 "one screen, no scroll at 1440×900" rule is **retired** — it is no longer
+   a constraint, not a new requirement. The 12-column grid, `Tile`, `PageGrid` and `Drawer` stay; the 6-row height
+   cap goes. Whether a given page fits one screen or scrolls is a per-page judgment.
+8. **No top bar.** The 48px `<header>` in `app/dashboard/layout.tsx` only ever held the mobile sidebar trigger
+   (the drift fix was the `h-dvh` inner-scrolling `<main>`, not the bar). Remove it; move the trigger into the
+   sidebar rail (desktop) / a floating control (mobile). With the crowd gone from the shell the inner-scroll pane
+   is optional — keep it if the sidebar should stay put while content scrolls.
+9. **Drift guards (mechanical, run before merge):** every neutral must have blue ≥ red in RGB (cream fails);
+   the only green in `globals.css` is `#0E8A5F` and its tint; no `backdrop-blur` in the app.
+
+### Preferences — things Heinrich likes and wants more of (2026-08-28). NOT rules: apply with judgment, page by page
+> His words: "the things I say aren't always going to be a fit — just stuff that I liked and that I want more of."
+> Use these as a direction to lean toward, and leave them out where they don't serve the page.
+
+- **The brief in one line: the same amount of useful information as today, delivered cleaner.** Density is not
+  the problem, noise is — clarity comes from grouping, alignment, one padding scale and open space, never from
+  cutting information.
+- **Blocks inside blocks.** He likes items as bounded inner blocks inside a tile (ShadcnStore Dashboard 2): the
+  eye groups before it reads. Discipline: two levels only (tile with shadow → flat tinted inner block, no shadow
+  or border), one padding scale, never a third level.
+- **Spacing as a material.** Sites he admires use open space for emphasis; leaving an area open can look as good
+  as putting something there. Ours tend to fill every tile to the edge. Lean toward more air — while the 08-23
+  note that content shouldn't pack into a tile's top-left with a void below still applies where it applies.
+- **"A page inside the page."** Tiles that do more than sit still: their own filters, tabs, sorting, a list that
+  scrolls inside the tile. Use where a tile genuinely holds more than one view; don't bolt controls onto tiles
+  that have one thing to say.
+- **Hover that answers a question.** Exact values at the hovered point on a chart; a ring / proportion segment
+  that expands and shows its %; buttons and rows that lighten on hover. Do it where the hover reveals something
+  the static view can't show; skip decorative motion.
+
+### Build sequence
+Tokens in `globals.css` → rewrite the sections below to match → Dashboard (pattern proof, reviewed live) →
+Market, Voice, Competitive, Content → Profile, Agent, Reports. Components from **21st.dev** (Heinrich's pick)
+normalised onto one **tweakcn** token set; keep our SSR SVG charts and add a client hover layer.
 
 ---
 
@@ -24,6 +108,8 @@ scores (Redesign Spec §1).
 Mobile must work but is the secondary pass.
 
 ## Color Palette
+
+> **Current code.** Superseded as the *target* by §Visual identity — 2026-08-28 above.
 
 All tokens are CSS variables in `app/globals.css`, mapped to Tailwind utilities via `@theme inline`
 (e.g. `--accent-pine` → `bg-pine`, `text-pine`). Light theme:
@@ -74,6 +160,8 @@ A full dark theme exists (`.dark` block); every new surface must read in both.
 - **Voice links** — pill outline in primary: `text-primary ring-1 ring-primary/25 hover:bg-primary/5`.
 
 ## One-screen grid pages (2026-08-22 redesign — Dashboard first)
+
+> **2026-08-28:** the *no-scroll one-screen* rule is retired (§Visual identity rule 9). `PageGrid`/`Tile`/`Drawer` and the 12-column grid stay.
 
 The redesign spec is `docs/redesign-2026-08/README.md` (+ the approved canvas linked there). Grid pages are
 built from `components/shell/` and `components/charts/`, not from `Card`:

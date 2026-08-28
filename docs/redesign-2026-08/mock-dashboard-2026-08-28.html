@@ -1,0 +1,435 @@
+<title>Verbatim Ink & Marker</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Serif:wght@400;500&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<style>
+  :root{
+    --page:#E4E7EA; --page-ink:#26292C; --page-muted:#6E7378;
+    /* chrome: greyscale, never black */
+    --canvas:#FFFFFF; --tile:#FFFFFF; --shadow:0 0 0 1px rgba(38,41,44,.04), 0 1px 3px rgba(38,41,44,.05), 0 0 16px rgba(38,41,44,.09); --ink:#26292C; --ink-2:#45494D; --muted:#6E7378; --faint:#9AA0A6;
+    --hair:#DCDFE3; --hair-2:#EBEDF0; --btn:#0E8A5F;
+    /* data: colour means something, and it is allowed to be alive */
+    --you:#0E8A5F; --you-soft:#DDF3E9; --comp:#F0742B; --comp-soft:#FFEBDD; --cat:#9AA1A9; --cat-soft:#EDEFF2;
+    --pos:#0E8A5F; --neg:#DB3B2E; --mix:#E6B03C; --neutral:#CDD2D7;
+    --sans:"IBM Plex Sans",-apple-system,"Helvetica Neue",Arial,sans-serif;
+    --serif:"IBM Plex Serif",Georgia,"Times New Roman",serif;
+    --mono:"IBM Plex Mono",ui-monospace,"SF Mono",Menlo,monospace;
+  }
+  @media (prefers-color-scheme: dark){ :root:not([data-theme="light"]){ --page:#1B1D20; --page-ink:#ECEEF0; --page-muted:#9AA0A6; } }
+  :root[data-theme="dark"]{ --page:#1B1D20; --page-ink:#ECEEF0; --page-muted:#9AA0A6; }
+
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--page);color:var(--page-ink);font-family:var(--sans);-webkit-font-smoothing:antialiased}
+  .wrap{max-width:1500px;margin:0 auto;padding:28px 24px 48px;display:flex;flex-direction:column;gap:18px}
+  .head{display:flex;align-items:baseline;justify-content:space-between;gap:16px;flex-wrap:wrap}
+  .head h1{font-size:18px;font-weight:600;margin:0;letter-spacing:-.01em}
+  .head p{margin:0;font-size:13px;color:var(--page-muted);font-family:var(--mono)}
+  .stage{overflow:hidden;border-radius:4px}
+  .fit{transform-origin:top left}
+
+  /* ---------- the app frame (deliberately single-theme: this is the light UI) ---------- */
+  .frame{width:1440px;height:900px;background:var(--canvas);color:var(--ink);display:grid;grid-template-columns:232px 1fr;font-size:13px;line-height:1.35;position:relative}
+  .side{padding:22px 0 18px 24px;display:flex;flex-direction:column;background:var(--tile);box-shadow:0 0 0 1px rgba(38,41,44,.04), 0 0 18px rgba(38,41,44,.10);position:relative;z-index:2}
+  .brand{display:flex;align-items:baseline;gap:8px;padding-right:20px;margin-bottom:6px}
+  .brand .mark{font-weight:700;font-size:16px;letter-spacing:-.02em}
+  .brand .tenant{font-family:var(--mono);font-size:11px;color:var(--muted)}
+  .side .sect{font-family:var(--mono);font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--faint);margin:22px 0 6px}
+  .nav a{display:flex;align-items:center;padding:7px 12px 7px 10px;margin-left:-10px;color:var(--ink-2);text-decoration:none;font-size:13px;position:relative;border-radius:4px}
+  .nav a.on{color:var(--ink);font-weight:600}
+  .nav a.on::before{content:"";position:absolute;left:-14px;top:6px;bottom:6px;width:2px;background:var(--you)}
+  .side .foot{margin-top:auto;font-size:12px;color:var(--muted);display:flex;flex-direction:column;gap:2px;padding-right:20px}
+  .side .foot b{color:var(--ink);font-weight:500}
+
+  .main{padding:20px 24px 24px;display:flex;flex-direction:column;gap:12px;min-width:0}
+  .bar{display:flex;align-items:center;gap:14px;height:32px}
+  .bar h2{font-size:17px;font-weight:600;margin:0;letter-spacing:-.01em}
+  .bar .meta{font-family:var(--mono);font-size:11.5px;color:var(--muted)}
+  .bar .r{margin-left:auto;display:flex;gap:8px}
+  .pill{display:inline-flex;align-items:center;height:26px;padding:0 11px;border-radius:999px;font-size:12px;font-weight:500;border:1px solid var(--hair);background:var(--tile);color:var(--ink-2);white-space:nowrap}
+  .pill.ink{background:var(--btn);color:#fff;border-color:var(--btn)}
+
+  .grid{display:grid;grid-template-columns:repeat(12,1fr);grid-template-rows:repeat(6,116px);gap:16px;flex:1}
+  .t{background:var(--tile);border-radius:6px;padding:14px 16px 12px;display:flex;flex-direction:column;min-width:0;min-height:0;position:relative;box-shadow:var(--shadow)}
+  .t .eb{display:flex;align-items:baseline;gap:8px;font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;font-weight:600;color:var(--ink-2)}
+  .t .eb .m{font-family:var(--mono);font-size:11px;letter-spacing:0;text-transform:none;font-weight:400;color:var(--muted);margin-left:auto}
+  .t .body{flex:1;display:flex;flex-direction:column;min-height:0}
+  .t .body.center{justify-content:center}
+  .t .body.between{justify-content:space-between}
+  .t .ft{display:flex;align-items:center;gap:10px;font-size:12px;font-weight:500;color:var(--ink);padding-top:8px;border-top:1px solid var(--hair-2);margin-top:8px}
+  .t .ft .note{margin-left:auto;font-weight:400;color:var(--muted);font-family:var(--mono);font-size:11px}
+  .num{font-family:var(--mono);font-variant-numeric:tabular-nums;font-weight:600}
+  .big{font-size:24px;line-height:1;letter-spacing:-.01em}
+  .sub{font-size:11.5px;color:var(--muted)}
+  .d{font-family:var(--mono);font-size:11px;font-variant-numeric:tabular-nums}
+  .d.up{color:var(--pos)} .d.dn{color:var(--neg)} .d.flat{color:var(--muted)}
+
+  /* claim = a sentence with evidence behind it; click for the voices (agent-page pattern) */
+  .cl{cursor:pointer;text-decoration:underline dotted var(--faint);text-underline-offset:3px;text-decoration-thickness:1px;transition:text-decoration-color .12s}
+  .cl:hover,.cl.open{text-decoration-color:var(--ink)}
+  .pop{position:absolute;z-index:5;width:340px;background:var(--tile);border:1px solid var(--hair);border-radius:6px;box-shadow:0 2px 6px -2px rgba(38,41,44,.10),0 18px 40px -16px rgba(38,41,44,.30);padding:12px 14px;display:none;flex-direction:column;gap:9px;font-size:12px}
+  .pop.show{display:flex}
+  .pop .h{display:flex;align-items:baseline;gap:8px}
+  .pop .h b{font-family:var(--mono);font-size:13px;white-space:nowrap}
+  .pop .h .t{flex:1;min-width:0}
+  .pop .h span.w{color:var(--muted);font-family:var(--mono);font-size:10.5px;margin-left:auto;white-space:nowrap}
+  .pop .pl{display:flex;gap:10px;font-family:var(--mono);font-size:10.5px;color:var(--ink-2)}
+  .pop .pl i{display:inline-block;width:7px;height:7px;border-radius:2px;background:var(--you);margin-right:4px;vertical-align:baseline}
+  .pop blockquote{margin:0;font-family:var(--serif);font-size:13px;line-height:1.4;color:var(--ink)}
+  .pop cite{display:block;font-style:normal;font-family:var(--mono);font-size:10px;color:var(--muted);margin-top:3px}
+  .pop .go{font-weight:500;color:var(--ink);padding-top:6px;border-top:1px solid var(--hair-2)}
+
+  /* strip */
+  .strip{grid-column:span 12;grid-row:span 1;padding:0;display:grid;grid-template-columns:1.2fr 1fr 1fr 1fr 1.4fr}
+  .strip .c{padding:14px 16px 12px;display:flex;flex-direction:column;gap:6px;border-right:1px solid var(--hair-2);min-width:0}
+  .strip .c:last-child{border-right:0}
+  .strip .row{display:flex;align-items:center;gap:8px}
+  .plat{display:inline-flex;gap:4px}
+  .plat span{font-family:var(--mono);font-size:10px;padding:1px 4px;border:1px solid var(--hair);border-radius:3px;color:var(--ink-2)}
+  .rb{display:grid;grid-template-columns:70px 1fr 34px;align-items:center;gap:8px;font-size:11.5px}
+  .rb .bar-{height:6px;background:var(--hair-2);border-radius:2px;overflow:hidden}
+  .rb .bar- i{display:block;height:100%;background:var(--you)}
+  .rb .n{font-family:var(--mono);font-size:11px;text-align:right;font-variant-numeric:tabular-nums}
+
+  /* hero: same white tile as the rest; size and type carry it */
+  .hero{grid-column:span 7;grid-row:span 3}
+  .hero .lead{font-family:var(--serif);font-size:18px;line-height:1.35;font-weight:500;margin:10px 0 0;letter-spacing:-.005em}
+  .hero .cols{display:grid;grid-template-columns:repeat(3,1fr);gap:0 22px;margin-top:14px}
+  .hero .cols h4{margin:0 0 5px;font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);font-weight:600}
+  .hero .cols p{margin:0;font-size:12.5px;line-height:1.55;color:var(--ink-2)}
+  .hero .cols b{color:var(--ink);font-weight:600}
+  .hero .q{margin-top:14px;padding-left:12px;border-left:2px solid var(--hair)}
+  .hero blockquote{margin:0;font-family:var(--serif);font-size:14.5px;line-height:1.45;color:var(--ink)}
+  .hero cite{display:block;font-style:normal;font-family:var(--mono);font-size:10.5px;color:var(--muted);margin-top:5px}
+  .hero .ft .arrow{font-family:var(--mono);color:var(--muted)}
+
+  /* sentiment */
+  .sent{grid-column:span 5;grid-row:span 1}
+  .pbar{display:flex;height:10px;border-radius:2px;overflow:hidden;gap:2px;margin:8px 0 6px}
+  .pbar i{display:block;height:100%}
+  .leg{display:flex;gap:14px;font-size:11.5px;color:var(--ink-2)}
+  .leg span{display:inline-flex;align-items:center;gap:5px}
+  .leg i{width:7px;height:7px;border-radius:2px;display:inline-block}
+
+  /* share */
+  .share{grid-column:span 5;grid-row:span 2}
+  .share .body{flex-direction:row;align-items:center;gap:18px}
+  .share ul{list-style:none;margin:0;padding:0;flex:1;display:flex;flex-direction:column;gap:7px;font-size:11.5px}
+  .share li{display:grid;grid-template-columns:8px 1fr 42px 52px;align-items:center;gap:8px}
+  .share li i{width:8px;height:8px;border-radius:2px;display:inline-block}
+  .share li .p{text-align:right}
+  .share li .dd{text-align:right}
+
+  /* themes */
+  .themes{grid-column:span 5;grid-row:span 2}
+  .themes .body{overflow:hidden;gap:2px}
+  .th{display:grid;grid-template-columns:1fr 92px 40px;align-items:center;gap:10px;font-size:12px;padding:1px 0;line-height:1.25}
+  .th .l{display:flex;flex-direction:column;min-width:0}
+  .th .l small{font-size:10.5px;color:var(--muted)}
+  .th .bar-{height:7px;background:var(--hair-2);border-radius:2px;overflow:hidden}
+  .th .bar- i{display:block;height:100%;background:var(--you)}
+  .th .bar- i.c{background:var(--comp)}
+  .th .bar- i.k{background:var(--cat)}
+  .th .n{text-align:right}
+
+  /* movement */
+  .move{grid-column:span 7;grid-row:span 1}
+  .move .body{flex-direction:row;align-items:stretch}
+  .mv{flex:1;display:flex;flex-direction:column;justify-content:center;gap:3px;padding:0 14px;border-right:1px solid var(--hair-2)}
+  .mv:first-child{padding-left:0}.mv:last-child{border-right:0}
+  .mv .l{font-size:11px;color:var(--muted)}
+  .mv .v{display:flex;align-items:baseline;gap:8px}
+  .mv .v .num{font-size:18px}
+
+  /* rec */
+  .rec{grid-column:span 4;grid-row:span 1}
+  .rec h3{margin:6px 0 4px;font-size:14px;font-weight:600;line-height:1.3;letter-spacing:-.005em}
+  .rec .g{font-size:11.5px;color:var(--muted)}
+  .rec .g b{color:var(--ink);font-weight:500}
+  .chip{display:inline-flex;align-items:center;height:18px;padding:0 7px;border-radius:999px;font-size:10.5px;font-weight:500;background:var(--hair-2);color:var(--ink-2)}
+  .chip.pos{background:#DDF3E9;color:#0B6E4C}
+
+  /* accounts */
+  .acc{grid-column:span 3;grid-row:span 1}
+  .acc .row{display:grid;grid-template-columns:70px 1fr 50px;align-items:baseline;gap:8px;font-size:12px;padding:3px 0}
+  .acc .row .l{color:var(--ink-2)}
+  .acc .row .n{text-align:right}
+
+  svg{display:block}
+
+  /* ---------- notes under the frame ---------- */
+  .notes{display:grid;grid-template-columns:1.1fr 1fr;gap:24px;align-items:start}
+  .card{background:var(--canvas);color:var(--ink);border-radius:6px;padding:18px 20px}
+  .card h3{margin:0 0 12px;font-size:12px;letter-spacing:.06em;text-transform:uppercase;font-weight:600;color:var(--ink-2)}
+  .sw{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px}
+  .sw div{display:flex;align-items:center;gap:10px;font-size:12px}
+  .sw i{width:28px;height:28px;border-radius:4px;flex:none;border:1px solid var(--hair)}
+  .sw span{display:flex;flex-direction:column;line-height:1.25}
+  .sw code{font-family:var(--mono);font-size:10.5px;color:var(--muted)}
+  .card ul{margin:0;padding-left:18px;font-size:13px;line-height:1.5;display:flex;flex-direction:column;gap:6px}
+  .card li b{font-weight:600}
+  @media (max-width:900px){.notes{grid-template-columns:1fr}}
+</style>
+
+<div class="wrap">
+  <div class="head">
+    <h1>Verbatim · Dashboard, round 4 · IBM Plex</h1>
+    <p>1440 × 900 · same grid and tile order as production · Össur, update of Sun 23 Aug · click an underlined claim</p>
+  </div>
+
+  <div class="stage" id="stage">
+  <div class="fit" id="fit">
+  <div class="frame">
+
+    <aside class="side">
+      <div class="brand"><span class="mark">Verbatim</span><span class="tenant">Össur</span></div>
+      <div class="sect">Intelligence</div>
+      <nav class="nav">
+        <a class="on" href="#">Dashboard</a>
+        <a href="#">Market Intelligence</a>
+        <a href="#">Voice of Customer</a>
+        <a href="#">Consumer Profile</a>
+        <a href="#">Competitive Intel</a>
+        <a href="#">Content</a>
+        <a href="#">Verbatim Agent</a>
+      </nav>
+      <div class="sect">Account</div>
+      <nav class="nav">
+        <a href="#">Reports</a>
+        <a href="#">Team</a>
+        <a href="#">Billing</a>
+        <a href="#">Settings</a>
+      </nav>
+      <div class="foot"><b>Heinrich Viljoen</b><span>Owner · next update Sun 30 Aug</span></div>
+    </aside>
+
+    <main class="main">
+      <div class="bar">
+        <h2>Dashboard</h2>
+        <span class="meta">update of Sun 23 Aug · 2 of 2 updates</span>
+        <div class="r"><span class="pill">How to read this page</span><span class="pill ink">Open this week’s report</span></div>
+      </div>
+
+      <div class="grid">
+
+        <!-- strip -->
+        <section class="t strip">
+          <div class="c">
+            <div class="eb">Tracking</div>
+            <div class="row"><span class="num big">12</span><span class="sub">terms</span></div>
+            <div class="sub">3 brand · 4 competitor · 5 category</div>
+            <div class="row plat"><span>TT</span><span>IG</span><span>YT</span><span class="sub" style="margin-left:4px">weekly</span></div>
+          </div>
+          <div class="c">
+            <div class="eb">Videos this update</div>
+            <div class="row"><span class="num big">521</span>
+              <svg width="72" height="22" viewBox="0 0 72 22"><path d="M0 18 L14 15 L28 16 L42 10 L56 11 L72 4 V22 H0Z" fill="#0E8A5F" opacity=".12"/><path d="M0 18 L14 15 L28 16 L42 10 L56 11 L72 4" fill="none" stroke="#0E8A5F" stroke-width="1.5"/><circle cx="72" cy="4" r="2" fill="#0E8A5F"/></svg></div>
+            <div class="sub">1,204 all-time</div>
+          </div>
+          <div class="c">
+            <div class="eb">Comments analysed</div>
+            <div class="row"><span class="num big">5,059</span>
+              <svg width="72" height="22" viewBox="0 0 72 22"><path d="M0 16 L14 17 L28 12 L42 13 L56 8 L72 5 V22 H0Z" fill="#0E8A5F" opacity=".12"/><path d="M0 16 L14 17 L28 12 L42 13 L56 8 L72 5" fill="none" stroke="#0E8A5F" stroke-width="1.5"/><circle cx="72" cy="5" r="2" fill="#0E8A5F"/></svg></div>
+            <div class="sub">11,830 all-time</div>
+          </div>
+          <div class="c">
+            <div class="eb">Themes heard</div>
+            <div class="row"><span class="num big">120</span><span class="sub">this update</span></div>
+            <div class="d" style="color:var(--ink-2);white-space:nowrap">18 confirmed · 41 early signals</div>
+            <div class="sub">64 themes followed over time</div>
+          </div>
+          <div class="c">
+            <div class="eb">Where the conversation is</div>
+            <div class="rb"><span>TikTok</span><span class="bar-"><i style="width:100%"></i></span><span class="n">312</span></div>
+            <div class="rb"><span>YouTube</span><span class="bar-"><i style="width:45%"></i></span><span class="n">141</span></div>
+            <div class="rb"><span>Instagram</span><span class="bar-"><i style="width:22%"></i></span><span class="n">68</span></div>
+          </div>
+        </section>
+
+        <!-- hero -->
+        <section class="t hero" id="hero">
+          <div class="eb">Executive brief · this update<span class="m">Sunday 23 August</span></div>
+          <div class="body between">
+            <div>
+              <p class="lead">The product is winning the argument. <span class="cl" data-pop="p1">Access to it is now the argument</span> — and nobody else in the category is talking about that yet.</p>
+              <div class="cols">
+                <div><h4>What moved</h4><p>Your share of the tracked conversation rose to <b>38%</b>, three points clear of Ottobock, on the back of <span class="cl" data-pop="p2">two running-blade videos</span> that drew 1,400 comments between them.</p></div>
+                <div><h4>What people want</h4><p>Affordability and insurance access now sit in <span class="cl" data-pop="p1"><b>1 in 4</b> comments about you</span>. The praise for the product is intact; the anger is at who gets to have it.</p></div>
+                <div><h4>Where you’re exposed</h4><p>Ottobock’s audience credits it with <span class="cl comp" data-pop="p3">a quieter, lighter knee</span>. Nobody argues; they just don’t mention yours. Content gap, not a product gap.</p></div>
+              </div>
+            </div>
+            <div class="q">
+              <blockquote>“I’d switch tomorrow if insurance would cover the blade. It’s not the product, it’s the paperwork.”</blockquote>
+              <cite>@runwithcarbon · TikTok · 19 Aug · one of 212 voices behind the top recommendation</cite>
+            </div>
+          </div>
+          <div class="ft"><span class="arrow">→</span><span>The one thing to do: open an Access Desk for insurance-blocked patients</span><span class="note">Read the full brief →</span></div>
+
+          <!-- evidence popovers (agent-page pattern: claim → the voices behind it) -->
+          <div class="pop" id="p1">
+            <div class="h"><b>212 voices</b><span class="t">say access, not product, is the barrier</span><span class="w">this update</span></div>
+            <div class="pl"><span><i></i>TikTok 141</span><span><i></i>Instagram 48</span><span><i></i>YouTube 23</span></div>
+            <blockquote>“Got my Össur foot after 14 months of appeals. Best thing that ever happened to me and I hate that it took that long.”<cite>@kel.amputee.life · Instagram · 21 Aug</cite></blockquote>
+            <blockquote>“The blade is $8k and my plan calls it ‘lifestyle’. Lifestyle. It’s a leg.”<cite>@marathon.mike · TikTok · 18 Aug</cite></blockquote>
+            <div class="go">Open the theme in Voice of Customer →</div>
+          </div>
+          <div class="pop" id="p2">
+            <div class="h"><b>2 videos · 1,412 comments</b><span class="t"></span><span class="w">16 – 23 Aug</span></div>
+            <div class="pl"><span><i></i>TikTok 1,204</span><span><i></i>Instagram 208</span></div>
+            <blockquote>“That transition at 0:14 is the cleanest thing I’ve seen on this app.”<cite>@blade.runner.tj · TikTok · 20 Aug · 2.1k likes</cite></blockquote>
+            <div class="go">See both videos in Content →</div>
+          </div>
+          <div class="pop" id="p3">
+            <div class="h"><b>94 voices</b><span class="t">praise Ottobock’s knee for weight and noise</span><span class="w">competitor</span></div>
+            <div class="pl"><span><i style="background:var(--comp)"></i>YouTube 61</span><span><i style="background:var(--comp)"></i>TikTok 33</span></div>
+            <blockquote>“Went from the old Rheo to the C-Leg 4 and my wife says she can’t hear me walk anymore.”<cite>@stumpandstride · YouTube · 17 Aug</cite></blockquote>
+            <div class="go">Compare in Competitive Intel →</div>
+          </div>
+        </section>
+
+        <!-- sentiment -->
+        <section class="t sent">
+          <div class="eb">Audience sentiment<span class="m">4,812 judged · to date</span></div>
+          <div class="body center">
+            <div style="display:flex;align-items:baseline;gap:10px"><span class="num big">52%</span><span class="sub">positive</span><span class="d up">+4 pt since last update</span><span class="sub" style="margin-left:auto">Leaning positive</span></div>
+            <div class="pbar"><i style="width:52%;background:var(--pos)"></i><i style="width:14%;background:var(--mix)"></i><i style="width:24%;background:var(--neutral)"></i><i style="width:10%;background:var(--neg)"></i></div>
+            <div class="leg"><span><i style="background:var(--pos)"></i>Positive 2,502</span><span><i style="background:var(--mix)"></i>Mixed 674</span><span><i style="background:var(--neutral)"></i>Neutral 1,155</span><span><i style="background:var(--neg)"></i>Negative 481</span></div>
+          </div>
+        </section>
+
+        <!-- share -->
+        <section class="t share">
+          <div class="eb">Share of tracked conversation<span class="m">by videos · this update</span></div>
+          <div class="body">
+            <svg width="128" height="128" viewBox="0 0 128 128" aria-label="Share ring">
+              <circle cx="64" cy="64" r="56" fill="none" stroke="#EBEDF0" stroke-width="16"/>
+              <circle cx="64" cy="64" r="56" fill="none" stroke="#0E8A5F" stroke-width="16" stroke-dasharray="133.7 351.9" transform="rotate(-90 64 64)"/>
+              <circle cx="64" cy="64" r="56" fill="none" stroke="#F0742B" stroke-width="16" stroke-dasharray="109.1 351.9" stroke-dashoffset="-133.7" transform="rotate(-90 64 64)"/>
+              <circle cx="64" cy="64" r="56" fill="none" stroke="#9AA1A9" stroke-width="16" stroke-dasharray="109.1 351.9" stroke-dashoffset="-242.8" transform="rotate(-90 64 64)"/>
+              <text x="64" y="62" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="22" font-weight="600" fill="#26292C">38%</text>
+              <text x="64" y="78" text-anchor="middle" font-family="IBM Plex Sans, sans-serif" font-size="11" fill="#6E7378">you</text>
+            </svg>
+            <ul>
+              <li><i style="background:var(--you)"></i><span>Össur</span><span class="num p">38%</span><span class="d up dd">+3 pt</span></li>
+              <li><i style="background:var(--comp)"></i><span>Ottobock</span><span class="num p">31%</span><span class="d up dd">−2 pt</span></li>
+              <li><i style="background:var(--cat)"></i><span>Rest of the category</span><span class="num p">31%</span><span class="d flat dd">−1 pt</span></li>
+              <li style="margin-top:4px"><i style="background:transparent"></i><span class="sub">521 videos · 2 competitors tracked</span><span></span><span></span></li>
+            </ul>
+          </div>
+          <div class="ft"><span>Where you stand vs Ottobock →</span></div>
+        </section>
+
+        <!-- themes -->
+        <section class="t themes">
+          <div class="eb">What your market is talking about<span class="m">conversations per theme</span></div>
+          <div class="body center">
+            <div class="th"><div class="l"><span>Insurance &amp; affordability</span><small>Access · you + category</small></div><div class="bar-"><i style="width:100%"></i></div><span class="num n">212</span></div>
+            <div class="th"><div class="l"><span>Running blades &amp; sport</span><small>Product · you</small></div><div class="bar-"><i style="width:78%"></i></div><span class="num n">166</span></div>
+            <div class="th"><div class="l"><span>Comfort &amp; socket fit</span><small>Product · category</small></div><div class="bar-"><i class="k" style="width:61%"></i></div><span class="num n">129</span></div>
+            <div class="th"><div class="l"><span>Quiet, lighter knee</span><small>Product · Ottobock</small></div><div class="bar-"><i class="c" style="width:44%"></i></div><span class="num n">94</span></div>
+            <div class="th"><div class="l"><span>Clinician &amp; fitting experience</span><small>Service · category</small></div><div class="bar-"><i class="k" style="width:37%"></i></div><span class="num n">78</span></div>
+          </div>
+          <div class="ft"><span style="white-space:nowrap">All 18 confirmed themes →</span><span class="note" style="white-space:nowrap">green you · orange Ottobock · grey category</span></div>
+        </section>
+
+        <!-- movement -->
+        <section class="t move">
+          <div class="eb">Since your first update<span class="m">2 updates · 16 Aug → 23 Aug</span></div>
+          <div class="body">
+            <div class="mv"><span class="l">Your share</span><span class="v"><span class="num">38%</span><span class="d up">+3 pt</span></span></div>
+            <div class="mv"><span class="l">Ottobock share</span><span class="v"><span class="num">31%</span><span class="d up">−2 pt</span></span></div>
+            <div class="mv"><span class="l">Positive sentiment</span><span class="v"><span class="num">52%</span><span class="d up">+4 pt</span></span></div>
+            <div class="mv"><span class="l">Comments this update</span><span class="v"><span class="num">5.1k</span><span class="d up">+1.7k</span></span></div>
+            <div class="mv"><span class="l">Confirmed themes</span><span class="v"><span class="num">18</span><span class="d up">+3</span></span></div>
+          </div>
+        </section>
+
+        <!-- top rec -->
+        <section class="t rec">
+          <div class="eb">Top recommendation<span class="m">#1 of 5</span></div>
+          <div class="body between">
+            <h3>Open an Access Desk for insurance-blocked patients</h3>
+            <div class="g">Grounded in <b>212 voices</b> across 3 platforms &nbsp;<span class="chip pos">Strong evidence</span></div>
+          </div>
+          <div class="ft"><span>See the voices →</span></div>
+        </section>
+
+        <!-- accounts -->
+        <section class="t acc">
+          <div class="eb">Your accounts<span class="m">followers</span></div>
+          <div class="body center">
+            <div class="row"><span class="l">TikTok</span><span class="num n">48,210</span><span class="d up">+1,120</span></div>
+            <div class="row"><span class="l">Instagram</span><span class="num n">121,400</span><span class="d up">+380</span></div>
+            <div class="row"><span class="l">YouTube</span><span class="num n">9,830</span><span class="d flat">±0</span></div>
+          </div>
+        </section>
+
+      </div>
+    </main>
+  </div>
+  </div>
+  </div>
+
+  <div class="notes">
+    <div class="card">
+      <h3>Palette jobs — chrome is grey, colour is data</h3>
+      <div class="sw">
+        <div><i style="background:#FFFFFF"></i><span>Canvas = tile<code>#FFFFFF · depth by shadow</code></span></div>
+        <div><i style="background:#26292C"></i><span>Ink (charcoal, not black)<code>#26292C</code></span></div>
+        <div><i style="background:#6E7378"></i><span>Muted text<code>#6E7378</code></span></div>
+        <div><i style="background:#0E8A5F"></i><span>Verbatim green · you · good · button<code>#0E8A5F</code></span></div>
+        <div><i style="background:#DDF3E9"></i><span>Green tint · claim hover · chips<code>#DDF3E9</code></span></div>
+        <div><i style="background:#F0742B"></i><span>Competitor<code>#F0742B</code></span></div>
+        <div><i style="background:#9AA1A9"></i><span>Category / rest<code>#9AA1A9</code></span></div>
+        <div><i style="background:#E6B03C"></i><span>Mixed / early<code>#E6B03C</code></span></div>
+        <div><i style="background:#DB3B2E"></i><span>Negative<code>#DB3B2E</code></span></div>
+      </div>
+    </div>
+    <div class="card">
+      <h3>Round 3 — green as the main colour, not the sage</h3>
+      <div style="display:flex;gap:14px;margin-bottom:12px;align-items:center;font-size:12px">
+        <span style="display:flex;align-items:center;gap:8px"><i style="width:28px;height:28px;border-radius:4px;background:#14503A;display:inline-block"></i><span style="display:flex;flex-direction:column;line-height:1.25">Old pine<code style="font-family:var(--mono);font-size:10.5px;color:var(--muted)">#14503A · dark, low chroma, yellow-leaning</code></span></span>
+        <span style="color:var(--muted)">→</span>
+        <span style="display:flex;align-items:center;gap:8px"><i style="width:28px;height:28px;border-radius:4px;background:#0E8A5F;display:inline-block"></i><span style="display:flex;flex-direction:column;line-height:1.25">Verbatim green<code style="font-family:var(--mono);font-size:10.5px;color:var(--muted)">#0E8A5F · mid-light, higher chroma, blue-leaning</code></span></span>
+      </div>
+      <ul>
+        <li><b>All white.</b> Canvas and tiles are the same white; tiles and the sidebar carry a soft shadow, so the background reads as “behind” because things sit on it, not because it is a different colour.</li>
+        <li><b>Green does four jobs, and only those:</b> “you” in every chart, the primary button, the active-nav mark, and “good” (positive sentiment, upward deltas, the evidence chip). Everything else in the chrome stays grey, so the green reads as identity instead of a wash.</li>
+        <li><b>The shift away from the AI green</b> is in lightness and chroma, not just hue: the old pine sat at ~L30 with muted saturation (the cluster-1 signature); this one is ~L50 and clean, closer to what Shopify and Mercury’s success colour do, and it stays legible as a 1.5 px underline and a 6 px bar.</li>
+        <li><b>Kept from round 2:</b> orange competitor, grey category, amber mixed, red negative; claims still click open the voices, now marked only by a quiet dotted underline (no colour fill); no black blocks; serif for speech, mono for counts.</li>
+        <li><b>One consequence to accept:</b> “you” and “positive” now share the green. They never meet in the same chart on this page, and “good for you” is the honest reading of both; if a page needs them apart (Voice’s movers), positive can drop to a lighter tint.</li>
+      </ul>
+    </div>
+  </div>
+</div>
+
+<script>
+  (function(){
+    var stage=document.getElementById('stage'),fit=document.getElementById('fit');
+    function scale(){
+      var s=Math.min(1,(stage.clientWidth)/1440);
+      fit.style.transform='scale('+s+')';
+      fit.style.width='1440px';
+      stage.style.height=(900*s)+'px';
+    }
+    scale(); window.addEventListener('resize',scale);
+
+    // claim → evidence popover, anchored under the clicked claim inside the hero tile
+    var hero=document.getElementById('hero'),openEl=null,openPop=null;
+    function closeAll(){ if(openPop){openPop.classList.remove('show');} if(openEl){openEl.classList.remove('open');} openPop=null;openEl=null; }
+    hero.querySelectorAll('.cl').forEach(function(el){
+      el.addEventListener('click',function(e){
+        e.stopPropagation();
+        var pop=document.getElementById(el.getAttribute('data-pop'));
+        if(openPop===pop && openEl===el){closeAll();return;}
+        closeAll();
+        var r=el.getBoundingClientRect(),h=hero.getBoundingClientRect();
+        var s=parseFloat((fit.style.transform.match(/scale\(([^)]+)\)/)||[0,1])[1])||1;
+        var left=(r.left-h.left)/s, top=(r.bottom-h.top)/s+6;
+        if(left+340>hero.clientWidth-8) left=hero.clientWidth-348;
+        pop.style.left=left+'px'; pop.style.top=top+'px';
+        pop.classList.add('show'); el.classList.add('open'); openPop=pop; openEl=el;
+      });
+    });
+    document.addEventListener('click',closeAll);
+    hero.querySelectorAll('.pop').forEach(function(p){p.addEventListener('click',function(e){e.stopPropagation();});});
+  })();
+</script>
