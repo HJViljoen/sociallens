@@ -1,38 +1,7 @@
-import { AtSign } from 'lucide-react'
+import { SettingsFrame, SettingsCard, FactRow } from '@/components/settings-frame'
+import { platformLabel } from '@/lib/format'
 import { getSessionContext, canManageTenant } from '@/lib/auth'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { SettingsForm, type TrackingConfig } from './settings-form'
-
-const PLATFORM_LABEL: Record<string, string> = { tiktok: 'TikTok', youtube: 'YouTube', instagram: 'Instagram' }
-
-/** Read-only "your connected accounts" card (own_handles is operator-set —
- *  facts, not knobs). YouTube stores a channel ID, not a readable handle, so
- *  it shows as the platform name alone. */
-function OwnAccountsCard({ handles }: { handles: Record<string, string> }) {
-  const entries = Object.entries(handles).filter(([, v]) => v)
-  if (entries.length === 0) return null
-  return (
-    <Card>
-      <CardHeader className="pb-3">
-        <CardTitle className="flex items-center gap-2 text-base">
-          <AtSign className="size-4 text-primary" aria-hidden /> Your accounts
-        </CardTitle>
-        <p className="text-xs text-muted-foreground">
-          The public profiles we follow for your own posting and audience — measured from what the
-          platforms show publicly.
-        </p>
-      </CardHeader>
-      <CardContent className="flex flex-wrap gap-2">
-        {entries.map(([platform, handle]) => (
-          <span key={platform} className="inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-sm">
-            <span className="font-medium">{PLATFORM_LABEL[platform] ?? platform}</span>
-            {platform !== 'youtube' && <span className="text-muted-foreground">@{handle}</span>}
-          </span>
-        ))}
-      </CardContent>
-    </Card>
-  )
-}
 
 // Settings — edit the client's tracking_configs (what gather scrapes + report
 // schedule). Owners/admins can save; members get a read-only form. Authorization
@@ -50,27 +19,32 @@ export default async function SettingsPage() {
   const c = cfg as TrackingConfig | null
   const canEdit = canManageTenant(role)
 
-  return (
-    <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold">Settings</h1>
-        <p className="text-sm text-muted-foreground">
-          {client?.company_name ?? 'Client'}
-          {client?.plan ? ` · ${client.plan} plan` : ''}
-          {!canEdit && ' · read-only'}
-        </p>
-      </div>
+  // The facts beyond the four editable fields ride on the same row (read-only).
+  const facts = (cfg ?? null) as { brand_keywords?: string[] | null; industry_keywords?: string[] | null; platforms?: string[] | null; own_handles?: Record<string, string> | null } | null
+  const brandTerms = facts?.brand_keywords ?? []
+  const categoryTerms = facts?.industry_keywords ?? []
+  const platforms = facts?.platforms ?? []
+  const handles = facts?.own_handles ?? {}
 
+  return (
+    <SettingsFrame active="tracking" title="Settings" context={`${client?.company_name ?? 'Client'}${client?.plan ? ` · ${client.plan} plan` : ''}${!canEdit ? ' · read-only' : ''}`} contentTitle="Tracking & reports" contentMeta={c ? `${brandTerms.length} brand · ${(c.competitor_names ?? []).length} competitor · ${categoryTerms.length} category terms` : undefined}>
       {!c ? (
-        <Card><CardContent className="py-10 text-center text-sm text-muted-foreground">
-          No tracking config for this client — gather has nothing to scrape until this is set.
-        </CardContent></Card>
+        <p className="text-[12px] text-muted-foreground">No tracking config for this client — nothing is tracked until this is set up with you.</p>
       ) : (
-        <>
-          <OwnAccountsCard handles={(c as TrackingConfig & { own_handles?: Record<string, string> }).own_handles ?? {}} />
+        <div className="flex flex-col gap-3">
+          <SettingsCard title="What we track" description="The facts your updates are built on. Set up with you at onboarding; competitor names are yours to change below.">
+            <FactRow label="Brand terms">{brandTerms.length > 0 ? brandTerms.join(' · ') : <span className="text-muted-foreground">none yet</span>}</FactRow>
+            <FactRow label="Category terms">{categoryTerms.length > 0 ? categoryTerms.join(' · ') : <span className="text-muted-foreground">none yet</span>}</FactRow>
+            <FactRow label="Platforms">{platforms.length > 0 ? platforms.map(platformLabel).join(' · ') : <span className="text-muted-foreground">none yet</span>}</FactRow>
+            <FactRow label="Your accounts">
+              {Object.entries(handles).filter(([, v]) => v).length > 0
+                ? Object.entries(handles).filter(([, v]) => v).map(([p, h]) => `${platformLabel(p)}${p !== 'youtube' ? ` @${h}` : ''}`).join(' · ')
+                : <span className="text-muted-foreground">none yet</span>}
+            </FactRow>
+          </SettingsCard>
           <SettingsForm cfg={c} canEdit={canEdit} />
-        </>
+        </div>
       )}
-    </div>
+    </SettingsFrame>
   )
 }

@@ -5,7 +5,7 @@ import {
   SidebarHeader, SidebarMenu, SidebarMenuButton, SidebarMenuItem,
   useSidebar,
 } from "@/components/ui/sidebar"
-import { LayoutDashboard, Target, MessageCircle, Swords, Play, FileText, Users, UserRound, Sparkles, CreditCard, Settings, LogOut } from "lucide-react"
+import { LayoutDashboard, Target, MessageCircle, Swords, Play, FileText, Users, UserRound, Sparkles, CreditCard, Settings, LogOut, BookOpen } from "lucide-react"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { signOut } from "@/app/login/actions"
@@ -27,6 +27,7 @@ const ACCOUNT = [
   { href: "/dashboard/team",     label: "Team",     icon: Users },
   { href: "/dashboard/billing",  label: "Billing",  icon: CreditCard },
   { href: "/dashboard/settings", label: "Settings", icon: Settings },
+  { href: "/dashboard/guide",    label: "Guide",    icon: BookOpen },
 ]
 
 // The agent rides its OWN flag, not the Ask one: lighting up the agent must
@@ -68,7 +69,7 @@ export function AppSidebar({ showAgent = false }: { showAgent?: boolean }) {
         <SidebarMenu className="gap-0.5">
           {items.map((item) => (
             <SidebarMenuItem key={item.href}>
-              <SidebarMenuButton asChild isActive={pathname === item.href} className={ITEM_CLASS}>
+              <SidebarMenuButton asChild isActive={pathname === item.href || (item.href !== "/dashboard" && pathname.startsWith(item.href + "/"))} className={ITEM_CLASS}>
                 <Link href={item.href} onClick={() => setOpenMobile(false)}>
                   <item.icon className="size-4 text-muted-foreground group-data-[active=true]/menu-button:text-foreground" aria-hidden />
                   <span>{item.label}</span>

@@ -49,6 +49,9 @@ export function HowToRead({ items, basePath }: { items: GlossaryKey[]; open?: bo
                 <p className="text-xs opacity-80">
                   Every label above is assigned by a fixed rule from counted data — never worded by the AI.
                 </p>
+                <p className="pt-1 text-xs">
+                  <a href={`/dashboard/guide#${basePath === '/dashboard' ? 'dashboard' : basePath.replace('/dashboard/', '')}`} className="font-medium text-foreground underline underline-offset-2">Full guide to this page →</a>
+                </p>
               </div>
             </CardContent>
           </Card>

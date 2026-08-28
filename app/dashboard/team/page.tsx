@@ -1,4 +1,5 @@
 import { UserPlus, Users, Clock, Mail } from 'lucide-react'
+import { SettingsFrame } from '@/components/settings-frame'
 import { getSessionContext, canManageTenant } from '@/lib/auth'
 import { createAdminClient } from '@/lib/supabase-admin'
 import { getBaseUrl } from '@/lib/site'
@@ -81,18 +82,12 @@ export default async function TeamPage() {
   const membersOffReport = memberRows.filter((m) => !recipientSet.has((m.email ?? '').toLowerCase()))
 
   return (
-    <div className="space-y-6 max-w-3xl">
-      <div>
-        <h1 className="text-2xl font-bold">Team</h1>
-        <p className="text-sm text-muted-foreground">
-          {client?.company_name ?? 'Workspace'}
-          {!canManage && ' · read-only'}
-        </p>
-      </div>
+    <SettingsFrame active="team" title="Settings" context={`${client?.company_name ?? 'Workspace'}${!canManage ? ' · read-only' : ''}`} contentTitle="Team" contentMeta={`${memberRows.length} member${memberRows.length === 1 ? '' : 's'}`}>
+    <div className="max-w-3xl space-y-4">
 
       {canManage && (
         <Card>
-          <CardHeader><CardTitle className="flex items-center gap-2 text-sm"><UserPlus className="size-4 text-primary" aria-hidden /> Invite a teammate</CardTitle></CardHeader>
+          <CardHeader><CardTitle className="flex items-center gap-2 text-sm"><UserPlus className="size-4 text-muted-foreground" aria-hidden /> Invite a teammate</CardTitle></CardHeader>
           <CardContent className="space-y-3">
             <InviteForm inviterRole={role} />
             <p className="text-[11px] text-muted-foreground/70">
@@ -104,7 +99,7 @@ export default async function TeamPage() {
       )}
 
       <Card>
-        <CardHeader><CardTitle className="flex items-center gap-2 text-sm"><Users className="size-4 text-primary" aria-hidden /> Members ({memberRows.length})</CardTitle></CardHeader>
+        <CardHeader><CardTitle className="flex items-center gap-2 text-sm"><Users className="size-4 text-muted-foreground" aria-hidden /> Members ({memberRows.length})</CardTitle></CardHeader>
         <CardContent className="divide-y">
           {memberRows.map((m) => {
             const isSelf = m.id === userId
@@ -118,7 +113,7 @@ export default async function TeamPage() {
                   <p className="truncate text-xs text-muted-foreground">
                     {m.email}
                     {recipientSet.has((m.email ?? '').toLowerCase())
-                      ? <span className="ml-2 text-[11px] text-primary">gets the update</span>
+                      ? <span className="ml-2 text-[11px] text-positive">gets the update</span>
                       : <span className="ml-2 text-[11px] text-muted-foreground/70">not on the update</span>}
                   </p>
                 </div>
@@ -132,7 +127,7 @@ export default async function TeamPage() {
       </Card>
 
       <Card>
-        <CardHeader><CardTitle className="flex items-center gap-2 text-sm"><Mail className="size-4 text-primary" aria-hidden /> Who gets the update ({reportEmails.length})</CardTitle></CardHeader>
+        <CardHeader><CardTitle className="flex items-center gap-2 text-sm"><Mail className="size-4 text-muted-foreground" aria-hidden /> Who gets the update ({reportEmails.length})</CardTitle></CardHeader>
         <CardContent className="space-y-2">
           {reportEmails.length === 0 ? (
             <p className="text-sm text-muted-foreground">Nobody. Add an address in Settings, or invite a teammate and they are added when they join.</p>
@@ -150,7 +145,7 @@ export default async function TeamPage() {
 
       {canManage && (
         <Card>
-          <CardHeader><CardTitle className="flex items-center gap-2 text-sm"><Clock className="size-4 text-primary" aria-hidden /> Pending invites ({invites.length})</CardTitle></CardHeader>
+          <CardHeader><CardTitle className="flex items-center gap-2 text-sm"><Clock className="size-4 text-muted-foreground" aria-hidden /> Pending invites ({invites.length})</CardTitle></CardHeader>
           <CardContent className="divide-y">
             {invites.length === 0 ? (
               <p className="py-3 text-sm text-muted-foreground first:pt-0">No pending invites.</p>
@@ -179,5 +174,6 @@ export default async function TeamPage() {
         </Card>
       )}
     </div>
+    </SettingsFrame>
   )
 }

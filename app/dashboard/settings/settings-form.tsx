@@ -5,7 +5,7 @@ import { updateTrackingConfig, type SettingsFormState } from './actions'
 import { PERIODS, DAYS } from './constants'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { SettingsCard } from '@/components/settings-frame'
 
 // Facts vs knobs (Redesign Spec §9): clients edit the facts only they know —
 // competitor names and how reports reach them. Keywords, platforms, and scrape
@@ -24,7 +24,7 @@ const join = (a: string[] | null) => (a ?? []).join(', ')
 const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1)
 
 const selectCls =
-  'h-8 w-full rounded-lg border border-input bg-transparent px-2.5 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50'
+  'h-8 w-full rounded-[4px] border border-input bg-tile px-2.5 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50'
 
 function Labeled({ label, hint, children }: { label: string; hint?: string; children: React.ReactNode }) {
   return (
@@ -43,19 +43,15 @@ export function SettingsForm({ cfg, canEdit }: { cfg: TrackingConfig; canEdit: b
     <form action={formAction} className="space-y-6">
       {/* fieldset disables every control at once for read-only members + while saving */}
       <fieldset disabled={!canEdit || pending} className="space-y-6">
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <Card>
-            <CardHeader><CardTitle className="text-sm">Competitors</CardTitle></CardHeader>
-            <CardContent>
-              <Labeled label="Competitor names" hint="Comma-separated. Used to tag competitor content.">
-                <Input name="competitor_names" defaultValue={join(cfg.competitor_names)} placeholder="Ottobock, Blatchford" />
-              </Labeled>
-            </CardContent>
-          </Card>
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+          <SettingsCard title="Competitors" description="The brands we compare you against. Comma-separated.">
+            <Labeled label="Competitor names" hint="Used to tag competitor content.">
+              <Input name="competitor_names" defaultValue={join(cfg.competitor_names)} placeholder="Ottobock, Blatchford" />
+            </Labeled>
+          </SettingsCard>
 
-          <Card>
-            <CardHeader><CardTitle className="text-sm">Reports</CardTitle></CardHeader>
-            <CardContent className="space-y-4">
+          <SettingsCard title={<span id="reports">Reports</span>} description="How often the update runs and who receives it.">
+            <div className="space-y-4">
               <Labeled label="Report period">
                 {cfg.report_period === 'paused' ? (
                   // Pausing is an operator lever this select cannot represent.
@@ -79,8 +75,8 @@ export function SettingsForm({ cfg, canEdit }: { cfg: TrackingConfig; canEdit: b
               <Labeled label="Report emails" hint="Comma-separated.">
                 <Input name="report_emails" defaultValue={join(cfg.report_emails)} placeholder="team@brand.com" />
               </Labeled>
-            </CardContent>
-          </Card>
+            </div>
+          </SettingsCard>
         </div>
       </fieldset>
 
@@ -88,7 +84,7 @@ export function SettingsForm({ cfg, canEdit }: { cfg: TrackingConfig; canEdit: b
         <div className="flex items-center gap-3">
           <Button type="submit" disabled={pending}>{pending ? 'Saving…' : 'Save changes'}</Button>
           {state.message && (
-            <span className={`text-sm ${state.ok ? 'text-green-600' : 'text-destructive'}`}>{state.message}</span>
+            <span className={`text-sm ${state.ok ? 'text-positive' : 'text-destructive'}`}>{state.message}</span>
           )}
         </div>
       ) : (
