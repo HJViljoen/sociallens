@@ -76,10 +76,10 @@ export async function loadEngageDigest(supabase: SupabaseClient, clientId: strin
 // Intent chips — the page's greens / warm reds-golds only: buying signals
 // green, questions gold, objections clay, misinformation red (the negative).
 const INTENT_CHIP: Record<Intent, string> = {
-  buying: 'bg-positive/12 text-positive',
-  question: 'bg-ochre/15 text-ochre',
-  objection: 'bg-clay/12 text-clay',
-  misinformation: 'bg-negative/12 text-negative',
+  buying: 'bg-accent text-accent-foreground',
+  question: 'bg-warning/15 text-warning',
+  objection: 'bg-negative/12 text-negative',
+  misinformation: 'bg-foreground/10 text-foreground',
 }
 
 const quote = (text: string, max = 220) => (text.length > max ? `${text.slice(0, max)}…` : text)
@@ -138,7 +138,7 @@ function ReplyLink({ c, className }: { c: EngageCandidate; className?: string })
 function InboxRowView({ row }: { row: InboxItem }) {
   const c = row.src
   return (
-    <div className="flex flex-col gap-1 border-t border-border/70 py-2 first:border-t-0 first:pt-0">
+    <div className="flex flex-col gap-1 rounded-[4px] bg-inner px-3 py-2">
       <div className="flex items-center gap-2">
         <IntentChip intent={row.intent} />
         <span className="flex min-w-0 flex-1 items-center gap-1.5 text-[11px] text-muted-foreground">
@@ -149,7 +149,7 @@ function InboxRowView({ row }: { row: InboxItem }) {
         </span>
         <ReplyLink c={c} className="shrink-0 text-[11.5px]" />
       </div>
-      <p className="line-clamp-2 border-l-2 border-clay/80 pl-2 text-[12.5px] italic leading-[1.4]" title={c.comment.text}>
+      <p className="line-clamp-2 font-serif text-[12.5px] leading-[1.4]" title={c.comment.text}>
         “{quote(c.comment.text)}”
       </p>
     </div>
@@ -177,7 +177,7 @@ export function EngageInboxTile({
       key={href}
       href={href}
       scroll={false}
-      className={`inline-flex h-[20px] shrink-0 items-center rounded-full px-2 text-[10.5px] font-medium whitespace-nowrap ${active ? 'bg-sidebar-accent text-primary' : 'bg-muted text-secondary-foreground hover:bg-muted/70'}`}
+      className={`inline-flex h-[20px] shrink-0 items-center rounded-full px-2 text-[10.5px] font-medium whitespace-nowrap ${active ? 'bg-accent text-accent-foreground' : 'bg-inner text-secondary-foreground hover:text-foreground'}`}
     >
       {label}
     </Link>
@@ -206,7 +206,7 @@ export function EngageInboxTile({
             {counts.map((c) => chip(filter === c.intent, `/dashboard/videos?intent=${c.intent}`, `${INTENT_PLURAL[c.intent]} ${c.count}`))}
           </div>
           {visible.length > 0 ? (
-            <div className="min-h-0 overflow-hidden">
+            <div className="flex min-h-0 flex-col gap-1.5 overflow-hidden">
               {visible.map((row) => <InboxRowView key={row.src.comment.id} row={row} />)}
             </div>
           ) : (
@@ -251,7 +251,7 @@ export function EngageDrawers({
               {replyable.map((row) => {
                 const c = row.src
                 return (
-                  <div key={c.comment.id} className="rounded-lg bg-muted/40 px-3 py-2.5">
+                  <div key={c.comment.id} className="rounded-lg bg-inner/40 px-3 py-2.5">
                     <div className="flex items-center gap-2">
                       <IntentChip intent={row.intent} />
                       <span className="truncate text-[11px] text-muted-foreground">{row.context}</span>
@@ -259,7 +259,7 @@ export function EngageDrawers({
                         <PlatformIcon platform={c.comment.platform} className="text-secondary-foreground" />{platformLabel(c.comment.platform)} · {row.age ?? '—'}
                       </span>
                     </div>
-                    <p className="mt-1.5 border-l-2 border-clay/80 pl-2 text-[12.5px] italic leading-[1.45]">“{c.comment.text}”</p>
+                    <p className="mt-1.5 border-l-2 border-border/80 pl-2 text-[12.5px] italic leading-[1.45]">“{c.comment.text}”</p>
                     <div className="mt-1.5 flex items-center gap-3 text-[11.5px]">
                       <Link href={`/dashboard/videos?detail=engage-${c.insightId}${filter ? `&intent=${filter}` : ''}`} scroll={false} className="text-muted-foreground underline-offset-2 hover:underline">
                         Why it surfaced: {prettyTheme(c.theme)}
@@ -279,7 +279,7 @@ export function EngageDrawers({
               </p>
               <div className="mt-2 space-y-2">
                 {flagged.map((row) => (
-                  <p key={row.src.comment.id} className="border-l-2 border-clay/80 pl-2 text-[12.5px] italic leading-[1.45]">
+                  <p key={row.src.comment.id} className="border-l-2 border-border/80 pl-2 text-[12.5px] italic leading-[1.45]">
                     “{row.src.comment.text}”
                     <span className="ml-2 not-italic text-[11px] text-muted-foreground">{platformLabel(row.src.comment.platform)} · {row.age ?? '—'}</span>
                   </p>
@@ -306,7 +306,7 @@ export function EngageDrawers({
             <div className="space-y-1.5">
               <p className="text-[10.5px] font-semibold uppercase tracking-[0.07em] text-muted-foreground">In their words</p>
               {detailCandidates.map((c) => (
-                <p key={c.comment.id} className="border-l-2 border-clay/80 pl-2 text-[12.5px] italic leading-[1.45]">
+                <p key={c.comment.id} className="border-l-2 border-border/80 pl-2 text-[12.5px] italic leading-[1.45]">
                   “{c.comment.text}”
                   <span className="ml-2 not-italic text-[11px] text-muted-foreground">{platformLabel(c.comment.platform)}</span>
                 </p>

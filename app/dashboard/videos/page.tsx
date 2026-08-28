@@ -13,6 +13,7 @@ import { PageFrame, PageGrid, PageBar, BarPill } from '@/components/shell/page-g
 import { Tile, TileEmpty } from '@/components/shell/tile'
 import { DetailDrawer } from '@/components/shell/detail-drawer'
 import { DrawerLink } from '@/components/shell/drawer-link'
+import { EnhancedTable } from '@/components/shell/enhanced-table'
 import { Sparkline } from '@/components/charts/sparkline'
 import { Delta } from '@/components/charts/stat'
 import { RankedBar } from '@/components/charts/ranked-bar'
@@ -197,21 +198,22 @@ function trendingSounds(all: VideoRow[]) {
     .slice(0, 6)
 }
 
-// Colour jobs: you = green, a competitor = clay (then ochre, plum), category = slate.
-const KIND_COLOR: Record<EntityKind, string> = { you: 'var(--positive)', competitor: 'var(--accent-clay)', category: 'var(--accent-slate)' }
-const COMPETITOR_COLORS = ['var(--accent-clay)', 'var(--accent-ochre)', 'var(--accent-plum)', 'var(--accent-slate)']
-const ROLE_COLOR: Record<VoiceRole, string> = { you: 'var(--positive)', competitor: 'var(--accent-clay)', creator: 'var(--accent-slate)' }
+// Colour jobs (MASTER rule 2): you = green, a competitor = orange (then paler
+// oranges), category / creators = grey.
+const KIND_COLOR: Record<EntityKind, string> = { you: 'var(--you)', competitor: 'var(--comp)', category: 'var(--cat)' }
+const COMPETITOR_COLORS = ['var(--comp)', 'color-mix(in srgb, var(--comp) 70%, var(--tile))', 'color-mix(in srgb, var(--comp) 48%, var(--tile))', 'var(--mixed)']
+const ROLE_COLOR: Record<VoiceRole, string> = { you: 'var(--you)', competitor: 'var(--comp)', creator: 'var(--cat)' }
 const ROLE_WORD: Record<VoiceRole, string> = { you: 'you', competitor: 'competitor', creator: 'creator' }
 // Literal Tailwind classes (never interpolated).
 const KIND_CHIP: Record<EntityKind, string> = {
-  you: 'bg-positive/12 text-positive',
-  competitor: 'bg-clay/10 text-clay',
-  category: 'bg-slate/12 text-slate',
+  you: 'bg-accent text-accent-foreground',
+  competitor: 'bg-comp/15 text-foreground',
+  category: 'bg-inner text-muted-foreground',
 }
 const ROLE_CHIP: Record<VoiceRole, string> = {
-  you: 'bg-positive/12 text-positive',
-  competitor: 'bg-clay/10 text-clay',
-  creator: 'bg-slate/12 text-slate',
+  you: 'bg-accent text-accent-foreground',
+  competitor: 'bg-comp/15 text-foreground',
+  creator: 'bg-inner text-muted-foreground',
 }
 
 /** One column of "What works right now": heading, then up to PERF_SHOWN rows of
@@ -436,7 +438,7 @@ export default async function ContentPage({
                       <td className="py-2 pl-3">
                         {r.avgEng != null ? (
                           <span className="flex items-center gap-1.5" title={`across ${r.engN} of ${r.videos} videos with engagement data`}>
-                            <span className="h-1.5 w-[48px] shrink-0 overflow-hidden rounded-full bg-muted" aria-hidden>
+                            <span className="h-1.5 w-[48px] shrink-0 overflow-hidden rounded-full bg-inner" aria-hidden>
                               <span className="block h-full rounded-full" style={{ width: `${Math.max(2, (r.avgEng / (fieldEngMax || 1)) * 100)}%`, background: fieldColors.get(r.label) }} />
                             </span>
                             <span className="font-mono text-[11.5px] tabular-nums">{fmtPct(r.avgEng)}</span>
@@ -465,14 +467,14 @@ export default async function ContentPage({
             <div className="flex flex-col">
               {voices.map((v) => (
                 <div key={v.name} className="flex items-center gap-2.5 border-t border-border/70 py-2 first:border-t-0 first:pt-0 last:pb-0">
-                  <span className="grid size-[26px] shrink-0 place-items-center rounded-full text-[10px] font-semibold text-foreground" style={{ background: ROLE_COLOR[v.role] }} aria-hidden>{initials(v.name)}</span>
+                  <span className="grid size-[26px] shrink-0 place-items-center rounded-full text-[10px] font-semibold text-tile" style={{ background: ROLE_COLOR[v.role] }} aria-hidden>{initials(v.name)}</span>
                   <div className="min-w-0 flex-1">
                     <div className="truncate text-[12.5px] font-semibold">@{v.name}</div>
                     <div className="truncate text-[11px] text-muted-foreground">{voiceLine(v)}</div>
                   </div>
                   <div className="flex shrink-0 flex-col items-end gap-1">
                     <span className="font-mono text-[11.5px] font-semibold tabular-nums">{v.views > 0 ? fmtCompact(v.views) : '—'}</span>
-                    <span className="h-1.5 w-[56px] overflow-hidden rounded-full bg-muted" aria-hidden>
+                    <span className="h-1.5 w-[56px] overflow-hidden rounded-full bg-inner" aria-hidden>
                       <span className="block h-full rounded-full" style={{ width: `${Math.max(2, voiceMax > 0 ? (v.views / voiceMax) * 100 : 0)}%`, background: ROLE_COLOR[v.role] }} />
                     </span>
                   </div>
@@ -542,7 +544,7 @@ export default async function ContentPage({
                   {p.topFormats.length > 0 ? (
                     <span className="flex flex-wrap gap-1">
                       {p.topFormats.map((f) => (
-                        <span key={f.k} className="inline-block rounded-full bg-muted px-2 py-0.5 text-[11px] capitalize">
+                        <span key={f.k} className="inline-block rounded-full bg-inner px-2 py-0.5 text-[11px] capitalize">
                           {pretty(f.k)} <span className="text-muted-foreground">×{f.count}</span>
                         </span>
                       ))}
@@ -585,12 +587,12 @@ export default async function ContentPage({
       </DetailDrawer>
 
       <DetailDrawer value="videos" closeHref={closeHref} title="All videos" description={all.length > CATALOG_CAP ? `top ${CATALOG_CAP} of ${fmtInt(all.length)} by views` : `${fmtInt(all.length)} videos this update, by views`}>
-        <div className="overflow-x-auto">
+        <EnhancedTable filterPlaceholder="Filter videos — account, who, format, hook, topic…">
           <table className="w-full min-w-[860px] text-[11.5px]">
             <thead>
               <tr className="border-b text-[10px] uppercase tracking-[0.06em] text-muted-foreground">
-                {['Platform', 'Account', 'Who', 'Posted', 'Length', 'Views', 'Likes', 'Eng.', 'Sentiment', 'Format', 'Hook', 'Topics'].map((h) => (
-                  <th key={h} className={`pb-1.5 pr-2 font-semibold ${['Views', 'Likes', 'Eng.'].includes(h) ? 'text-right' : 'text-left'}`}>{h}</th>
+                {([['Platform', 'str'], ['Account', 'str'], ['Who', 'str'], ['Posted', 'str'], ['Length', 'num'], ['Views', 'num'], ['Likes', 'num'], ['Eng.', 'num'], ['Sentiment', 'str'], ['Format', 'str'], ['Hook', 'str'], ['Topics', null]] as [string, string | null][]).map(([h, sort]) => (
+                  <th key={h} data-sort={sort ?? undefined} className={`pb-1.5 pr-2 font-semibold ${['Views', 'Likes', 'Eng.', 'Length'].includes(h) ? 'text-right' : 'text-left'}`}>{h}</th>
                 ))}
               </tr>
             </thead>
@@ -598,21 +600,21 @@ export default async function ContentPage({
               {all.slice(0, CATALOG_CAP).map((v) => {
                 const { label, kind } = entityKey(v)
                 return (
-                  <tr key={v.id} className="border-b align-top last:border-0">
+                  <tr key={v.id} data-search={`${v.account_name} ${label} ${platformLabel(v.platform)} ${v.classified_type ?? ''} ${v.hook_style ?? ''} ${(v.topics ?? []).join(' ')} ${v.sentiment ?? ''}`.toLowerCase()} className="border-b align-top last:border-0">
                     <td className="py-1.5 pr-2 capitalize">{platformLabel(v.platform)}</td>
-                    <td className="py-1.5 pr-2">
+                    <td className="py-1.5 pr-2" data-v={v.account_name ?? ''}>
                       <a href={v.video_url} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">@{v.account_name}</a>
                       {v.transcript_status === 'ok' && (
                         <Captions className="ml-1 inline size-3 align-[-1px] text-muted-foreground" aria-label="Speech transcript captured" />
                       )}
                     </td>
-                    <td className="py-1.5 pr-2"><span className={`inline-block whitespace-nowrap rounded-full px-2 py-0.5 text-[10.5px] font-medium ${KIND_CHIP[kind]}`}>{label}</span></td>
-                    <td className="whitespace-nowrap py-1.5 pr-2 text-muted-foreground">{v.upload_date ?? '—'}</td>
-                    <td className="whitespace-nowrap py-1.5 pr-2 text-muted-foreground">{Number(v.duration_seconds) > 0 ? durationLabel(Number(v.duration_seconds)) : '—'}</td>
-                    <td className="py-1.5 pr-2 text-right font-mono tabular-nums">{Number(v.views) > 0 ? fmtCompact(Number(v.views)) : '—'}</td>
-                    <td className="py-1.5 pr-2 text-right font-mono tabular-nums text-muted-foreground">{v.likes != null ? fmtCompact(Number(v.likes)) : '—'}</td>
-                    <td className="py-1.5 pr-2 text-right font-mono tabular-nums">{v.engagement_rate != null ? `${v.engagement_rate}%` : '—'}</td>
-                    <td className="py-1.5 pr-2">{v.sentiment ? <span className={`inline-block rounded-full px-2 py-0.5 text-[10.5px] font-medium capitalize ${SENTIMENT_BADGE[v.sentiment] ?? 'bg-muted text-muted-foreground'}`}>{v.sentiment}</span> : <span className="text-muted-foreground">—</span>}</td>
+                    <td className="py-1.5 pr-2" data-v={label}><span className={`inline-block whitespace-nowrap rounded-full px-2 py-0.5 text-[10.5px] font-medium ${KIND_CHIP[kind]}`}>{label}</span></td>
+                    <td className="whitespace-nowrap py-1.5 pr-2 text-muted-foreground" data-v={v.upload_date ?? ''}>{v.upload_date ?? '—'}</td>
+                    <td className="whitespace-nowrap py-1.5 pr-2 text-right text-muted-foreground" data-v={Number(v.duration_seconds) || ''}>{Number(v.duration_seconds) > 0 ? durationLabel(Number(v.duration_seconds)) : '—'}</td>
+                    <td className="py-1.5 pr-2 text-right font-mono tabular-nums" data-v={Number(v.views) || ''}>{Number(v.views) > 0 ? fmtCompact(Number(v.views)) : '—'}</td>
+                    <td className="py-1.5 pr-2 text-right font-mono tabular-nums text-muted-foreground" data-v={v.likes != null ? Number(v.likes) : ''}>{v.likes != null ? fmtCompact(Number(v.likes)) : '—'}</td>
+                    <td className="py-1.5 pr-2 text-right font-mono tabular-nums" data-v={v.engagement_rate ?? ''}>{v.engagement_rate != null ? `${v.engagement_rate}%` : '—'}</td>
+                    <td className="py-1.5 pr-2">{v.sentiment ? <span className={`inline-block rounded-full px-2 py-0.5 text-[10.5px] font-medium capitalize ${SENTIMENT_BADGE[v.sentiment] ?? 'bg-inner text-muted-foreground'}`}>{v.sentiment}</span> : <span className="text-muted-foreground">—</span>}</td>
                     <td className="py-1.5 pr-2 capitalize">{v.classified_type ? pretty(v.classified_type) : <span className="text-muted-foreground">—</span>}</td>
                     <td className="py-1.5 pr-2 capitalize">{v.hook_style ? pretty(v.hook_style) : <span className="text-muted-foreground">—</span>}</td>
                     <td className="py-1.5 text-muted-foreground">{(v.topics ?? []).slice(0, 3).join(', ') || '—'}</td>
@@ -621,7 +623,7 @@ export default async function ContentPage({
               })}
             </tbody>
           </table>
-        </div>
+        </EnhancedTable>
       </DetailDrawer>
     </PageFrame>
   )
