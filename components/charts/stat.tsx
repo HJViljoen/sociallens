@@ -56,12 +56,46 @@ export function Delta({
     <span
       className={cn(
         'font-mono text-[11px] tabular-nums',
-        fav === null ? 'text-muted-foreground' : fav ? 'text-positive' : 'text-clay',
+        fav === null ? 'text-muted-foreground' : fav ? 'text-positive' : 'text-negative',
         className,
       )}
     >
       {fmtDelta(v, unit, dec)}
       {suffix ? ` ${suffix}` : ''}
     </span>
+  )
+}
+
+/** The stat sentence (component-map §5): value · delta · base, e.g.
+ *  "521  +118  since last update". The delta is the only coloured thing; the
+ *  base ("since last update", "all-time") sits in grey after it. `aside` is an
+ *  optional element on the same line (a sparkline). */
+export function StatSentence({
+  value, unit, delta, deltaUnit = '', good = 'neutral', base, aside, size = 'md', className,
+}: {
+  value: ReactNode
+  unit?: ReactNode
+  delta?: number | null
+  deltaUnit?: string
+  good?: Good
+  /** What the delta is measured against, in words. Shown even without a delta. */
+  base?: ReactNode
+  aside?: ReactNode
+  size?: 'sm' | 'md' | 'lg'
+  className?: string
+}) {
+  return (
+    <div className={cn('flex min-w-0 flex-col gap-1', className)}>
+      <span className="flex items-center gap-2.5">
+        <StatValue unit={unit} size={size}>{value}</StatValue>
+        {aside}
+      </span>
+      {(delta != null || base) && (
+        <span className="flex items-baseline gap-1.5 text-[11.5px] text-muted-foreground">
+          {delta != null && <Delta value={delta} unit={deltaUnit} good={good} />}
+          {base && <span className="truncate">{base}</span>}
+        </span>
+      )}
+    </div>
   )
 }

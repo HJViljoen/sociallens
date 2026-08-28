@@ -233,13 +233,32 @@
    on mount, never loops, and does nothing under reduced motion. */
 @keyframes vi-grow-x { from { transform: scaleX(0); } to { transform: scaleX(1); } }
 @keyframes vi-grow-y { from { transform: scaleY(0); } to { transform: scaleY(1); } }
-@keyframes vi-trace  { from { stroke-dashoffset: var(--vi-len, 1000); } to { stroke-dashoffset: 0; } }
+/* Lines carry pathLength="1", so a dash of 1 is the whole path. */
+@keyframes vi-trace  { from { stroke-dashoffset: 1; } to { stroke-dashoffset: 0; } }
 @keyframes vi-fade   { from { opacity: 0; } to { opacity: 1; } }
+@keyframes vi-ring   { from { opacity: 0; } to { opacity: 1; } }
 @media (prefers-reduced-motion: no-preference) {
   .vi-anim-bar  { transform-origin: left center;   animation: vi-grow-x 0.6s cubic-bezier(0.22, 1, 0.36, 1) both; }
   .vi-anim-col  { transform-origin: center bottom; animation: vi-grow-y 0.6s cubic-bezier(0.22, 1, 0.36, 1) both; }
-  .vi-anim-line { stroke-dasharray: var(--vi-len, 1000); animation: vi-trace 0.7s cubic-bezier(0.22, 1, 0.36, 1) both; }
-  .vi-anim-fade { animation: vi-fade 0.4s ease-out both; }
+  .vi-anim-line { stroke-dasharray: 1; animation: vi-trace 0.7s cubic-bezier(0.22, 1, 0.36, 1) both; }
+  .vi-anim-fade { animation: vi-fade 0.4s ease-out 0.5s both; }
+  .vi-anim-ring { animation: vi-ring 0.5s ease-out both; }
+  .vi-anim-ring:nth-of-type(2) { animation-delay: 0.08s; }
+  .vi-anim-ring:nth-of-type(3) { animation-delay: 0.16s; }
+  .vi-anim-ring:nth-of-type(4) { animation-delay: 0.24s; }
+}
+
+/* Ring ↔ legend hover sync (components/charts/ring-sync.tsx): the hovered
+   segment grows by 4px, its legend row takes the inner-block tint. */
+[data-ring-sync] circle[data-seg][data-active] {
+  stroke-width: calc(var(--ring-thick, 14px) + 4px);
+}
+[data-ring-sync] [data-seg]:not(circle) {
+  border-radius: 4px;
+  transition: background-color 120ms ease-out;
+}
+[data-ring-sync] [data-seg][data-active]:not(circle) {
+  background-color: var(--inner);
 }
 
 /* Ambient crowd layer — kept for the login page only (MASTER rule 6: the crowd
