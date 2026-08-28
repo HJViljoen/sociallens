@@ -26,7 +26,7 @@ export function HowToRead({ items, basePath }: { items: GlossaryKey[]; open?: bo
       </DrawerLink>
       {isOpen && (
         <div role="dialog" aria-modal="true" className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-8">
-          <DrawerLink href={basePath} aria-label="Close" className="absolute inset-0 bg-foreground/25 backdrop-blur-[2px]">{''}</DrawerLink>
+          <DrawerLink href={basePath} aria-label="Close" className="absolute inset-0 bg-foreground/25">{''}</DrawerLink>
           <Card className="relative z-10 w-full max-w-2xl max-h-[85vh] overflow-y-auto shadow-xl">
             <DrawerLink
               href={basePath}

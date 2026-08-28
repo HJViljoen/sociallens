@@ -31,8 +31,8 @@ export function LineChart({
     <svg viewBox={`0 0 ${width} ${height}`} width="100%" height={height} preserveAspectRatio="none" style={{ overflow: 'visible' }} role="img" aria-label={series.map((s) => s.label).join(' vs ')}>
       <line x1={padL} y1={y(lo)} x2={width - padR} y2={y(lo)} stroke="var(--border)" strokeWidth={1} />
       <line x1={padL} y1={y(mid)} x2={width - padR} y2={y(mid)} stroke="var(--muted)" strokeWidth={1} />
-      <text x={padL - 6} y={y(lo) + 3} textAnchor="end" fontSize={10} fontFamily="var(--font-jetbrains), monospace" fill="var(--muted-foreground)">{format(lo)}</text>
-      <text x={padL - 6} y={y(mid) + 3} textAnchor="end" fontSize={10} fontFamily="var(--font-jetbrains), monospace" fill="var(--muted-foreground)">{format(mid)}</text>
+      <text x={padL - 6} y={y(lo) + 3} textAnchor="end" fontSize={10} fontFamily="var(--font-plex-mono), monospace" fill="var(--muted-foreground)">{format(lo)}</text>
+      <text x={padL - 6} y={y(mid) + 3} textAnchor="end" fontSize={10} fontFamily="var(--font-plex-mono), monospace" fill="var(--muted-foreground)">{format(mid)}</text>
       {series.map((s) => {
         const pts = s.values.map((v, i) => `${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(' ')
         const last = s.values.length - 1
@@ -41,8 +41,8 @@ export function LineChart({
             <polyline points={pts} fill="none" stroke={s.color} strokeWidth={2} strokeLinejoin="round" strokeLinecap="round" vectorEffect="non-scaling-stroke" />
             <circle cx={x(last)} cy={y(s.values[last])} r={3.2} fill={s.color} stroke="var(--tile)" strokeWidth={1.5} />
             {endLabels && (
-              <text x={x(last) + 8} y={y(s.values[last]) + 4} fontSize={11} fontWeight={600} fontFamily="var(--font-jakarta), sans-serif" fill="var(--foreground)">
-                {s.label} <tspan fontFamily="var(--font-jetbrains), monospace" fontWeight={500}>{format(s.values[last])}</tspan>
+              <text x={x(last) + 8} y={y(s.values[last]) + 4} fontSize={11} fontWeight={600} fontFamily="var(--font-plex-sans), sans-serif" fill="var(--foreground)">
+                {s.label} <tspan fontFamily="var(--font-plex-mono), monospace" fontWeight={500}>{format(s.values[last])}</tspan>
               </text>
             )}
           </g>
@@ -52,7 +52,7 @@ export function LineChart({
         // Several updates on one day (re-analyses) would repeat the label —
         // print a date once, at its first point.
         i > 0 && labels[i - 1] === l ? null : (
-          <text key={i} x={x(i)} y={height - 4} textAnchor="middle" fontSize={10} fontFamily="var(--font-jetbrains), monospace" fill="var(--muted-foreground)">{l}</text>
+          <text key={i} x={x(i)} y={height - 4} textAnchor="middle" fontSize={10} fontFamily="var(--font-plex-mono), monospace" fill="var(--muted-foreground)">{l}</text>
         )
       ))}
       {markers.map((m, k) => series[0]?.values[m.i] != null && (

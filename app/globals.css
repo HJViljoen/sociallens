@@ -4,12 +4,20 @@
 
 @custom-variant dark (&:is(.dark *));
 
+/* ── Visual identity 2026-08-28 (design-system/verbatim/MASTER.md §Visual identity)
+   Chrome is grey-scale; colour means something and lives in the data; one green
+   (#0E8A5F) does four jobs: "you" in charts, the primary button, the active-nav
+   mark, and "good". Canvas = tile = white; depth is an ambient shadow, never
+   tone or borders. Fonts: IBM Plex Sans (UI) · Plex Serif (verbatim quotes only)
+   · Plex Mono (counts). Drift guards: scripts/check-design-drift.sh. */
+
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-jakarta);
-  --font-mono: var(--font-jetbrains);
-  --font-heading: var(--font-jakarta);
+  --font-sans: var(--font-plex-sans);
+  --font-serif: var(--font-plex-serif);
+  --font-mono: var(--font-plex-mono);
+  --font-heading: var(--font-plex-sans);
   --color-sidebar-ring: var(--sidebar-ring);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
@@ -27,7 +35,15 @@
   --color-positive: var(--positive);
   --color-warning: var(--warning);
   --color-negative: var(--negative);
-  /* Curated category accents */
+  /* Data buckets — the only hues on a page besides the green */
+  --color-you: var(--you);
+  --color-comp: var(--comp);
+  --color-cat: var(--cat);
+  --color-mixed: var(--mixed);
+  --color-neutral-seg: var(--neutral-seg);
+  /* Inner block inside a tile (two-level nesting: tile with shadow → flat tinted block) */
+  --color-inner: var(--inner);
+  /* Compat aliases for pages not yet migrated (Phase 1) — remove page by page */
   --color-pine: var(--accent-pine);
   --color-clay: var(--accent-clay);
   --color-ochre: var(--accent-ochre);
@@ -49,9 +65,11 @@
   --color-popover: var(--popover);
   --color-card-foreground: var(--card-foreground);
   --color-card: var(--card);
-  /* One-screen redesign (2026-08-22): solid tile surface — the card used by
-     the grid pages. Opaque on purpose: no backdrop-blur behind a dense grid. */
   --color-tile: var(--tile);
+  /* Elevation — ambient (no offset, no negative spread) so every edge and corner
+     of a tile reads the same; a directional shadow was rejected (2026-08-28). */
+  --shadow-tile: var(--shadow-tile);
+  --shadow-tile-hover: var(--shadow-tile-hover);
   --radius-sm: calc(var(--radius) * 0.6);
   --radius-md: calc(var(--radius) * 0.8);
   --radius-lg: var(--radius);
@@ -62,107 +80,130 @@
 }
 
 :root {
-  --radius: 0.3rem;
+  --radius: 0.375rem;
 
-  /* Warm cream canvas + deep-green ink */
-  --background: #F6F1E7;
-  --foreground: #14291F;
+  /* Canvas and tile are the same white; depth comes from --shadow-tile. */
+  --background: #FFFFFF;
+  --tile: #FFFFFF;
+  --card: #FFFFFF;
+  --popover: #FFFFFF;
+  --inner: #F6F7F8;
 
-  /* Glass surfaces — warm translucent white (needs backdrop-blur) */
-  --card: rgba(253, 250, 244, 0.78);
-  /* Solid tile surface for the one-screen grid pages (same warm white, opaque) */
-  --tile: #FDFAF3;
-  --card-foreground: #14291F;
-  --popover: #FDFAF3;
-  --popover-foreground: #14291F;
+  /* Ink — charcoal, never black */
+  --foreground: #26292C;
+  --card-foreground: #26292C;
+  --popover-foreground: #26292C;
+  --muted: #F6F7F8;
+  --muted-foreground: #6E7378;
+  --secondary: #F6F7F8;
+  --secondary-foreground: #45494D;
 
-  /* Deep green primary */
-  --primary: #14503A;
-  --primary-foreground: #F7F3EA;
+  /* Verbatim green — the one brand hue */
+  --primary: #0E8A5F;
+  --primary-foreground: #FFFFFF;
+  --accent: #DDF3E9;
+  --accent-foreground: #0B6E4C;
+  --ring: #0E8A5F;
 
-  /* Soft sage surfaces */
-  --secondary: #E7ECE1;
-  --secondary-foreground: #1E3A2C;
-  --muted: #ECE7DA;
-  --muted-foreground: #5F6B5E;
-  --accent: #E1E8DA;
-  --accent-foreground: #173328;
+  /* Hairlines — inside tiles only */
+  --border: #DCDFE3;
+  --input: #DCDFE3;
 
-  /* Warm terracotta for errors (fits the warm palette) */
-  --destructive: #B4472F;
+  /* Data buckets */
+  --you: #0E8A5F;
+  --comp: #F0742B;
+  --cat: #9AA1A9;
+  --mixed: #E6B03C;
+  --neutral-seg: #CDD2D7;
 
-  /* Warm sand neutrals */
-  --border: #E4DCCC;
-  --input: #DED6C4;
-  --ring: #2E7D57;
+  /* Semantic status — positive shares the green ("good for you"); data only */
+  --positive: #0E8A5F;
+  --warning: #E6B03C;
+  --negative: #DB3B2E;
+  --destructive: #DB3B2E;
 
-  /* A range of greens for data viz — deep → pale, no neon */
-  --chart-1: #0F3B2B;
-  --chart-2: #2E8B5E;
-  --chart-3: #7C9A6B;
-  --chart-4: #A8B98C;
-  --chart-5: #4B6B4A;
+  /* Chart ramp — ink lightness, not a green ramp; chart-2 = the green where
+     "you"/"good" is implied (the Dashboard sentiment bar uses bg-chart-2). */
+  --chart-1: #26292C;
+  --chart-2: #0E8A5F;
+  --chart-3: #6E7378;
+  --chart-4: #9AA1A9;
+  --chart-5: #CDD2D7;
 
-  /* Semantic status — positive/mixed/negative (warm, no neon) */
-  --positive: #1B6144;
-  --warning: #B9822B;
-  --negative: #B4472F;
+  /* Compat aliases (Phase 1) — pages still on the old names get the new hues */
+  --accent-pine: #0E8A5F;
+  --accent-clay: #F0742B;
+  --accent-ochre: #E6B03C;
+  --accent-plum: #8A3A2A;
+  --accent-slate: #9AA1A9;
 
-  /* Curated category accents — muted & earthy, for category identity only */
-  --accent-pine: #2E7D6F;
-  --accent-clay: #C4633F;
-  --accent-ochre: #C99A3B;
-  /* 2026-08-22: blue and purple retired (Heinrich) — 'plum' is now a deep
-     brown-red and 'slate' a warm stone, so every existing bg-plum/bg-slate use
-     (wider-category bucket, 4th/5th competitor, hashed category chips) stays
-     in the green / red / neutral family. Token names kept for churn's sake. */
-  --accent-plum: #7A3E2E;
-  --accent-slate: #8C8478;
+  /* Elevation */
+  --shadow-tile: 0 0 0 1px rgba(38, 41, 44, 0.04), 0 1px 3px rgba(38, 41, 44, 0.05), 0 0 16px rgba(38, 41, 44, 0.09);
+  --shadow-tile-hover: 0 0 0 1px rgba(38, 41, 44, 0.05), 0 2px 6px rgba(38, 41, 44, 0.07), 0 0 24px rgba(38, 41, 44, 0.13);
 
-  /* Sidebar — light warm panel, green as the accent (active = pale-green pill, deep-green text) */
-  --sidebar: #FCF9F1;
-  --sidebar-foreground: #55605A;
-  --sidebar-primary: #14503A;
+  /* Sidebar — white, same elevation as tiles; active = weight + a green bar, no pill fill */
+  --sidebar: #FFFFFF;
+  --sidebar-foreground: #45494D;
+  --sidebar-primary: #0E8A5F;
   --sidebar-primary-foreground: #FFFFFF;
-  --sidebar-accent: #E3EEE3;
-  --sidebar-accent-foreground: #14503A;
-  --sidebar-border: #E7DFD0;
-  --sidebar-ring: #2E7D57;
+  --sidebar-accent: #F6F7F8;
+  --sidebar-accent-foreground: #26292C;
+  --sidebar-border: #DCDFE3;
+  --sidebar-ring: #0E8A5F;
 }
 
+/* Dark set — written with the palette (2026-08-28), not yet wired: there is no
+   theme toggle until Settings › Appearance ships. Every token above has a
+   counterpart here so a surface never falls back to a light value. */
 .dark {
-  --background: #0B1F17;
-  --foreground: #EAF2EC;
-  --card: rgba(255, 255, 255, 0.05);
-  --tile: #1B2A22;
-  --card-foreground: #EAF2EC;
-  --popover: #10281E;
-  --popover-foreground: #EAF2EC;
-  --primary: #3E9E72;
-  --primary-foreground: #06170F;
-  --secondary: #17362A;
-  --secondary-foreground: #EAF2EC;
-  --muted: #17362A;
-  --muted-foreground: #9DB6A9;
-  --accent: #1B4032;
-  --accent-foreground: #EAF2EC;
-  --destructive: #D06A4C;
-  --border: rgba(255, 255, 255, 0.10);
-  --input: rgba(255, 255, 255, 0.14);
-  --ring: #3E9E72;
-  --chart-1: #EAF2EC;
-  --chart-2: #3E9E72;
-  --chart-3: #7C9A6B;
-  --chart-4: #A8B98C;
-  --chart-5: #4B6B4A;
-  --sidebar: #0E261C;
-  --sidebar-foreground: #EAF2EC;
-  --sidebar-primary: #3E9E72;
-  --sidebar-primary-foreground: #06170F;
-  --sidebar-accent: #17362A;
-  --sidebar-accent-foreground: #EAF2EC;
-  --sidebar-border: rgba(255, 255, 255, 0.10);
-  --sidebar-ring: #3E9E72;
+  --background: #141618;
+  --tile: #1B1D20;
+  --card: #1B1D20;
+  --popover: #1B1D20;
+  --inner: #22252A;
+  --foreground: #ECEEF0;
+  --card-foreground: #ECEEF0;
+  --popover-foreground: #ECEEF0;
+  --muted: #22252A;
+  --muted-foreground: #9AA0A6;
+  --secondary: #22252A;
+  --secondary-foreground: #C9CCD0;
+  --primary: #2FBF85;
+  --primary-foreground: #0B1F16;
+  --accent: #173B2D;
+  --accent-foreground: #7EDDB4;
+  --ring: #2FBF85;
+  --border: rgba(255, 255, 255, 0.08);
+  --input: rgba(255, 255, 255, 0.12);
+  --you: #2FBF85;
+  --comp: #F58A4A;
+  --cat: #7C838B;
+  --mixed: #E9BC55;
+  --neutral-seg: #3A3F45;
+  --positive: #2FBF85;
+  --warning: #E9BC55;
+  --negative: #E8604F;
+  --destructive: #E8604F;
+  --chart-1: #ECEEF0;
+  --chart-2: #2FBF85;
+  --chart-3: #9AA0A6;
+  --chart-4: #6B7178;
+  --chart-5: #3A3F45;
+  --accent-pine: #2FBF85;
+  --accent-clay: #F58A4A;
+  --accent-ochre: #E9BC55;
+  --accent-plum: #B85A48;
+  --accent-slate: #7C838B;
+  --shadow-tile: 0 0 0 1px rgba(255, 255, 255, 0.06), 0 1px 3px rgba(0, 0, 0, 0.3), 0 0 16px rgba(0, 0, 0, 0.35);
+  --shadow-tile-hover: 0 0 0 1px rgba(255, 255, 255, 0.08), 0 2px 6px rgba(0, 0, 0, 0.35), 0 0 24px rgba(0, 0, 0, 0.45);
+  --sidebar: #1B1D20;
+  --sidebar-foreground: #C9CCD0;
+  --sidebar-primary: #2FBF85;
+  --sidebar-primary-foreground: #0B1F16;
+  --sidebar-accent: #22252A;
+  --sidebar-accent-foreground: #ECEEF0;
+  --sidebar-border: rgba(255, 255, 255, 0.08);
+  --sidebar-ring: #2FBF85;
 }
 
 @layer base {
@@ -171,8 +212,8 @@
   }
   body {
     @apply bg-background text-foreground;
-    /* One-screen redesign density: 13px base, 1.45 leading. rem stays 16px so
-       spacing utilities are unaffected; only default prose shrinks. */
+    /* Density: 13px base, 1.45 leading. rem stays 16px so spacing utilities
+       are unaffected; only default prose shrinks. */
     font-size: 13px;
     line-height: 1.45;
   }
@@ -181,44 +222,32 @@
   }
 }
 
-/* Give the floating sidebar the same elevation as the cards */
-[data-slot="sidebar"][data-variant="floating"] [data-slot="sidebar-inner"] {
-  box-shadow:
-    0 2px 6px -2px rgba(18, 42, 31, 0.10),
-    0 18px 40px -16px rgba(18, 42, 31, 0.32);
+/* One-time draw-in for the SSR SVG charts (component-map §5): bars grow from
+   their baseline, lines trace left→right, the ring sweeps. CSS only, runs once
+   on mount, never loops, and does nothing under reduced motion. */
+@keyframes vi-grow-x { from { transform: scaleX(0); } to { transform: scaleX(1); } }
+@keyframes vi-grow-y { from { transform: scaleY(0); } to { transform: scaleY(1); } }
+@keyframes vi-trace  { from { stroke-dashoffset: var(--vi-len, 1000); } to { stroke-dashoffset: 0; } }
+@keyframes vi-fade   { from { opacity: 0; } to { opacity: 1; } }
+@media (prefers-reduced-motion: no-preference) {
+  .vi-anim-bar  { transform-origin: left center;   animation: vi-grow-x 0.6s cubic-bezier(0.22, 1, 0.36, 1) both; }
+  .vi-anim-col  { transform-origin: center bottom; animation: vi-grow-y 0.6s cubic-bezier(0.22, 1, 0.36, 1) both; }
+  .vi-anim-line { stroke-dasharray: var(--vi-len, 1000); animation: vi-trace 0.7s cubic-bezier(0.22, 1, 0.36, 1) both; }
+  .vi-anim-fade { animation: vi-fade 0.4s ease-out both; }
 }
 
-/* Filled deep-green hero KPI card — a soft top-corner sheen over a diagonal
-   green gradient (Donezo-style). Unlayered so it beats the glass `bg-card`. */
-.stat-hero {
-  background:
-    radial-gradient(120% 120% at 100% 0%, rgba(255, 255, 255, 0.12), transparent 55%),
-    linear-gradient(150deg, #1A5C43 0%, #113E2C 100%);
-  color: #F5F1E6;
-}
-
-/* Ambient crowd layer — the voices behind the data. Faint, fades up.
-   Absolute inside the app shell (which is h-dvh and scrolls in <main>, not the
-   document) — deliberately NOT position:fixed: mobile browsers shift
-   window-fixed layers while the toolbar animates, which made the artwork
-   visibly drift on scroll. With the document never scrolling, the toolbar
-   never moves and neither does this layer. */
+/* Ambient crowd layer — kept for the login page only (MASTER rule 6: the crowd
+   left the app shell). Absolute inside its container, never fixed. */
 .crowd-bg {
   position: absolute;
   inset: 0;
   z-index: 0;
   pointer-events: none;
   background: url("/crowd.svg") center bottom / cover no-repeat;
-  /* Fainter (was 0.16): the Consumer Profile puts a large figure in front of
-     this layer, and at the old weight the backdrop competed with its subject. */
   opacity: 0.1;
   -webkit-mask-image: linear-gradient(to bottom, transparent 0%, rgba(0, 0, 0, 0.35) 8%, #000 34%, #000 100%);
   mask-image: linear-gradient(to bottom, transparent 0%, rgba(0, 0, 0, 0.35) 8%, #000 34%, #000 100%);
 }
-
-/* Marketing-site variant: same artwork, but alive — crowd-live.svg carries its
-   own internal animations (per-figure sway/bob, drifting speech bubbles). Kept
-   as a separate asset so the app shell stays still. */
 .crowd-bg--live {
   background-image: url("/crowd-live.svg");
   opacity: 0.18;
@@ -456,9 +485,4 @@ main:has(> .agent-fixed) {
   flex-direction: column;
 }
 
-/* On the agent page the ambient backdrop stands down — the ring IS the crowd
-   there, and two crowd layers over each other read as smudge rather than
-   depth. Sibling-scoped so no page needs to know about the layout's art. */
-.crowd-bg:has(~ main .agent-ring) {
-  display: none;
-}
+

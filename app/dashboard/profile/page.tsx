@@ -427,7 +427,7 @@ function SharePill({ percent }: { percent: number }) {
       // width it read as a fifth block; a little inset it reads as a footnote
       // belonging to the two above it.
       data-connector="left"
-      className="profile-in-left profile-delay-3 hidden w-[92%] items-center gap-4 rounded-full border border-primary/25 bg-card px-6 py-4 backdrop-blur-xl lg:flex"
+      className="profile-in-left profile-delay-3 hidden w-[92%] items-center gap-4 rounded-full border border-primary/25 bg-card px-6 py-4 lg:flex"
       title="This persona's share of the conversations the profile covers. A conversation that speaks to two of these people counts toward both."
     >
       <span className="shrink-0 text-sm font-medium text-muted-foreground">Share of profile</span>

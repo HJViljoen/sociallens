@@ -44,12 +44,12 @@ export function Ring({
         </circle>
       ))}
       {center && (
-        <text x={c} y={c + (sub ? 2 : 6)} textAnchor="middle" fontFamily="var(--font-jetbrains), ui-monospace, monospace" fontSize={size >= 110 ? 22 : 16} fontWeight={600} fill="var(--foreground)" letterSpacing="-1">
+        <text x={c} y={c + (sub ? 2 : 6)} textAnchor="middle" fontFamily="var(--font-plex-mono), ui-monospace, monospace" fontSize={size >= 110 ? 22 : 16} fontWeight={600} fill="var(--foreground)" letterSpacing="-1">
           {center}
         </text>
       )}
       {sub && (
-        <text x={c} y={c + 16} textAnchor="middle" fontFamily="var(--font-jakarta), ui-sans-serif, sans-serif" fontSize={10} fill="var(--muted-foreground)">
+        <text x={c} y={c + 16} textAnchor="middle" fontFamily="var(--font-plex-sans), ui-sans-serif, sans-serif" fontSize={10} fill="var(--muted-foreground)">
           {sub}
         </text>
       )}

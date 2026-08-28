@@ -6,7 +6,7 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint",
+    "lint": "eslint && bash scripts/check-design-drift.sh",
     "test": "vitest run",
     "typecheck": "tsc --noEmit"
   },
