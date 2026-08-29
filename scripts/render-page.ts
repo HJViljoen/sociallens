@@ -3,7 +3,11 @@
 // /render/<snapshot> → file. The snapshot row is deleted afterwards unless
 // --keep, so a verification run leaves no trace in the tenant's Exports list.
 //   node --env-file=.env.local --import tsx scripts/render-page.ts --client <uuid> --page agent --param thread=<uuid> [--tile agent.answer:0] [--variant full] [--style a|b] [--out dir] [--keep]
-// Verification only (Reports & Exports T11/T13). Needs a dev server on :3000.
+// A report (Stage 2) — from a saved row or straight from a starter template,
+// no reports row needed:
+//   … --client <uuid> --report <reports.id>
+//   … --client <uuid> --template leadership_one_pager [--audience sales] [--title "…"]
+// Verification only (Reports & Exports T11/T13, S2 T2). Needs a dev server on :3000.
 
 import { mkdirSync, writeFileSync } from 'fs'
 import { join } from 'path'
@@ -12,6 +16,9 @@ import { pageModule } from '../components/pages/registry'
 import { createSnapshot } from '../lib/snapshots'
 import { renderArtifact } from '../lib/render/render'
 import type { PageKey, PrintVariant } from '../lib/renderables/types'
+import { snapshotReport } from '../lib/reports/build'
+import { instantiate, starterTemplate } from '../lib/reports/templates'
+import { isAudience, type ReportRow } from '../lib/reports/types'
 
 const args = process.argv.slice(2)
 const flag = (name: string, dflt = '') => {
@@ -29,7 +36,43 @@ const base = process.env.RENDER_BASE_URL ?? 'http://localhost:3000'
 const params: Record<string, string> = {}
 for (let i = 0; i < args.length; i++) if (args[i] === '--param' && args[i + 1]) { const [k, v] = args[i + 1].split('='); params[k] = v }
 
+async function renderReport() {
+  const admin = createAdminClient()
+  mkdirSync(out, { recursive: true })
+  const { data: client } = await admin.from('clients').select('company_name').eq('id', clientId).maybeSingle()
+  let report: ReportRow
+  if (flag('report')) {
+    const { data } = await admin.from('reports').select('*').eq('id', flag('report')).eq('client_id', clientId).maybeSingle()
+    if (!data) throw new Error('no such report for that client')
+    report = data as ReportRow
+  } else {
+    const t = starterTemplate(flag('template'))
+    if (!t) throw new Error(`unknown template: ${flag('template')}`)
+    const audience = isAudience(flag('audience')) ? flag('audience') as ReportRow['audience'] : t.audience
+    report = {
+      id: '00000000-0000-0000-0000-000000000000', client_id: clientId, template_key: t.key, title: flag('title') || t.name, audience,
+      sections: instantiate(t.sections), cover: { register: audience }, status: 'draft', latest_snapshot_id: null, created_by: null,
+      created_at: new Date().toISOString(), updated_at: new Date().toISOString(),
+    }
+  }
+  const t0 = Date.now()
+  // A template run has no reports row; the snapshot's report_id FK must stay null.
+  const snap = await snapshotReport({ admin, supabase: admin, clientId, userId: null, report: flag('report') ? report : { ...report, id: '' }, company: (client?.company_name as string) ?? '' })
+  const t1 = Date.now()
+  try {
+    const { buffer, ms } = await renderArtifact({ baseUrl: base, snapshotId: snap.snapshotId, format: 'pdf', style })
+    const name = `report-${(report.template_key ?? report.id).replace(/[^a-z0-9_-]/gi, '_')}.pdf`
+    writeFileSync(join(out, name), buffer)
+    console.log(`${name}: load+cover ${t1 - t0} ms · render ${ms} ms · ${buffer.length} bytes · sections ${snap.data.sections.length} · skipped ${snap.skipped.length} · refs ${snap.evidenceIds.length} · figures ${Object.keys(snap.data.figures).length} · snapshot ${snap.snapshotId}${has('keep') ? ' (kept)' : ''}`)
+    for (const sk of snap.skipped) console.log(`  skipped ${sk.section.page}: ${sk.reason}`)
+    console.log(`  cover${snap.data.cover.fallback ? ' (code)' : ''}: ${snap.data.cover.body}`)
+  } finally {
+    if (!has('keep')) await admin.from('report_snapshots').delete().eq('id', snap.snapshotId)
+  }
+}
+
 async function main() {
+  if (clientId && (flag('report') || flag('template'))) return renderReport()
   if (!clientId || !page) throw new Error('--client and --page are required')
   const mod = pageModule(page)
   if (!mod) throw new Error(`no page module: ${page}`)

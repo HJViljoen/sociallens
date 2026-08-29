@@ -10,15 +10,26 @@ import type { DeckSlide, ReportSection, ReportSnapshotData } from './types'
  * asked for `full`.
  */
 export function sectionSlides(mod: Pick<PageModule<unknown>, 'slides'>, section: ReportSection, data: unknown): Slide[] {
+  const full = section.variant === 'full'
   const all = mod.slides(data, section.variant ?? 'default')
-  if (!section.keys) return all
-  const wanted = new Set(section.keys)
+  // In `full`, the page's "selected item" slide is one of the items about to
+  // follow — the same finding twice in a row otherwise (seen on the Sales
+  // starter: pages 8 and 9 identical).
+  const selected = full ? SELECTED_ITEM_KEYS[section.page] : undefined
+  const wanted = section.keys ? new Set(section.keys) : null
   const out: Slide[] = []
   for (const s of all) {
-    const keys = s.keys.filter((k) => wanted.has(k) || (k.includes(':') && section.variant === 'full'))
+    const keys = s.keys.filter((k) => k !== selected && (!wanted || wanted.has(k) || (k.includes(':') && full)))
     if (keys.length) out.push({ ...s, keys })
   }
   return out
+}
+
+/** The key each page gives its "selected item" slide — redundant under `full`. */
+const SELECTED_ITEM_KEYS: Partial<Record<string, string>> = {
+  competitive: 'competitive.finding',
+  market: 'market.detail',
+  profile: 'profile.persona',
 }
 
 /** The whole deck: cover first, then every section's slides, numbered once

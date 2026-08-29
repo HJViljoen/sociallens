@@ -30,6 +30,15 @@ describe('sectionSlides', () => {
     expect(sectionSlides(mod, section({ keys: ['x.table'], variant: 'full' }), {}).map((s) => s.title)).toEqual(['Share and table', 'Finding 1'])
     expect(sectionSlides(mod, section({ keys: ['x.table'] }), {}).map((s) => s.title)).toEqual(['Share and table'])
   })
+  it('drops the page’s selected-item slide under full, where the items follow anyway', () => {
+    const comp = { slides: (_d: unknown, v: 'default' | 'full'): Slide[] => [
+      { title: 'The selected finding', keys: ['competitive.finding'], layout: 'single' },
+      ...(v === 'full' ? [{ title: 'F1', keys: ['competitive.item:0'], layout: 'single' as const }] : []),
+    ] }
+    expect(sectionSlides(comp, section({ variant: 'full' }), {}).map((s) => s.title)).toEqual(['F1'])
+    expect(sectionSlides(comp, section({ keys: ['competitive.finding'], variant: 'full' }), {}).map((s) => s.title)).toEqual(['F1'])
+    expect(sectionSlides(comp, section({}), {}).map((s) => s.title)).toEqual(['The selected finding'])
+  })
 })
 
 describe('deckSlides', () => {

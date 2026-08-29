@@ -310,6 +310,13 @@
 .vb-print[data-print-variant="b"] [data-tile] { outline: 1px solid var(--border); outline-offset: -1px; }
 .vb-print *, .vb-print *::before, .vb-print *::after { animation: none !important; transition: none !important; }
 .vb-print [data-print-hide] { display: none !important; }
+/* Inner grids that go multi-column at xl: on screen say so for paper with
+   data-print-cols (xl: never fires in print media); a wrapper that must not
+   be the grid item (an anchor around a Tile) says data-print-contents. */
+.vb-print [data-print-cols="2"] { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.vb-print [data-print-cols="3"] { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.vb-print [data-print-cols="4"] { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.vb-print [data-print-contents] { display: contents; }
 .vb-print [data-tile] { min-height: 0; }
 .vb-print [data-tile]:hover { transform: none; }
 
@@ -335,6 +342,11 @@
   zoom: var(--vb-zoom);
   min-height: 0;
   overflow: hidden;
+}
+/* A framing note (Report Studio) is one 18px line plus its gap; the body
+   gives that up so the footer stays on the slide. */
+.vb-slide[data-note] .vb-slide-body {
+  height: calc((167mm - 14mm - 24px - 8px - 18px - 8px - 30px - 8px) / var(--vb-zoom));
 }
 .vb-print-grid {
   display: grid;

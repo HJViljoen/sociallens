@@ -86,10 +86,12 @@ const QUADRANTS: { key: keyof CiSummary; title: string; dot: string }[] = [
 ]
 
 // ── the short read: four blocks across, above the fold ──────────────────
-const shortRead: R = (d) => (
-  <Tile exportKey="market.shortRead" col={12} row={2} eyebrow="The short read" meta={weekdayDate(d.runDate)} bodyClassName="justify-center">
+// On screen this tile sits outside the grid and grows to its content; on
+// paper it is a grid item, and four quadrants of prose need three rows.
+const shortRead: R = (d, mode) => (
+  <Tile exportKey="market.shortRead" col={12} row={mode === 'print' ? 3 : 2} eyebrow="The short read" meta={weekdayDate(d.runDate)} bodyClassName="justify-center">
     {d.shortRead ? (
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4" data-print-cols="4">
         {QUADRANTS.map((q) => {
           const items = d.shortRead!.find((s) => s.key === q.key)?.items ?? []
           return (
@@ -109,13 +111,16 @@ const shortRead: R = (d) => (
 )
 
 // ── in the news: a dated feed, headlines linking out ─────────────────────
-const news: R = (d) => (
-  <div id="news" className="scroll-mt-3">
-    <Tile exportKey="market.news" col={12} row={2} eyebrow="In the news"
+const news: R = (d, mode) => (
+  // On paper the anchor wrapper must not be the grid item (it would span one
+  // column): data-print-contents lifts the Tile into the print grid, and the
+  // feed takes one row beneath the three-row short read.
+  <div id="news" className="scroll-mt-3" data-print-contents="">
+    <Tile exportKey="market.news" col={12} row={mode === 'print' ? 1 : 2} eyebrow="In the news"
       meta={d.news.total > 0 ? `${fmtInt(d.news.total)} ${plural(d.news.total, 'headline')} · newest first` : undefined}
       footerNote="Coverage of your brand, competitors and category — context beside the conversation, never a claimed cause of anything measured.">
       {d.news.items.length > 0 ? (
-        <ol className="grid gap-x-6 sm:grid-cols-2 xl:grid-cols-3">
+        <ol className="grid gap-x-6 sm:grid-cols-2 xl:grid-cols-3" data-print-cols="3">
           {d.news.items.map((n, i) => {
             const chip = newsRingChip(n.ring)
             return (

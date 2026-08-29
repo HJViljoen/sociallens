@@ -7,6 +7,8 @@ import { pageModule } from '@/components/pages/registry'
 import { PrintRoot, printStyleFrom } from '@/components/print/print-root'
 import { Slide } from '@/components/print/slide'
 import { PrintTile } from '@/components/print/print-tile'
+import { ReportDeck } from '@/components/print/report-deck'
+import type { ReportSnapshotData } from '@/lib/reports/types'
 import { MethodNote, type MethodNoteData } from '@/components/print/method-note'
 
 // Print-mode HTML for one snapshot, fetched by the export route's headless
@@ -33,6 +35,17 @@ export default async function RenderPage({
   const row = await loadSnapshot(admin, snapshotId)
   if (!row) notFound()
   const style = printStyleFrom(sp.style)
+
+  // A report (Stage 2): several pages frozen under one snapshot — the deck
+  // component composes them; hydration is the same walk as for a page.
+  if (row.kind === 'report') {
+    const data = await hydrateSnapshot<ReportSnapshotData>(admin, row)
+    return (
+      <PrintRoot style={style}>
+        <ReportDeck data={data} />
+      </PrintRoot>
+    )
+  }
 
   if (row.kind === 'page' || row.kind === 'tile' || row.kind === 'agent_thread') {
     const mod = row.ref.page ? pageModule(row.ref.page) : null
