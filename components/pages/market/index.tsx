@@ -116,7 +116,7 @@ const news: R = (d, mode) => (
   // column): data-print-contents lifts the Tile into the print grid, and the
   // feed takes one row beneath the three-row short read.
   <div id="news" className="scroll-mt-3 xl:col-span-12 xl:row-span-2" data-print-contents="">
-    <Tile exportKey="market.news" col={12} row={mode === 'print' ? 1 : 2} eyebrow="In the news"
+    <Tile exportKey="market.news" col={12} row={mode === 'print' ? (d.news.items.length ? 4 : 1) : 2} eyebrow="In the news"
       meta={d.news.total > 0 ? `${fmtInt(d.news.total)} ${plural(d.news.total, 'headline')} · newest first` : undefined}
       footerNote="Coverage of your brand, competitors and category — context beside the conversation, never a claimed cause of anything measured.">
       {d.news.items.length > 0 ? (
@@ -564,7 +564,11 @@ export const marketPage: PageModule<D> = {
   },
   slides(d, variant): Slide[] {
     const slides: Slide[] = [
-      { title: 'The short read', keys: ['market.shortRead', 'market.news'], layout: 'grid' },
+      // With headlines the feed takes its own slide (four rows); without, one
+      // quiet row beneath the short read says so.
+      ...(d.news.items.length
+        ? [{ title: 'The short read', keys: ['market.shortRead'], layout: 'grid' as const }, { title: 'In the news', keys: ['market.news'], layout: 'grid' as const }]
+        : [{ title: 'The short read', keys: ['market.shortRead', 'market.news'], layout: 'grid' as const }]),
       { title: 'The selected item', keys: ['market.detail'], layout: 'single' },
     ]
     if (variant === 'full') {

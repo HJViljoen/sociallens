@@ -39,8 +39,8 @@ export const STARTER_TEMPLATES: ReportTemplate[] = [
     audience: 'sales',
     description: 'What customers push back on, in their words, and how each competitor is talked about — for the people who hear the objections first.',
     sections: [
-      { page: 'voice', params: { type: 'pain_point' }, keys: ['voice.map', 'voice.theme', 'voice.phrases', 'voice.mood'], framing: 'The pain points customers raise, in their own words.' },
-      { page: 'voice', params: { type: 'objection' }, keys: ['voice.map', 'voice.theme', 'voice.phrases'], framing: 'The objections heard before a purchase.' },
+      { page: 'voice', params: { type: 'pain_point' }, keys: ['voice.map', 'voice.theme', 'voice.phrases', 'voice.mood', 'voice.ribbon'], framing: 'The pain points customers raise, in their own words.' },
+      { page: 'voice', params: { type: 'objection' }, keys: ['voice.map', 'voice.theme'], framing: 'The objections heard before a purchase.' },
       { page: 'competitive', params: {}, keys: ['competitive.standings', 'competitive.faceoff', 'competitive.shareLine', 'competitive.table', 'competitive.finding'], variant: 'full' },
       { page: 'content', params: {}, keys: ['content.inbox'], framing: 'Comments worth a reply this update.' },
     ],
@@ -51,7 +51,7 @@ export const STARTER_TEMPLATES: ReportTemplate[] = [
     audience: 'content',
     description: 'What is working right now, the playbooks side by side, how customers actually talk, and the recommendations — for the people making the next video.',
     sections: [
-      { page: 'content', params: {}, keys: ['content.works', 'content.field', 'content.voices', 'content.playbooks'] },
+      { page: 'content', params: {}, keys: ['content.works', 'content.inbox', 'content.field', 'content.voices', 'content.accounts', 'content.playbooks'] },
       { page: 'voice', params: {}, keys: ['voice.phrases', 'voice.mood', 'voice.ribbon'], framing: 'How customers say it — the words to borrow.' },
       { page: 'market', params: { group: 'recs' }, keys: ['market.shortRead', 'market.detail'] },
     ],
