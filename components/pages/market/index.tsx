@@ -111,17 +111,22 @@ const shortRead: R = (d, mode) => (
 )
 
 // ── in the news: a dated feed, headlines linking out ─────────────────────
-const news: R = (d, mode) => (
+const NEWS_ON_PAPER = 18 // three columns × six rows on a four-row slide
+
+const news: R = (d, mode) => {
   // On paper the anchor wrapper must not be the grid item (it would span one
-  // column): data-print-contents lifts the Tile into the print grid, and the
-  // feed takes one row beneath the three-row short read.
+  // column): data-print-contents lifts the Tile into the print grid; with
+  // headlines the feed takes a four-row slide of its own, capped at what fits.
+  const items = mode === 'print' ? d.news.items.slice(0, NEWS_ON_PAPER) : d.news.items
+  const more = d.news.items.length - items.length
+  return (
   <div id="news" className="scroll-mt-3 xl:col-span-12 xl:row-span-2" data-print-contents="">
     <Tile exportKey="market.news" col={12} row={mode === 'print' ? (d.news.items.length ? 4 : 1) : 2} eyebrow="In the news"
-      meta={d.news.total > 0 ? `${fmtInt(d.news.total)} ${plural(d.news.total, 'headline')} · newest first` : undefined}
+      meta={d.news.total > 0 ? `${fmtInt(d.news.total)} ${plural(d.news.total, 'headline')} · newest first${more > 0 ? ` · ${more} more in the app` : ''}` : undefined}
       footerNote="Coverage of your brand, competitors and category — context beside the conversation, never a claimed cause of anything measured.">
-      {d.news.items.length > 0 ? (
+      {items.length > 0 ? (
         <ol className="grid gap-x-6 sm:grid-cols-2 xl:grid-cols-3" data-print-cols="3">
-          {d.news.items.map((n, i) => {
+          {items.map((n, i) => {
             const chip = newsRingChip(n.ring)
             return (
               <li key={i} className="border-b border-border/70 py-2">
@@ -140,6 +145,7 @@ const news: R = (d, mode) => (
     </Tile>
   </div>
 )
+}
 
 // ── rail ────────────────────────────────────────────────────────────────
 function RailGroupPrint({ label, children }: { label: string; children: ReactNode }) {
