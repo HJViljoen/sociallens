@@ -37,6 +37,11 @@ export async function withBrowser<T>(fn: (page: Page) => Promise<T>): Promise<T>
   try {
     const page = await browser.newPage()
     await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }])
+    // Preview deployments sit behind Vercel Authentication; the browser is
+    // fetching our own deployment, so it carries the automation bypass when
+    // the project has one (Settings → Deployment Protection).
+    const bypass = process.env.VERCEL_AUTOMATION_BYPASS_SECRET
+    if (bypass) await page.setExtraHTTPHeaders({ 'x-vercel-protection-bypass': bypass })
     return await fn(page)
   } finally {
     await browser.close()
