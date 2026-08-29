@@ -267,6 +267,81 @@
   opacity: 0.18;
 }
 
+/* ── Print mode (Reports & Exports, 2026-08-29) ─────────────────────────────
+   The export renderer serves dashboard tiles under a `.vb-print` root and
+   headless Chrome prints it: landscape, slide-shaped, one section per page.
+   Same tokens, same components. What changes on paper:
+   · no ambient shadow (there is no light on a page) — the tile shadow resolves
+     through --shadow-tile, so a root-level override removes it without
+     touching Tile. The depth cue is then either (a) the page itself is the
+     inner grey and tiles are white, or (b) a hairline — data-print-variant
+     picks; decided on a mock (plan D3).
+   · no motion: the draw-ins do nothing under reduced motion (Chrome emulates
+     it) and are switched off here again for anything that is not gated.
+   · the grid is addressed by data-col / data-row, not xl: classes — Chrome
+     prints in `print` media where width queries see the PAGE box (297mm ≈
+     1122px), below the xl breakpoint. The row unit is 100px so a 4-row
+     composition fits a slide.
+   No hex here on purpose: the drift guard scans this file. */
+.vb-print {
+  --shadow-tile: none;
+  --shadow-tile-hover: none;
+  --vb-row: 100px;
+  background: var(--background);
+  color: var(--foreground);
+}
+.vb-print[data-print-variant="a"] { background: var(--inner); }
+.vb-print[data-print-variant="b"] [data-tile] { outline: 1px solid var(--border); outline-offset: -1px; }
+.vb-print *, .vb-print *::before, .vb-print *::after { animation: none !important; transition: none !important; }
+.vb-print [data-print-hide] { display: none !important; }
+.vb-print [data-tile] { min-height: 0; }
+.vb-print [data-tile]:hover { transform: none; }
+
+@page { size: 297mm 167mm; margin: 0; }
+.vb-slide {
+  position: relative;
+  box-sizing: border-box;
+  width: 297mm;
+  height: 167mm;
+  padding: 10mm 13mm 8mm;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  overflow: hidden;
+  break-after: page;
+  page-break-after: always;
+}
+.vb-slide:last-child { break-after: auto; page-break-after: auto; }
+.vb-print-grid {
+  display: grid;
+  grid-template-columns: repeat(12, minmax(0, 1fr));
+  grid-auto-rows: var(--vb-row);
+  gap: 12px;
+  align-content: start;
+  min-height: 0;
+}
+.vb-print [data-col="1"]  { grid-column: span 1; }
+.vb-print [data-col="2"]  { grid-column: span 2; }
+.vb-print [data-col="3"]  { grid-column: span 3; }
+.vb-print [data-col="4"]  { grid-column: span 4; }
+.vb-print [data-col="5"]  { grid-column: span 5; }
+.vb-print [data-col="6"]  { grid-column: span 6; }
+.vb-print [data-col="7"]  { grid-column: span 7; }
+.vb-print [data-col="8"]  { grid-column: span 8; }
+.vb-print [data-col="9"]  { grid-column: span 9; }
+.vb-print [data-col="10"] { grid-column: span 10; }
+.vb-print [data-col="11"] { grid-column: span 11; }
+.vb-print [data-col="12"] { grid-column: span 12; }
+.vb-print [data-row="1"]  { grid-row: span 1; }
+.vb-print [data-row="2"]  { grid-row: span 2; }
+.vb-print [data-row="3"]  { grid-row: span 3; }
+.vb-print [data-row="4"]  { grid-row: span 4; }
+.vb-print [data-row="5"]  { grid-row: span 5; }
+.vb-print [data-row="6"]  { grid-row: span 6; }
+/* A single tile rendered for a PNG: the slide grid's column width, no page. */
+.vb-print-tile { --vb-col: 73px; display: grid; grid-auto-rows: var(--vb-row); }
+.vb-print-tile > [data-tile] { width: calc(var(--vb-col) * var(--vb-span, 12) + 12px * (var(--vb-span, 12) - 1)); }
+
 /* ── Marketing theme (see DESIGN.md, "Annotated transcript") ─────────────────
    Scoped token overrides for app/site/*: sage-cast paper + green-black ink,
    Newsreader display, marker-yellow highlight. The app keeps the 2026-07 cream

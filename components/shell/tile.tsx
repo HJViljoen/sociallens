@@ -63,6 +63,13 @@ export function Tile({
   const isStrip = variant === 'strip'
   return (
     <section
+      // data-tile / data-col / data-row: how print mode addresses a tile
+      // (app/globals.css §Print mode) — the xl: span classes do not fire in
+      // Chrome's print media, whose width is the page box.
+      data-tile=""
+      data-col={col}
+      data-row={row}
+      style={{ '--vb-span': col } as React.CSSProperties}
       className={cn(
         'relative flex min-h-0 flex-col overflow-hidden rounded-lg bg-tile text-[12.5px] leading-[1.45] shadow-tile',
         COL[col] ?? 'xl:col-span-12',
