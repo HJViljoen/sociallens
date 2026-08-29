@@ -6,6 +6,9 @@ import { ListSearch } from '@/components/shell/list-search'
 import Link from 'next/link'
 import { BuildButton } from '@/components/reports/build-button'
 import { DeleteReport } from '@/components/reports/delete-report'
+import { ShareLinks, type ShareLinkView } from '@/components/reports/share-links'
+import { createAdminClient } from '@/lib/supabase-admin'
+import { getBaseUrl } from '@/lib/site'
 import { coverPlainText } from '@/lib/reports/cover'
 import { catalogueTitle } from '@/lib/reports/catalogue'
 import { AUDIENCES, type CoverText, type FigureTable, type ReportSection } from '@/lib/reports/types'
@@ -122,6 +125,20 @@ export default async function ReportsPage({ searchParams }: { searchParams?: Pro
       .select('id, title, created_at, cover:data->cover, figures:data->figures, artifacts(id, format, bytes, stale, rendered_at, version)')
       .eq('client_id', clientId).eq('report_id', selectedStudio.id).order('created_at', { ascending: false }).limit(20)
     builds = (b ?? []) as unknown as BuildRow[]
+  }
+  // Share links for this report's builds. The token is withheld from the
+  // workspace's own RLS reads (a teammate must not lift another's link from
+  // the DB), so the page reads them here, server-side, scoped to the tenant.
+  let shareLinks: ShareLinkView[] = []
+  if (selectedStudio && builds.length) {
+    const admin = createAdminClient()
+    const base = await getBaseUrl()
+    const byBuild = new Map(builds.map((b) => [b.id, b.created_at]))
+    const { data: l } = await admin.from('share_links')
+      .select('id, snapshot_id, token, title, expires_at, password_hash, revoked_at, view_count, last_viewed_at, created_at')
+      .eq('client_id', clientId).in('snapshot_id', builds.map((b) => b.id)).order('created_at', { ascending: false })
+    shareLinks = ((l ?? []) as { id: string; snapshot_id: string; token: string; title: string; expires_at: string | null; password_hash: string | null; revoked_at: string | null; view_count: number; last_viewed_at: string | null; created_at: string }[])
+      .map((x) => ({ id: x.id, url: `${base}/r/${x.token}`, title: x.title, createdAt: x.created_at, expiresAt: x.expires_at, revokedAt: x.revoked_at, protected: Boolean(x.password_hash), views: x.view_count, lastViewedAt: x.last_viewed_at, buildAt: byBuild.get(x.snapshot_id) ?? x.created_at }))
   }
 
   const months = new Map<string, number>()
@@ -270,7 +287,7 @@ export default async function ReportsPage({ searchParams }: { searchParams?: Pro
           )}
         </DetailSection>
         <DetailSection label="Share">
-          <p className="text-[12px] text-muted-foreground">Share links come with the next step of this build.</p>
+          <ShareLinks snapshotId={builds[0]?.id ?? null} links={shareLinks} />
         </DetailSection>
       </>
     ) : (

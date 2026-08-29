@@ -15,6 +15,14 @@ const nextConfig: NextConfig = {
     '/api/export': ['./node_modules/@sparticuz/chromium/bin/**/*'],
     // Route globs are picomatch: the brackets of a dynamic segment must be escaped.
     '/api/artifacts/\\[id\\]': ['./node_modules/@sparticuz/chromium/bin/**/*'],
+    // Stage 2: building a report prints it too.
+    '/api/reports/\\[id\\]/build': ['./node_modules/@sparticuz/chromium/bin/**/*'],
+  },
+  // Share links (Stage 2): a public, read-only page nobody should index. The
+  // page sets metadata.robots as well; this is the header form for crawlers
+  // that read headers before HTML.
+  async headers() {
+    return [{ source: '/r/:path*', headers: [{ key: 'X-Robots-Tag', value: 'noindex, nofollow, noarchive' }] }]
   },
   experimental: {
     // Client router cache. Every dashboard route is dynamic (cookies), and the

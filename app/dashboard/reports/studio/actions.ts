@@ -92,6 +92,16 @@ export async function deleteReport(formData: FormData): Promise<void> {
   redirect(`${BASE}?group=reports`)
 }
 
+/** Revoke a share link: the address stops working at the next open. */
+export async function revokeShareLink(formData: FormData): Promise<void> {
+  const id = z.uuid().parse(String(formData.get('id') ?? ''))
+  const { clientId } = await getSessionContext()
+  const admin = createAdminClient()
+  const { error } = await admin.from('share_links').update({ revoked_at: new Date().toISOString() }).eq('id', id).eq('client_id', clientId).is('revoked_at', null)
+  if (error) throw new Error(`revoke share link: ${error.message}`)
+  revalidatePath(BASE)
+}
+
 export async function saveAsTemplate(args: { id: string; name: string }): Promise<ActionState> {
   const parsed = z.object({ id: z.uuid(), name: z.string().trim().min(1).max(80) }).safeParse(args)
   if (!parsed.success) return { ok: false, message: 'Give the template a name.' }

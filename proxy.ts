@@ -25,7 +25,7 @@ export async function proxy(request: NextRequest) {
       return NextResponse.redirect(url, 308)
     }
     // Old apex links to app paths (the apex used to 307 to the app) keep working.
-    const appPaths = ['/login', '/signup', '/invite', '/dashboard', '/onboarding', '/reset', '/auth']
+    const appPaths = ['/login', '/signup', '/invite', '/dashboard', '/onboarding', '/reset', '/auth', '/r']
     if (appPaths.some((p) => url.pathname.startsWith(p))) {
       url.host = 'app.verbatimintel.com'
       return NextResponse.redirect(url, 308)
@@ -93,6 +93,9 @@ export async function proxy(request: NextRequest) {
     // server-side, with no session. Gated by a signed, short-lived token that
     // the page itself verifies (lib/render-token.ts) — never by a session.
     pathname.startsWith('/render/') ||
+    // Share links (Stage 2): read-only, no account, by unguessable token; the
+    // page checks the token, expiry, revocation and any password itself.
+    pathname.startsWith('/r/') ||
     // Marketing pages need no session — reachable directly in local dev, where
     // the host isn't the apex and the rewrite above doesn't apply.
     pathname.startsWith('/site')
