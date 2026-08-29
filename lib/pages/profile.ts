@@ -2,7 +2,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { fetchInsightsByIds, fetchQuotesByAudience, createCitedQuotePicker, type QuoteRow } from '../quotes'
 import type { Quote, Scope } from '../renderables/types'
 import { weekdayDate } from '../format'
-import { normalisePersona, shareOf, platformTotals, platformRows, shareSeries, type Persona } from '../profile-tiles'
+import { normalisePersona, shareOf, platformTotals, platformRows, platformsFromRows, shareSeries, type Persona } from '../profile-tiles'
 import type { PlatformRow, ShareSeries } from '../../components/profile-stats'
 import type { MethodNoteData } from '../../components/print/method-note'
 import { EXPORT_FULL_MAX_ITEMS } from '../config'
@@ -136,7 +136,9 @@ export async function loadProfile(scope: Scope): Promise<ProfileData | ProfileEm
   // read over the ids the personas already carry — the base table, not the
   // view, because these ids must resolve even where a newer run has superseded
   // the rows but not yet pruned them.
-  const allInsightIds = [...new Set(personas.flatMap((p) => p.insightIds))]
+  // Personas written since 2026-08-29 carry their own mix; only the older
+  // ones need the join, and only for them are the ids fetched.
+  const allInsightIds = [...new Set(personas.filter((p) => !p.platformMix).flatMap((p) => p.insightIds))]
   // The voices (below) hang off the same personas — fetched in the same wave.
   // In the `full` export every persona's voices are wanted; one chunked pass
   // over their combined insight ids (fetchQuotesByAudience already chunks
@@ -160,9 +162,11 @@ export async function loadProfile(scope: Scope): Promise<ProfileData | ProfileEm
   // Which platforms the card draws, biggest first. Counted in DISTINCT
   // conversations so the ordering is by real reach rather than by how many
   // personas happen to mention a platform.
-  const totals = platformTotals(insightRows)
-  const platforms = [...totals.entries()].sort((a, b) => b[1] - a[1]).map(([p]) => p)
   const rows = platformRows(personas, insightMeta)
+  const totals = platformTotals(insightRows)
+  const platforms = insightRows.length
+    ? [...totals.entries()].sort((a, b) => b[1] - a[1]).map(([p]) => p)
+    : platformsFromRows(rows)
 
   // How the mix has moved (rows fetched in the first wave above).
   const history = (historyRows ?? []) as { run_date: string; personas: Partial<Persona>[] }[]

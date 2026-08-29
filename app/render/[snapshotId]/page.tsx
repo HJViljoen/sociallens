@@ -38,7 +38,9 @@ export default async function RenderPage({
     const mod = row.ref.page ? pageModule(row.ref.page) : null
     if (!mod) notFound()
     const data = await hydrateSnapshot<{ method?: MethodNoteData }>(admin, row)
-    const tileKey = token.tileKey ?? sp.tile ?? row.ref.tileKey
+    // The token binds the tile (review B): a page token cannot be pointed at
+    // an arbitrary tile through the query string.
+    const tileKey = token.tileKey ?? row.ref.tileKey
     if (row.kind === 'tile' || tileKey) {
       const r = tileKey ? mod.renderables[tileKey] : null
       if (!r) notFound()

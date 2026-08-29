@@ -18,6 +18,11 @@ export interface Persona {
   evidenceCount: number
   sourceVideoCount: number
   prevalence: string
+  /** Distinct conversations per platform, counted by Pass E at write time
+   *  (2026-08-29). Older rows have none and fall back to the live join over
+   *  insightIds — which goes blank once pruneStaleAnalysis has taken the
+   *  insights, the reason the aggregate is stored at all. */
+  platformMix: Record<string, number> | null
 }
 
 /** The row is jsonb written by a pass whose shape will change. Read it
@@ -46,7 +51,17 @@ export function normalisePersona(p: Partial<Persona> | null): Persona | null {
     evidenceCount: Number.isFinite(p.evidenceCount) ? (p.evidenceCount as number) : 0,
     sourceVideoCount: Number.isFinite(p.sourceVideoCount) ? (p.sourceVideoCount as number) : 0,
     prevalence: typeof p.prevalence === 'string' ? p.prevalence : '',
+    platformMix: platformMixOf(p.platformMix),
   }
+}
+
+function platformMixOf(v: unknown): Record<string, number> | null {
+  if (!v || typeof v !== 'object' || Array.isArray(v)) return null
+  const out: Record<string, number> = {}
+  for (const [k, n] of Object.entries(v as Record<string, unknown>)) {
+    if (typeof n === 'number' && Number.isFinite(n) && n > 0) out[k] = n
+  }
+  return Object.keys(out).length ? out : null
 }
 
 /** Each persona's share of the conversation THIS PROFILE covers. Apportioned
@@ -82,10 +97,16 @@ export function platformTotals(insightRows: InsightMetaRow[]): Map<string, numbe
  *  rest of the page uses: a video with ten insights from one persona is one
  *  conversation, not ten. */
 export function platformRows(
-  personas: Pick<Persona, 'key' | 'name' | 'insightIds'>[],
+  personas: Pick<Persona, 'key' | 'name' | 'insightIds' | 'platformMix'>[],
   insightMeta: Map<string, InsightMetaRow>,
 ): PlatformRow[] {
   return personas.map((p) => {
+    // The stored mix wins: it was counted from the insights the persona was
+    // built on, and it survives those insights being pruned.
+    if (p.platformMix) {
+      const total = Object.values(p.platformMix).reduce((n, v) => n + v, 0)
+      return { key: p.key, name: p.name, total, counts: { ...p.platformMix } }
+    }
     const seen = new Map<string, Set<string>>()
     for (const id of p.insightIds) {
       const meta = insightMeta.get(id)
@@ -102,6 +123,15 @@ export function platformRows(
     }
     return { key: p.key, name: p.name, total, counts }
   })
+}
+
+/** Platform order for the card when no live insight rows are there to count:
+ *  summed over the personas' stored mixes, biggest first. (A conversation
+ *  shared by two personas counts twice here — it only orders the columns.) */
+export function platformsFromRows(rows: PlatformRow[]): string[] {
+  const sum = new Map<string, number>()
+  for (const r of rows) for (const [p, n] of Object.entries(r.counts)) sum.set(p, (sum.get(p) ?? 0) + n)
+  return [...sum.entries()].sort((a, b) => b[1] - a[1]).map(([p]) => p)
 }
 
 export interface ProfileHistoryRow {

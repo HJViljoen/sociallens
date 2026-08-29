@@ -4,10 +4,10 @@ import { createAdminClient } from '@/lib/supabase-admin'
 import { getBaseUrl } from '@/lib/site'
 import { pageModule } from '@/components/pages/registry'
 import { createSnapshot, type SnapshotKind } from '@/lib/snapshots'
-import { artifactFilename, logExport, signedArtifactUrl, storeArtifact, type ArtifactFormat } from '@/lib/artifacts'
+import { artifactFilename, logExport, signedArtifactUrl, storeArtifact, type ArtifactFormat, type ArtifactRow } from '@/lib/artifacts'
 import { renderArtifact, renderBaseUrl } from '@/lib/render/render'
 import { dayStartIso } from '@/lib/ask/quota'
-import { EXPORT_DAILY_LIMIT } from '@/lib/config'
+import { EXPORT_DAILY_LIMIT, EXPORT_PARAMS_MAX_KEYS, EXPORT_PARAMS_MAX_CHARS } from '@/lib/config'
 import type { PageKey, PrintVariant } from '@/lib/renderables/types'
 
 // POST /api/export — freeze what the reader is looking at and render it.
@@ -58,9 +58,13 @@ export async function POST(request: Request) {
   const tileKey = typeof body.tileKey === 'string' && body.tileKey ? body.tileKey : null
   const variant: PrintVariant = body.variant === 'full' ? 'full' : 'default'
   const style = body.style === 'b' ? 'b' : body.style === 'a' ? 'a' : body.style === 'c' ? 'c' : null
+  // The page's own URL params, stored verbatim in the snapshot ref — capped, a
+  // jsonb column is not a place for an arbitrary body (review B).
   const params: Record<string, string | undefined> = {}
   if (body.params && typeof body.params === 'object') {
-    for (const [k, v] of Object.entries(body.params as Record<string, unknown>)) if (typeof v === 'string') params[k] = v
+    for (const [k, v] of Object.entries(body.params as Record<string, unknown>).slice(0, EXPORT_PARAMS_MAX_KEYS)) {
+      if (typeof v === 'string' && k.length <= 40) params[k] = v.slice(0, EXPORT_PARAMS_MAX_CHARS)
+    }
   }
   if (!kind || !format || !page) return NextResponse.json({ error: 'Bad request.' }, { status: 400 })
   if (kind === 'tile' && !tileKey) return NextResponse.json({ error: 'A tile export names its tile.' }, { status: 400 })
@@ -104,8 +108,18 @@ export async function POST(request: Request) {
       data,
     })
     const baseUrl = renderBaseUrl(await getBaseUrl())
-    const { buffer, ms } = await renderArtifact({ baseUrl, snapshotId: snap.id, format, tileKey, style })
-    const artifact = await storeArtifact(admin, { clientId, snapshotId: snap.id, format, tileKey, buffer, renderMs: ms })
+    let artifact: ArtifactRow
+    let ms = 0
+    try {
+      const rendered = await renderArtifact({ baseUrl, snapshotId: snap.id, format, tileKey, style })
+      ms = rendered.ms
+      artifact = await storeArtifact(admin, { clientId, snapshotId: snap.id, format, tileKey, buffer: rendered.buffer, renderMs: ms })
+    } catch (e) {
+      // A snapshot nobody can download is an orphan (review B): remove it, so
+      // the Exports list and the erasure sweep only ever see real exports.
+      await admin.from('report_snapshots').delete().eq('id', snap.id)
+      throw e
+    }
     await logExport(admin, { clientId, userId, snapshotId: snap.id, artifactId: artifact.id, action: 'export', kind: snapKind, format, page, tileKey })
     const url = await signedArtifactUrl(admin, artifact, artifactFilename(title, artifact))
     return NextResponse.json({ artifactId: artifact.id, snapshotId: snap.id, url, ms, bytes: artifact.bytes })

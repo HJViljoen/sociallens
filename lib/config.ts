@@ -802,3 +802,7 @@ export const EXPORT_DAILY_LIMIT = 50
  *  page with sixty findings is a deck nobody presents; past this the export
  *  says so and stops. */
 export const EXPORT_FULL_MAX_ITEMS = 40
+/** A snapshot ref stores the page's URL params verbatim; these cap what a
+ *  request body may put there (review B). */
+export const EXPORT_PARAMS_MAX_KEYS = 20
+export const EXPORT_PARAMS_MAX_CHARS = 200

@@ -1,6 +1,6 @@
 import { createHmac } from 'crypto'
 import { describe, expect, it } from 'vitest'
-import { signRenderToken, verifyRenderToken } from './render-token'
+import { RENDER_TOKEN_TTL_SECONDS, signRenderToken, verifyRenderToken } from './render-token'
 
 const SECRET = 'test-secret-do-not-use'
 const at = (unixSeconds: number) => new Date(unixSeconds * 1000)
@@ -13,13 +13,20 @@ describe('render token', () => {
 
   it('omits tileKey when the payload had none', () => {
     const token = signRenderToken({ snapshotId: 'snap-1', exp: 1000 }, SECRET)
-    expect(verifyRenderToken(token, SECRET, at(1))).toEqual({ snapshotId: 'snap-1', exp: 1000 })
+    expect(verifyRenderToken(token, SECRET, at(500))).toEqual({ snapshotId: 'snap-1', exp: 1000 })
   })
 
   it('rejects at and after expiry', () => {
     const token = signRenderToken({ snapshotId: 'snap-1', exp: 1000 }, SECRET)
     expect(verifyRenderToken(token, SECRET, at(1000))).toBeNull()
     expect(verifyRenderToken(token, SECRET, at(5000))).toBeNull()
+  })
+
+  it('rejects an exp further out than the TTL, even when well signed', () => {
+    const far = signRenderToken({ snapshotId: 'snap-1', exp: 1000 + RENDER_TOKEN_TTL_SECONDS + 1 }, SECRET)
+    expect(verifyRenderToken(far, SECRET, at(1000))).toBeNull()
+    const edge = signRenderToken({ snapshotId: 'snap-1', exp: 1000 + RENDER_TOKEN_TTL_SECONDS }, SECRET)
+    expect(verifyRenderToken(edge, SECRET, at(1000))?.snapshotId).toBe('snap-1')
   })
 
   it('rejects a tampered payload', () => {

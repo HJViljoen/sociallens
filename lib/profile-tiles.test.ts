@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest'
-import { normalisePersona, shareOf, platformTotals, platformRows, shareSeries, type Persona, type ProfileHistoryRow } from './profile-tiles'
+import { normalisePersona, shareOf, platformTotals, platformRows, shareSeries, type Persona, type ProfileHistoryRow, platformsFromRows } from './profile-tiles'
 
 const persona = (over: Partial<Persona> = {}): Persona => ({
   key: 'p1', name: 'Caregiver', oneLiner: '', scope: 'client', wants: '', blockers: '', triggers: '',
-  howTheyTalk: [], who: [], insightIds: [], evidenceCount: 0, sourceVideoCount: 0, prevalence: '',
+  howTheyTalk: [], who: [], insightIds: [], evidenceCount: 0, sourceVideoCount: 0, prevalence: '', platformMix: null,
   ...over,
 })
 
@@ -61,6 +61,22 @@ describe('platformTotals / platformRows', () => {
       { key: 'p1', name: 'Caregiver', total: 3, counts: { tiktok: 2, youtube: 1 } },
       { key: 'p2', name: 'Athlete', total: 1, counts: { youtube: 1 } },
     ])
+  })
+
+  it('prefers the stored mix and survives its insights being pruned', () => {
+    const stored = persona({ key: 'p3', name: 'Clinician', insightIds: ['gone-1', 'gone-2'], platformMix: { instagram: 4, tiktok: 1 } })
+    const rows = platformRows([stored, p2], new Map())
+    expect(rows).toEqual([
+      { key: 'p3', name: 'Clinician', total: 5, counts: { instagram: 4, tiktok: 1 } },
+      { key: 'p2', name: 'Athlete', total: 0, counts: {} }, // no stored mix, no live rows
+    ])
+    expect(platformsFromRows(rows)).toEqual(['instagram', 'tiktok'])
+  })
+
+  it('normalises a stored mix defensively', () => {
+    expect(normalisePersona({ name: 'X', platformMix: { tiktok: 3, bad: -1, str: 'no' } as never })?.platformMix).toEqual({ tiktok: 3 })
+    expect(normalisePersona({ name: 'X', platformMix: {} })?.platformMix).toBeNull()
+    expect(normalisePersona({ name: 'X' })?.platformMix).toBeNull()
   })
 })
 

@@ -13,7 +13,8 @@ import {
 import { PassESchema, type PassEOutput } from './schemas'
 import { CALIBRATED_PROSE_RULE, stripThemeRefs } from './prose-rules'
 import { logAiCall } from './ai-log'
-import { bucketByAudienceId, createQuotePicker, fetchQuotesByAudience } from '../quotes'
+import { bucketByAudienceId, createQuotePicker, fetchInsightsByIds, fetchQuotesByAudience } from '../quotes'
+import { platformRows } from '../profile-tiles'
 import { carryPersonas, priorFromProfile } from './persona-continuity'
 import {
   buildPopulationCounts,
@@ -378,8 +379,24 @@ export async function runPassE(
   // across four hero_quote columns. The persona carries insight ids; the page
   // resolves the voices live from insight_evidence, so a deleted comment is
   // gone everywhere at once.
+  // Where each persona turns up, counted NOW from the insights it was built
+  // on (distinct conversations per platform) and stored with it. The page used
+  // to re-count from insightIds at read time; once pruneStaleAnalysis takes
+  // those insights the count goes to zero and the card goes blank — Össur's
+  // 08-16 profile did exactly that. A count is not a quote: nothing here is a
+  // third party's words, so erasure has nothing to chase.
+  const mixIds = [...new Set(withQuotes.flatMap((p) => p.insightIds))]
+  const mixRows = mixIds.length
+    ? await fetchInsightsByIds<{ id: string; platform: string | null; source_video_id: string | null }>(admin, mixIds, 'id, platform, source_video_id')
+    : []
+  const mixByKey = new Map(
+    platformRows(
+      withQuotes.map((p) => ({ key: p.key, name: p.name, insightIds: p.insightIds, platformMix: null })),
+      new Map(mixRows.map((r) => [r.id, r])),
+    ).map((r) => [r.key, r.counts] as const),
+  )
   const personasToStore = withQuotes.map((p) => {
-    const stored: Record<string, unknown> = { ...p }
+    const stored: Record<string, unknown> = { ...p, platformMix: mixByKey.get(p.key) ?? {} }
     delete stored.quotes
     return stored
   })

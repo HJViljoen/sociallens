@@ -69,7 +69,11 @@ export function verifyRenderToken(
   if (typeof p.snapshotId !== 'string' || !p.snapshotId) return null
   if (typeof p.exp !== 'number' || !Number.isFinite(p.exp)) return null
   if (p.tileKey !== undefined && typeof p.tileKey !== 'string') return null
-  if (now.getTime() / 1000 >= p.exp) return null
+  const nowSec = now.getTime() / 1000
+  if (nowSec >= p.exp) return null
+  // The TTL holds at the verifier too, not only at mint: a payload signed with
+  // a far-off exp (a leaked secret, a bug) is still only good for ten minutes.
+  if (p.exp - nowSec > RENDER_TOKEN_TTL_SECONDS) return null
   return { snapshotId: p.snapshotId, exp: p.exp, ...(p.tileKey ? { tileKey: p.tileKey } : {}) }
 }
 

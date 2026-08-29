@@ -46,6 +46,8 @@ export default async function SmokePage({ searchParams }: { searchParams: Promis
         <Tile col={7} row={3} variant="hero" eyebrow="Executive brief" meta="9 confirmed themes" lead="Comfort on long wear is the conversation your market keeps having — and the one competitor answer to it is losing ground.">
           <p className="text-[12.5px] text-secondary-foreground">Three of the five strongest themes this update are about wear over time; two of them are new since July. The share ring on the right is the one figure that moved.</p>
           <TileBlock><p className="font-serif italic text-[12.5px]">“It gets really heavy to carry on your back after the first hour, which nobody tells you.”</p></TileBlock>
+          {/* Emoji in a quote: printed through the self-hosted Noto Color Emoji on paper (Stage 2 T0). */}
+          <TileBlock><p className="font-serif italic text-[12.5px]">“Finally one that fits my kid 🙌 — we tried three before this 😩”</p></TileBlock>
         </Tile>
         <Tile col={5} row={1} eyebrow="Audience sentiment" meta="1,204 judged">
           <div className="flex items-baseline gap-2"><StatValue>61%</StatValue><span className="text-[12px] text-muted-foreground">positive</span><Delta value={3} good="up" unit="pt" /></div>

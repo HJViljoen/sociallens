@@ -30,7 +30,7 @@ export function ExportScope({ page, params, tiles, children }: ExportScopeValue 
 type Format = 'pdf' | 'png'
 interface Job { kind: 'page' | 'tile'; tileKey?: string; format: Format; variant?: 'default' | 'full'; label: string }
 const NOUN: Record<Format, string> = { pdf: 'PDF', png: 'image' }
-type State = { phase: 'idle' } | { phase: 'busy'; noun: string; started: number } | { phase: 'done'; url: string; noun: string } | { phase: 'error'; message: string }
+type State = { phase: 'idle' } | { phase: 'busy'; noun: string; started: number } | { phase: 'done'; url: string; artifactId: string | null; noun: string } | { phase: 'error'; message: string }
 
 function useExport(scope: ExportScopeValue | null) {
   const [state, setState] = useState<State>({ phase: 'idle' })
@@ -52,12 +52,12 @@ function useExport(scope: ExportScopeValue | null) {
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ kind: job.kind, page: scope.page, tileKey: job.tileKey, params: scope.params, variant: job.variant ?? 'default', format: job.format }),
       })
-      const j = (await r.json().catch(() => ({}))) as { url?: string; error?: string }
+      const j = (await r.json().catch(() => ({}))) as { url?: string; artifactId?: string; error?: string }
       if (!r.ok || !j.url) {
         setState({ phase: 'error', message: j.error ?? 'Couldn’t render this — try again.' })
         return
       }
-      setState({ phase: 'done', url: j.url, noun: NOUN[job.format] })
+      setState({ phase: 'done', url: j.url, artifactId: j.artifactId ?? null, noun: NOUN[job.format] })
       // The signed URL carries Content-Disposition: attachment — the browser
       // downloads it and the page stays put.
       window.location.assign(j.url)
@@ -119,7 +119,9 @@ function Menu({ anchor, open, onClose, jobs, ex, id }: {
       ) : state.phase === 'done' ? (
         <div className="px-2 py-2">
           <p className="text-secondary-foreground">Your {state.noun} is downloading.</p>
-          <a href={state.url} className="mt-1 inline-block font-medium underline underline-offset-2">Download again</a>
+          {/* The artifact route re-mints the signed URL (the one just used
+              expires in an hour) and re-renders a stale file. */}
+          <a href={state.artifactId ? `/api/artifacts/${state.artifactId}` : state.url} className="mt-1 inline-block font-medium underline underline-offset-2">Download again</a>
           <button type="button" onClick={ex.reset} className="ml-3 text-muted-foreground hover:text-foreground">Export another</button>
         </div>
       ) : state.phase === 'error' ? (

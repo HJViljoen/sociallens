@@ -292,7 +292,16 @@
   --vb-zoom: 0.902;
   background: var(--background);
   color: var(--foreground);
+  font-family: var(--font-plex-sans), var(--font-emoji);
 }
+/* Emoji in quotes: the renderer's Chromium has no emoji face of its own, so the
+   self-hosted Noto Color Emoji (app/layout.tsx) sits behind each Plex face on
+   paper. Descendant rules, not token overrides: `@theme inline` bakes the Plex
+   variable into the font-* utilities, so re-pointing --font-serif here would
+   change nothing. */
+.vb-print .font-sans, .vb-print .font-heading { font-family: var(--font-plex-sans), var(--font-emoji); }
+.vb-print .font-serif { font-family: var(--font-plex-serif), var(--font-emoji); }
+.vb-print .font-mono { font-family: var(--font-plex-mono), var(--font-emoji); }
 /* Depth on paper (Heinrich, 2026-08-29): the same ambient shadow as on screen
    — variant "c", the default. (a) grey page, white tiles, no shadow and (b)
    hairline tiles stay one attribute away. */

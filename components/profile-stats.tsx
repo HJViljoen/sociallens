@@ -42,7 +42,16 @@ export interface PlatformRow {
 
 export function PlatformMix({ rows, platforms }: { rows: PlatformRow[]; platforms: string[] }) {
   const usable = rows.filter((r) => r.total > 0)
-  if (!usable.length || !platforms.length) return null
+  if (!usable.length || !platforms.length) {
+    // Honest empty (Tile keeps its size): an older profile whose insights a
+    // later update pruned has nothing left to count. The next profile stores
+    // its own mix and does not depend on them.
+    return (
+      <p className="text-[12.5px] leading-relaxed text-muted-foreground">
+        Where each one turns up is not on record for this profile — the conversations it was drawn from have since been superseded. The next profile carries its own count.
+      </p>
+    )
+  }
 
   return (
     <Card className="rounded-3xl ring-1 ring-primary/25">
