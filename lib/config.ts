@@ -806,3 +806,17 @@ export const EXPORT_FULL_MAX_ITEMS = 40
  *  request body may put there (review B). */
 export const EXPORT_PARAMS_MAX_KEYS = 20
 export const EXPORT_PARAMS_MAX_CHARS = 200
+
+// Report Studio (Stage 2, 2026-08-30).
+/** The cover is written in the reader's register by a small model — three to
+ *  five sentences over figures the code computed. Not SYNTHESIS_MODEL: that is
+ *  a reasoning model measured in minutes, and a cover has nothing to reason
+ *  about; every number is substituted by code (lib/reports/cover.ts). */
+export const COVER_MODEL = 'gpt-5.4-mini'
+/** Sections a report may hold; a deck past REPORT_SLIDES_WARN slides gets a
+ *  note in the Studio (renders take longer, readers read less). */
+export const REPORT_MAX_SECTIONS = 12
+export const REPORT_SLIDES_WARN = 40
+/** A share link's default life, in days; the UI offers 7 / 30 / 90 / none. */
+export const SHARE_DEFAULT_EXPIRY_DAYS = 30
+export const SHARE_EXPIRY_CHOICES = [7, 30, 90, null] as const

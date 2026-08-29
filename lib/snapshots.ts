@@ -13,12 +13,15 @@ import { fetchQuoteTextsByRefs } from './quotes'
  * erased voice cannot survive inside a stored export.
  */
 
-export type SnapshotKind = 'page' | 'tile' | 'agent_thread'
+/** 'report' (Stage 2): several pages' data under one snapshot, the Studio's
+ *  build — lib/reports/build.ts; data is ReportSnapshotData. */
+export type SnapshotKind = 'page' | 'tile' | 'agent_thread' | 'report'
 
 export interface SnapshotRef {
   page?: PageKey
   tileKey?: string
-  threadId?: string
+  /** kind 'report': the reports row this build came from. */
+  reportId?: string
   params: Record<string, string | undefined>
   variant?: PrintVariant
 }
@@ -38,7 +41,7 @@ export interface SnapshotRow {
 
 export async function createSnapshot(
   admin: SupabaseClient,
-  args: { clientId: string; userId: string | null; kind: SnapshotKind; ref: SnapshotRef; title: string; runId: string | null; data: unknown },
+  args: { clientId: string; userId: string | null; kind: SnapshotKind; ref: SnapshotRef; title: string; runId: string | null; data: unknown; reportId?: string | null },
 ): Promise<{ id: string; evidenceIds: string[] }> {
   const { data: frozen, refs } = freezeQuotes(args.data)
   const { data, error } = await admin
@@ -52,6 +55,7 @@ export async function createSnapshot(
       data: frozen,
       evidence_ids: refs,
       created_by: args.userId,
+      ...(args.reportId ? { report_id: args.reportId } : {}),
     })
     .select('id')
     .single()
