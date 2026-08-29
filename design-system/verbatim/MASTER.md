@@ -78,8 +78,10 @@ this is a positive spec: grey-scale chrome, colour reserved for meaning, and a g
   the problem, noise is — clarity comes from grouping, alignment, one padding scale and open space, never from
   cutting information.
 - **Blocks inside blocks.** He likes items as bounded inner blocks inside a tile (ShadcnStore Dashboard 2): the
-  eye groups before it reads. Discipline: two levels only (tile with shadow → flat tinted inner block, no shadow
-  or border), one padding scale, never a third level.
+  eye groups before it reads. Discipline: two levels only (tile with shadow → tinted inner block), one padding
+  scale, never a third level. Inner blocks carry **no border or outline**; they are flat, except where blocks are
+  the content itself (the Voice theme map), where they sit on `--shadow-block` — a hair of lift, never a ring
+  (Heinrich, 2026-08-29: "remove the darker outlines… give the blocks a shadow… neutral blocks a bit lighter grey").
 - **Spacing as a material.** Sites he admires use open space for emphasis; leaving an area open can look as good
   as putting something there. Ours tend to fill every tile to the edge. Lean toward more air — while the 08-23
   note that content shouldn't pack into a tile's top-left with a void below still applies where it applies.
