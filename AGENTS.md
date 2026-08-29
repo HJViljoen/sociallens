@@ -42,3 +42,10 @@ This version has breaking changes — APIs, conventions, and file structure may 
   send-report's default preview) when iterating.
 - `.env.local` holds real production credentials — never commit it, never
   print its values into logs or command output.
+- **Exports and reports freeze numbers, never words.** A snapshot
+  (`report_snapshots.data`) holds tile-ready data with every quote as a ref
+  (`lib/renderables/quotes-freeze.ts`) and `text: ''`; the words resolve at
+  render. Nothing under `lib/reports/` may store or send to a model a
+  comment's text — the cover prompt gets figure KEYS and validated brief
+  prose only. A share link (`/r/<token>`) reads the link, its snapshot and
+  the quote texts — never a tenant table live.

@@ -115,7 +115,7 @@ const news: R = (d, mode) => (
   // On paper the anchor wrapper must not be the grid item (it would span one
   // column): data-print-contents lifts the Tile into the print grid, and the
   // feed takes one row beneath the three-row short read.
-  <div id="news" className="scroll-mt-3" data-print-contents="">
+  <div id="news" className="scroll-mt-3 xl:col-span-12 xl:row-span-2" data-print-contents="">
     <Tile exportKey="market.news" col={12} row={mode === 'print' ? 1 : 2} eyebrow="In the news"
       meta={d.news.total > 0 ? `${fmtInt(d.news.total)} ${plural(d.news.total, 'headline')} · newest first` : undefined}
       footerNote="Coverage of your brand, competitors and category — context beside the conversation, never a claimed cause of anything measured.">

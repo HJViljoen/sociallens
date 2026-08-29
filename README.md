@@ -129,6 +129,44 @@ functions (defined in the baseline).
   (`running`/`completed`/`partial`/`failed`); a run failure also emails
   `ALERT_EMAIL` when configured.
 
+## Reports & Exports
+
+The artifact system (2026-08-29/30; vault: Architecture/Reports-Exports).
+Every dashboard page is a **loader** (`lib/pages/<page>.ts`) plus **renderers**
+(`components/pages/<page>`, catalogue `components/pages/registry.ts`, keys
+`<page>.<tile>`); the same data feeds the app, paper and the Studio.
+
+- **Export in place** (Stage 1): the page-bar Export menu (this page /
+  everything / any tile as PNG) and the hover control on every tile →
+  `POST /api/export` freezes a **snapshot** (`report_snapshots`: tile-ready
+  data, quotes as refs, never their text) → headless Chrome prints
+  `/render/<snapshot>` under a signed token → the file lands in the private
+  `artifacts` bucket → `GET /api/artifacts/<id>` 302s to a one-hour signed
+  URL. Erasure stales the artifacts whose snapshots cite a voice
+  (`deleteCommentsProperly`); the next download re-renders without it.
+- **Report Studio** (Stage 2): `/dashboard/reports` → New report → a starter
+  (`lib/reports/templates.ts` — templates only arrange existing pages) or the
+  workspace's own → `/dashboard/reports/studio/<id>`: ordered sections (page +
+  its selection + tiles + one framing line) beside the deck preview. **Build**
+  (`POST /api/reports/<id>/build`) runs every section's loader, writes the
+  cover in the reader's register (`COVER_MODEL`, figures substituted by code —
+  the model never sees a number or a quote), freezes it all into ONE snapshot
+  of kind `report`, prints the PDF. "Add to a report…" in any page's Export
+  menu carries that page with its selection into a draft.
+- **Share links**: `/r/<token>` renders a build live from its snapshot in
+  app mode — no account, the evidence popovers work, dashboard links go
+  quiet. 32-byte token, 7/30/90/no expiry, one-click revoke, optional
+  password (scrypt), `noindex`, a view log (`share_views`: hashed address,
+  agent). The token column is withheld from RLS reads; the Reports page shows
+  links through the service role. `POST /api/share`.
+- **Env**: `RENDER_TOKEN_SECRET` (signs render tokens and share-unlock
+  cookies; falls back to the service-role key), `CHROME_PATH` (local dev
+  only), `RENDER_BASE_URL` (optional origin override for the renderer).
+- **Verify**: `scripts/render-page.ts` (any page / `--template` / `--report`
+  to PDF, no session, snapshot deleted after), `scripts/export-smoke.ts`,
+  `scripts/export-ui-smoke.ts`, `scripts/studio-smoke.ts`,
+  `scripts/share-smoke.ts` (real browser, demo account).
+
 ## Operator scripts
 
 All run as `node --env-file=.env.local --import tsx scripts/<name>.ts`.

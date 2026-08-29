@@ -1,7 +1,6 @@
 import { Fragment } from 'react'
 import { pageModule } from '@/components/pages/registry'
 import { MethodNote } from '@/components/print/method-note'
-import { PageGrid } from '@/components/shell/page-grid'
 import { LinkGuard } from '@/components/share/link-guard'
 import { sectionSlides } from '@/lib/reports/compose'
 import { audienceLabel, substituteFigures } from '@/lib/reports/cover'
@@ -45,9 +44,12 @@ export function ShareShell({ data, appUrl }: { data: ReportSnapshotData; appUrl:
                   dropped into the grid it would spill across the columns. */}
               {slides.map((slide, j) =>
                 slide.layout === 'grid' ? (
-                  <PageGrid key={j}>
+                  // The app grid with rows that can grow: on a page some tiles sit
+                  // outside the grid and take their content's height (Market's
+                  // short read); here every tile is a grid item.
+                  <div key={j} className="grid grid-cols-1 gap-4 xl:grid-cols-12 xl:auto-rows-[minmax(116px,auto)]">
                     {slide.keys.map((k) => <Fragment key={k}>{mod.renderables[k]?.render(sec.data, 'app') ?? null}</Fragment>)}
-                  </PageGrid>
+                  </div>
                 ) : (
                   <div key={j} className="flex flex-col gap-4 rounded-lg bg-tile px-6 py-5 shadow-tile">
                     <p className="font-mono text-[10.5px] uppercase tracking-[0.08em] text-muted-foreground">{slide.title}</p>
