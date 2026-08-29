@@ -391,7 +391,12 @@ const renderables: Record<string, Renderable<D>> = {
 /** The grid, in the page's order. */
 const GRID_ORDER = ['content.works', 'content.inbox', 'content.field', 'content.voices', 'content.accounts']
 
-export function contentSlides(variant: PrintVariant): Slide[] {
+/** Rows per slide in the `full` export — decided here, not by the browser. */
+export const REPLIES_PER_SLIDE = 5
+export const CATALOG_PER_SLIDE = 20
+const PAGED = /^content\.(replies|catalog):(\d+)$/
+
+export function contentSlides(d: D, variant: PrintVariant): Slide[] {
   const slides: Slide[] = [
     { title: 'What works right now, and worth a reply', keys: ['content.works', 'content.inbox'], layout: 'grid' },
     { title: 'The field, your voices, your accounts', keys: ['content.field', 'content.voices', 'content.accounts'], layout: 'grid' },
@@ -399,10 +404,23 @@ export function contentSlides(variant: PrintVariant): Slide[] {
     { title: 'Top voices this update', keys: ['content.allVoices'], layout: 'single' },
   ]
   if (variant === 'full') {
-    slides.push({ title: 'Worth a reply — the full inbox', keys: ['content.replies'], layout: 'single' })
-    slides.push({ title: 'All videos', keys: ['content.catalog'], layout: 'single' })
+    const replies = d.inbox.rows.length
+    for (let n = 0; n < Math.ceil(replies / REPLIES_PER_SLIDE); n++) slides.push({ title: `Worth a reply — the full inbox${n ? ' (continued)' : ''}`, keys: [`content.replies:${n}`], layout: 'single' })
+    const videos = d.catalog.rows.length
+    for (let n = 0; n < Math.ceil(videos / CATALOG_PER_SLIDE); n++) slides.push({ title: `All videos · ${n * CATALOG_PER_SLIDE + 1}–${Math.min(videos, (n + 1) * CATALOG_PER_SLIDE)} of ${videos}`, keys: [`content.catalog:${n}`], layout: 'single' })
   }
   return slides
+}
+
+/** `content.replies:<n>` / `content.catalog:<n>` — one page of the full lists. */
+function pagedRenderable(key: string): Renderable<D> | undefined {
+  const m = PAGED.exec(key)
+  if (!m) return undefined
+  const n = Number(m[2])
+  if (m[1] === 'replies') {
+    return { key, title: 'Worth a reply', render: (d, mode) => repliesBody({ ...d, selection: { ...d.selection, intent: null }, inbox: { ...d.inbox, rows: d.inbox.rows.slice(n * REPLIES_PER_SLIDE, (n + 1) * REPLIES_PER_SLIDE) } }, mode) }
+  }
+  return { key, title: 'All videos', render: (d) => <CatalogTable rows={d.catalog.rows.slice(n * CATALOG_PER_SLIDE, (n + 1) * CATALOG_PER_SLIDE)} /> }
 }
 
 export const contentPage: PageModule<D> = {
@@ -412,8 +430,8 @@ export const contentPage: PageModule<D> = {
     const d = await loadContent(scope)
     return isContentEmpty(d) ? null : d
   },
-  slides: (_d, variant) => contentSlides(variant),
-  renderables,
+  slides: contentSlides,
+  renderables: new Proxy(renderables, { get: (t, k: string | symbol) => (typeof k === 'string' ? (t[k] ?? pagedRenderable(k)) : undefined) }),
   snapshotTitle: (d) => `Content · ${d.method.company} · ${d.updateDate ? weekdayDate(d.updateDate) : 'this update'}`,
 }
 

@@ -1,5 +1,4 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
-import { createAdminClient } from '../supabase-admin'
 import { anchorClaims, type Segment } from '../ask/anchor'
 import { createCitedQuotePicker, fetchQuotesByAudience, fetchQuoteTextsByCommentId } from '../quotes'
 import { quoteRef } from '../renderables/quotes-freeze'
@@ -95,6 +94,12 @@ export async function loadAgentThread(scope: Scope): Promise<AgentThreadData | n
   const commentIds = messages.flatMap((m) => (m.result?.grounded ?? []).flatMap((g) => g.quotes.map((q) => q.commentId).filter((c): c is string => Boolean(c))))
   const quoteTextP = commentIds.length ? fetchQuoteTextsByCommentId(supabase, commentIds) : Promise.resolve(new Map<string, string>())
   quoteTextP.catch(() => {})
+  // Where each quoted voice was said (the appendix): the refs are known from
+  // the stored answers before any text resolves, so the comments → videos join
+  // goes out now, alongside the words — not as a wave of its own afterwards.
+  const citeRefs = messages.flatMap((m) => (m.result?.grounded ?? []).flatMap((g) => g.quotes.map((q) => ({ commentId: q.commentId, videoId: q.videoId }))))
+  const metaP = citeRefs.length ? resolveCitations(supabase, citeRefs) : Promise.resolve(new Map<string, CitationMeta>())
+  metaP.catch(() => {})
 
   // A document thread wraps a plan_check; its quotes resolve from stored
   // insight ids — no quote text is kept in either table.
@@ -161,11 +166,7 @@ export async function loadAgentThread(scope: Scope): Promise<AgentThreadData | n
     turns.push({ question: m.content, askedAt: m.created_at, answer, prose: reply && !reply.result ? reply.content : null, outcome: reply?.outcome ?? null })
   }
 
-  // Where each quoted voice was said — a join the app never needed; the
-  // appendix does. Admin client: comments/videos are tenant-scoped rows the
-  // session can read too, but the render route (no session) needs this path.
-  const admin = createAdminClient()
-  const meta = cited.length ? await resolveCitations(admin, cited.map((c) => ({ commentId: c.commentId, videoId: c.videoId }))) : new Map<string, CitationMeta>()
+  const meta = await metaP
   const citations: Citation[] = cited.map((c) => {
     const m = meta.get(c.ref)
     return { n: c.n, ref: c.ref, text: c.text, platform: m?.platform ?? null, date: m?.date ?? null, href: m?.href ?? null, commentLevel: m?.commentLevel ?? false }

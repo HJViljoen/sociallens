@@ -88,5 +88,8 @@ describe('quote freeze / resolve', () => {
     expect(parseRef('b:run-1:2')).toEqual({ kind: 'b', runId: 'run-1', index: 2 })
     expect(isQuote({ ref: 'b:run-1:2', text: 'x' })).toBe(true)
     expect(isQuote({ ref: 'b:run-1:x', text: 'x' })).toBe(false)
+    expect(quoteRef.message('c9')).toBe('m:c9')
+    expect(parseRef('m:c9')).toEqual({ kind: 'm', id: 'c9' })
+    expect(isQuote({ ref: 'm:c9', text: 'x' })).toBe(true)
   })
 })

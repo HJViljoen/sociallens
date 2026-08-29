@@ -266,7 +266,7 @@ export async function fetchQuoteTextsByRefs(
 ): Promise<Map<string, string>> {
   const c = client as EvidenceClient
   const out = new Map<string, string>()
-  const by = { e: [] as string[], c: [] as string[], v: [] as string[] }
+  const by = { e: [] as string[], c: [] as string[], v: [] as string[], m: [] as string[] }
   const heroes = new Map<string, string[]>()
   const brandVoice = new Map<string, number[]>()
   for (const ref of new Set(refs)) {
@@ -280,8 +280,8 @@ export async function fetchQuoteTextsByRefs(
       brandVoice.set(b[1], [...(brandVoice.get(b[1]) ?? []), Number(b[2])])
       continue
     }
-    const m = /^([ecv]):(.+)$/.exec(ref)
-    if (m) by[m[1] as 'e' | 'c' | 'v'].push(m[2])
+    const m = /^([ecvm]):(.+)$/.exec(ref)
+    if (m) by[m[1] as 'e' | 'c' | 'v' | 'm'].push(m[2])
   }
   const heroReads = [...heroes.entries()].map(async ([table, ids]) => {
     const rows = await fetchChunks<{ id: string; hero_quote: string | null }>(
@@ -305,6 +305,23 @@ export async function fetchQuoteTextsByRefs(
         }
       })()
     : Promise.resolve()
+  // m: the comment as posted — read from `comments`, but only for ids an
+  // evidence row still cites (redacted = false), so the sweep's deletion and
+  // the counts-not-quotes rule reach it exactly as they reach the excerpt.
+  const messageRead = by.m.length
+    ? (async () => {
+        const cited = await fetchChunks<{ comment_id: string | null }>(
+          by.m,
+          (chunk) => c.from('insight_evidence').select('comment_id').in('comment_id', chunk).eq('redacted', false),
+        )
+        const ok = new Set(cited.map((r) => r.comment_id).filter((id): id is string => !!id))
+        const rows = await fetchChunks<{ id: string; text: string | null }>(
+          [...ok],
+          (chunk) => c.from('comments').select('id, text').in('id', chunk) as unknown as Rows,
+        )
+        for (const r of rows) if (r.text) out.set(`m:${r.id}`, cleanQuote(r.text))
+      })()
+    : Promise.resolve()
   const [byId, byComment, byVideo] = await Promise.all([
     fetchChunks<{ id: string; quote: string | null }>(
       by.e,
@@ -319,7 +336,7 @@ export async function fetchQuoteTextsByRefs(
       (chunk) => c.from('insight_evidence').select('source_video_id, quote').in('source_video_id', chunk).eq('redacted', false),
     ),
   ])
-  await Promise.all([...heroReads, brandVoiceRead])
+  await Promise.all([...heroReads, brandVoiceRead, messageRead])
   for (const r of byId) if (r.quote && !out.has(`e:${r.id}`)) out.set(`e:${r.id}`, r.quote)
   for (const r of byComment) if (r.comment_id && r.quote && !out.has(`c:${r.comment_id}`)) out.set(`c:${r.comment_id}`, r.quote)
   for (const r of byVideo) if (r.source_video_id && r.quote && !out.has(`v:${r.source_video_id}`)) out.set(`v:${r.source_video_id}`, r.quote)

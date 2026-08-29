@@ -70,6 +70,7 @@ export async function deleteCommentsProperly(
   // the snapshot, where the erased voice no longer resolves.
   const refs = [
     ...ids.map((id) => `c:${id}`),
+    ...ids.map((id) => `m:${id}`),
     ...evidenceIds.map((id) => `e:${id}`),
     ...heroHits.map((h) => `h:${h.table}:${h.id}`),
   ]

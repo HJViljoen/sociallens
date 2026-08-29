@@ -37,7 +37,7 @@ describe('toContentInboxRows', () => {
     const rows = toContentInboxRows(shaped)
     expect(rows).toEqual<ContentInboxRow[]>([{
       id: 'c1', intent: 'question', age: '1d', context: 'under @ossur’s post',
-      quote: { ref: 'c:c1', text: 'how long does the battery actually last' },
+      ref: 'm:c1', text: 'how long does the battery actually last',
       platform: 'tiktok', href: 'https://t.example/1', commentLevel: false,
       insightId: 'i1', category: 'question', theme: 'battery_life',
     }])
@@ -65,45 +65,37 @@ describe('buildEngageDetail', () => {
     expect(detail).toEqual<EngageInsightDetail>({
       insightId: 'i1', theme: 'battery_life', category: 'question', description: 'Comments asking how long the battery lasts.',
       quotes: [
-        { platform: 'tiktok', quote: { ref: 'e:e1', text: 'how long does the battery actually last' } },
-        { platform: 'tiktok', quote: { ref: 'e:e2', text: 'how long does the battery actually last' } },
+        { platform: 'tiktok', ref: 'e:e1', text: 'how long does the battery actually last' },
+        { platform: 'tiktok', ref: 'e:e2', text: 'how long does the battery actually last' },
       ],
     })
   })
 })
 
 describe('Content quotes freeze', () => {
-  it('strips the inbox and evidence-detail quotes to refs and restores them', () => {
-    const inbox: ContentInboxRow[] = [{
-      id: 'c1', intent: 'buying', age: '2d', context: 'under a category video',
-      quote: { ref: 'c:c1', text: 'just ordered mine' },
-      platform: 'youtube', href: 'https://y.example/1', commentLevel: true,
-      insightId: 'i1', category: 'purchase_intent', theme: 'purchase_intent',
-    }]
-    const engageDetail: EngageInsightDetail = {
-      insightId: 'i1', theme: 'battery_life', category: 'question', description: null,
-      quotes: [{ platform: 'tiktok', quote: { ref: 'e:e1', text: 'how long does the battery last' } }],
-    }
-    const data = { inbox: { rows: inbox }, engageDetail }
-    const { data: frozen, refs } = freezeQuotes(data)
-    expect(refs.sort()).toEqual(['c:c1', 'e:e1'])
-    expect(JSON.stringify(frozen)).not.toContain('ordered')
-    expect(JSON.stringify(frozen)).not.toContain('battery last')
-    const texts = new Map([['c:c1', 'just ordered mine'], ['e:e1', 'how long does the battery last']])
-    const thawed = resolveQuotes(frozen, texts)
-    expect(thawed.inbox.rows[0].quote.text).toBe('just ordered mine')
-    expect(thawed.engageDetail!.quotes[0].quote.text).toBe('how long does the battery last')
+  const row = (id: string, text: string): ContentInboxRow => ({
+    id, intent: 'question', age: null, context: 'under a category video', ref: `m:${id}`, text,
+    platform: 'tiktok', href: `https://t.example/${id}`, commentLevel: false, insightId: 'i1', category: 'question', theme: 't',
   })
 
-  it('nulls an erased row’s quote rather than resolving stale text — the row itself is not a Quote, so it is not dropped', () => {
-    const inbox: ContentInboxRow[] = [
-      { id: 'c1', intent: 'question', age: null, context: 'under a category video', quote: { ref: 'c:c1', text: 'kept' }, platform: 'tiktok', href: null, commentLevel: false, insightId: 'i1', category: 'question', theme: 't' },
-      { id: 'c2', intent: 'question', age: null, context: 'under a category video', quote: { ref: 'c:c2', text: 'erased' }, platform: 'tiktok', href: null, commentLevel: false, insightId: 'i1', category: 'question', theme: 't' },
-    ]
-    const { data: frozen } = freezeQuotes({ inbox: { rows: inbox } })
-    const thawed = resolveQuotes(frozen, new Map([['c:c1', 'kept']]))
-    expect(thawed.inbox.rows.map((r) => r.id)).toEqual(['c1', 'c2'])
-    expect(thawed.inbox.rows[0].quote.text).toBe('kept')
-    expect(thawed.inbox.rows[1].quote).toBeNull()
+  it('strips the inbox and evidence-detail quotes to refs and restores them', () => {
+    const engageDetail: EngageInsightDetail = {
+      insightId: 'i1', theme: 'battery_life', category: 'question', description: null,
+      quotes: [{ platform: 'tiktok', ref: 'e:e1', text: 'how long does the battery last' }],
+    }
+    const data = { inbox: { rows: [row('c1', 'just ordered mine')] }, engageDetail }
+    const { data: frozen, refs } = freezeQuotes(data)
+    expect(refs.sort()).toEqual(['e:e1', 'm:c1'])
+    expect(JSON.stringify(frozen)).not.toContain('ordered')
+    expect(JSON.stringify(frozen)).not.toContain('battery last')
+    const thawed = resolveQuotes(frozen, new Map([['m:c1', 'just ordered mine'], ['e:e1', 'how long does the battery last']]))
+    expect(thawed).toEqual(data)
+  })
+
+  it('drops an erased comment’s whole inbox row — link, context and all', () => {
+    const { data: frozen } = freezeQuotes({ inbox: { rows: [row('c1', 'kept'), row('c2', 'erased')] } })
+    const thawed = resolveQuotes(frozen, new Map([['m:c1', 'kept']]))
+    expect(thawed.inbox.rows.map((r) => r.id)).toEqual(['c1'])
+    expect(JSON.stringify(thawed)).not.toContain('c2')
   })
 })

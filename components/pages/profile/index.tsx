@@ -229,7 +229,7 @@ function SharePill({ percent, app }: { percent: number; app: boolean }) {
       className={
         app
           ? 'profile-in-left profile-delay-3 hidden w-[92%] items-center gap-4 rounded-full border border-primary/25 bg-card px-6 py-4 lg:flex'
-          : 'hidden w-[92%] items-center gap-4 rounded-full border border-primary/25 bg-card px-6 py-4 lg:flex'
+          : 'flex w-[92%] items-center gap-4 rounded-full border border-primary/25 bg-card px-6 py-4'
       }
       title="This persona's share of the conversations the profile covers. A conversation that speaks to two of these people counts toward both."
     >

@@ -230,7 +230,7 @@ function AnswerCard({ d, turn }: { d: D; turn: number }) {
   const t = d.turns[turn]
   if (!t) return null
   return (
-    <div data-tile="" className="w-[760px] space-y-4 rounded-lg bg-tile p-6">
+    <div data-tile="" style={{ '--vb-span': 8 } as React.CSSProperties} className="space-y-4 rounded-lg bg-tile p-6">
       <Question t={t} first={turn === 0} d={d} />
       {t.answer ? <AnswerBody a={t.answer} from={0} to={t.answer.grounded.length} /> : <p className="text-[13px]">{t.prose}</p>}
       {t.answer && t.answer.judgement.length > 0 && <MoreBody a={{ ...t.answer, nearest: [] }} />}

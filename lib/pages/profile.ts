@@ -141,7 +141,9 @@ export async function loadProfile(scope: Scope): Promise<ProfileData | ProfileEm
   // In the `full` export every persona's voices are wanted; one chunked pass
   // over their combined insight ids (fetchQuotesByAudience already chunks
   // internally), never one round trip per persona.
-  const wantedPersonas = full ? personas.slice(0, EXPORT_FULL_MAX_ITEMS) : [active]
+  // The active persona first, so its voices are the ones the reader saw and
+  // slide 1 is the persona on screen even past the cap.
+  const wantedPersonas = full ? [active, ...personas.filter((p) => p.key !== active.key)].slice(0, EXPORT_FULL_MAX_ITEMS) : [active]
   const voiceIds = wantedPersonas.flatMap((p) => p.insightIds.slice(0, 60))
   const [insightRows, quotesByAudience] = await Promise.all([
     allInsightIds.length

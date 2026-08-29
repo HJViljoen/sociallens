@@ -21,9 +21,12 @@ import type { Quote } from './types'
  * `b:<run_id>:<n>` is a "said about you" claim quoted from a VIDEO
  * (run_summary.brand_voice.about[n].quote — a creator's words, not a
  * commenter's; kept as a ref all the same so no stored export carries them).
+ * `m:<comments.id>` is a comment AS POSTED (the reply inbox shows the whole
+ * comment, not the evidence excerpt); it resolves only while an evidence row
+ * still cites it, so erasure and redaction reach it the same way.
  */
 
-const REF_RE = /^([ecv]:.+|h:[a-z_]+:.+|b:[^:]+:\d+)$/
+const REF_RE = /^([ecvm]:.+|h:[a-z_]+:.+|b:[^:]+:\d+)$/
 
 export function isQuote(v: unknown): v is Quote {
   if (!v || typeof v !== 'object' || Array.isArray(v)) return false
@@ -37,18 +40,19 @@ export const quoteRef = {
   evidence: (id: string) => `e:${id}`,
   comment: (id: string) => `c:${id}`,
   video: (id: string) => `v:${id}`,
+  message: (commentId: string) => `m:${commentId}`,
   hero: (table: HeroTable, id: string) => `h:${table}:${id}`,
   brandVoice: (runId: string, index: number) => `b:${runId}:${index}`,
 }
 
 /** Split a ref into its kind, bare id and (for heroes) table. */
-export function parseRef(ref: string): { kind: 'e' | 'c' | 'v'; id: string } | { kind: 'h'; table: string; id: string } | { kind: 'b'; runId: string; index: number } | null {
+export function parseRef(ref: string): { kind: 'e' | 'c' | 'v' | 'm'; id: string } | { kind: 'h'; table: string; id: string } | { kind: 'b'; runId: string; index: number } | null {
   const h = /^h:([a-z_]+):(.+)$/.exec(ref)
   if (h) return { kind: 'h', table: h[1], id: h[2] }
   const b = /^b:([^:]+):(\d+)$/.exec(ref)
   if (b) return { kind: 'b', runId: b[1], index: Number(b[2]) }
-  const m = /^([ecv]):(.+)$/.exec(ref)
-  return m ? { kind: m[1] as 'e' | 'c' | 'v', id: m[2] } : null
+  const m = /^([ecvm]):(.+)$/.exec(ref)
+  return m ? { kind: m[1] as 'e' | 'c' | 'v' | 'm', id: m[2] } : null
 }
 
 function walk(node: unknown, fn: (q: Quote) => Quote | null): unknown {

@@ -78,8 +78,8 @@ function InboxRowView({ row, mode }: { row: ContentInboxRow; mode: RenderMode })
         </span>
         <ReplyLink row={row} mode={mode} className="shrink-0 text-[11.5px]" />
       </div>
-      <p className="line-clamp-2 font-serif text-[12.5px] leading-[1.4]" title={row.quote.text}>
-        “{clampQuote(row.quote.text)}”
+      <p className="line-clamp-2 font-serif text-[12.5px] leading-[1.4]" title={row.text}>
+        “{clampQuote(row.text)}”
       </p>
     </div>
   )
@@ -165,7 +165,7 @@ export function repliesBody(d: ContentData, mode: RenderMode): ReactNode {
                   <PlatformIcon platform={row.platform} className="text-secondary-foreground" />{platformLabel(row.platform)} · {row.age ?? '—'}
                 </span>
               </div>
-              <p className="mt-1.5 border-l-2 border-border/80 pl-2 text-[12.5px] italic leading-[1.45]">“{row.quote.text}”</p>
+              <p className="mt-1.5 border-l-2 border-border/80 pl-2 text-[12.5px] italic leading-[1.45]">“{row.text}”</p>
               <div className="mt-1.5 flex items-center gap-3 text-[11.5px]">
                 {app ? (
                   <Link href={`${basePath}?detail=engage-${row.insightId}${filter ? `&intent=${filter}` : ''}`} scroll={false} className="text-muted-foreground underline-offset-2 hover:underline">
@@ -189,7 +189,7 @@ export function repliesBody(d: ContentData, mode: RenderMode): ReactNode {
           <div className="mt-2 space-y-2">
             {flagged.map((row) => (
               <p key={row.id} className="border-l-2 border-border/80 pl-2 text-[12.5px] italic leading-[1.45]">
-                “{row.quote.text}”
+                “{row.text}”
                 <span className="ml-2 not-italic text-[11px] text-muted-foreground">{platformLabel(row.platform)} · {row.age ?? '—'}</span>
               </p>
             ))}
@@ -216,7 +216,7 @@ export function EngageDetailBody({ detail }: { detail: EngageInsightDetail }) {
         <p className="text-[10.5px] font-semibold uppercase tracking-[0.07em] text-muted-foreground">In their words</p>
         {detail.quotes.map((q, i) => (
           <p key={i} className="border-l-2 border-border/80 pl-2 text-[12.5px] italic leading-[1.45]">
-            “{q.quote.text}”
+            “{q.text}”
             <span className="ml-2 not-italic text-[11px] text-muted-foreground">{platformLabel(q.platform)}</span>
           </p>
         ))}

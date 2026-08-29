@@ -76,13 +76,16 @@ export interface ContentSelection {
 
 // ── the reply inbox ─────────────────────────────────────────────────────────
 
-export interface ContentInboxRow {
+export interface ContentInboxRow extends Quote {
   id: string
   intent: Intent
   age: string | null
   /** "under your post · 41 likes" / "under @handle’s post" / "under a category video". */
   context: string
-  quote: Quote
+  /** The row IS the quote (ref `m:<comments.id>`, the comment as posted): the
+   *  freeze/resolve walk drops an erased comment's whole row, link and all. */
+  ref: string
+  text: string
   platform: string
   /** Where "reply" lands — a URL, never a stored quote (fine to keep as-is). */
   href: string | null
@@ -98,7 +101,8 @@ export interface EngageInsightDetail {
   theme: string
   category: string
   description: string | null
-  quotes: { platform: string; quote: Quote }[]
+  /** Each entry is a Quote (ref `e:<evidence id>`) plus its platform. */
+  quotes: (Quote & { platform: string })[]
 }
 
 /** insight_evidence.id → EngageCandidate.evidenceId (lib/engage.ts), so an
@@ -112,7 +116,8 @@ export function toContentInboxRows(rows: InboxRow<EngageCandidate & InboxSource>
       intent: row.intent,
       age: row.age,
       context: row.context,
-      quote: { ref: quoteRef.comment(c.id), text: cleanQuote(c.comment.text) },
+      ref: quoteRef.message(c.id),
+      text: cleanQuote(c.comment.text),
       platform: c.comment.platform,
       href: link.href,
       commentLevel: link.commentLevel,
@@ -137,7 +142,7 @@ export function buildEngageDetail(candidates: EngageCandidate[], detail: string 
     theme: first.theme,
     category: first.category,
     description: first.description ?? null,
-    quotes: matches.map((c) => ({ platform: c.comment.platform, quote: { ref: quoteRef.evidence(c.evidenceId), text: cleanQuote(c.comment.text) } })),
+    quotes: matches.map((c) => ({ platform: c.comment.platform, ref: quoteRef.evidence(c.evidenceId), text: cleanQuote(c.comment.text) })),
   }
 }
 
