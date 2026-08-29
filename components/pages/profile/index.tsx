@@ -103,7 +103,10 @@ function PersonaBody({
     <div
       key={app ? p.key : undefined}
       data-connector-root
-      className="relative mx-auto grid w-full max-w-[84rem] gap-6 lg:min-h-[calc(100dvh-10rem)] lg:grid-cols-[1fr_1.15fr_1fr] lg:gap-7"
+      // On paper the composition gets a definite height (the slide body's),
+      // which is what lets the figure's h-full mean something; on screen it
+      // takes the pane.
+      className={`relative mx-auto grid w-full max-w-[84rem] gap-6 lg:grid-cols-[1fr_1.15fr_1fr] lg:gap-7 ${app ? 'lg:min-h-[calc(100dvh-10rem)]' : 'h-[540px] overflow-hidden'}`}
     >
       {/* ProfileConnectors measures the DOM client-side (ResizeObserver +
           getPointAtLength) — app only; print has no equivalent measurement pass. */}

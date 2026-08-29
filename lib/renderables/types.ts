@@ -17,7 +17,7 @@ import type { ReactNode } from 'react'
 
 export type RenderMode = 'app' | 'print'
 
-export type PageKey = 'dashboard' | 'market' | 'voice' | 'competitive' | 'content' | 'profile'
+export type PageKey = 'dashboard' | 'market' | 'voice' | 'competitive' | 'content' | 'profile' | 'agent'
 
 /** Print variants: the default export is the overview plus the selected item;
  *  `full` appends one slide per item (capped, see EXPORT_FULL_MAX_ITEMS). */
@@ -81,4 +81,6 @@ export interface PageModule<D> {
   renderables: Record<string, Renderable<D>>
   /** A human title for the snapshot, from the data (e.g. "Dashboard · Sealand · 23 Aug"). */
   snapshotTitle(data: D): string
+  /** The short line in every slide's header; defaults to the snapshot title. */
+  printContext?(data: D): string
 }

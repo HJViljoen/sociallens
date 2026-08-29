@@ -29,7 +29,7 @@ export const runtime = 'nodejs'
 // is the platform's, generous so a slow render fails as a render.
 export const maxDuration = 300
 
-const PAGE_KEYS = new Set<PageKey>(['dashboard', 'market', 'voice', 'competitive', 'content', 'profile'])
+const PAGE_KEYS = new Set<PageKey>(['dashboard', 'market', 'voice', 'competitive', 'content', 'profile', 'agent'])
 
 interface Body {
   kind?: unknown
@@ -94,8 +94,10 @@ export async function POST(request: Request) {
     if (!data) return NextResponse.json({ error: 'Nothing to export yet — your first update has not landed.' }, { status: 409 })
     const d = data as { runId?: string | null }
     const title = tileKey ? `${mod.renderables[tileKey].title} · ${mod.snapshotTitle(data)}` : mod.snapshotTitle(data)
+    // An agent thread is its own kind of snapshot (the Reports list says so).
+    const snapKind: SnapshotKind = page === 'agent' && kind === 'page' ? 'agent_thread' : kind
     const snap = await createSnapshot(admin, {
-      clientId, userId, kind: kind as SnapshotKind,
+      clientId, userId, kind: snapKind,
       ref: { page, ...(tileKey ? { tileKey } : {}), params, variant },
       title,
       runId: typeof d.runId === 'string' ? d.runId : null,
@@ -104,7 +106,7 @@ export async function POST(request: Request) {
     const baseUrl = renderBaseUrl(await getBaseUrl())
     const { buffer, ms } = await renderArtifact({ baseUrl, snapshotId: snap.id, format, tileKey, style })
     const artifact = await storeArtifact(admin, { clientId, snapshotId: snap.id, format, tileKey, buffer, renderMs: ms })
-    await logExport(admin, { clientId, userId, snapshotId: snap.id, artifactId: artifact.id, action: 'export', kind, format, page, tileKey })
+    await logExport(admin, { clientId, userId, snapshotId: snap.id, artifactId: artifact.id, action: 'export', kind: snapKind, format, page, tileKey })
     const url = await signedArtifactUrl(admin, artifact, artifactFilename(title, artifact))
     return NextResponse.json({ artifactId: artifact.id, snapshotId: snap.id, url, ms, bytes: artifact.bytes })
   } catch (e) {

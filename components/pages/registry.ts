@@ -5,6 +5,7 @@ import { profilePage } from './profile'
 import { competitivePage } from './competitive'
 import { marketPage } from './market'
 import { contentPage } from './content'
+import { agentPage } from './agent'
 
 // The catalogue of renderables (plan D1): every page module, keyed. A tile is
 // addressed as `<page>.<tile>` — the export route, the render page and, later,
@@ -22,6 +23,7 @@ export const PAGES: Partial<Record<PageKey, PageModule<any>>> = {
   competitive: competitivePage,
   market: marketPage,
   content: contentPage,
+  agent: agentPage,
 }
 
 export function pageModule(key: string): PageModule<unknown> | null {

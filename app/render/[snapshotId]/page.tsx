@@ -34,7 +34,7 @@ export default async function RenderPage({
   if (!row) notFound()
   const style = printStyleFrom(sp.style)
 
-  if (row.kind === 'page' || row.kind === 'tile') {
+  if (row.kind === 'page' || row.kind === 'tile' || row.kind === 'agent_thread') {
     const mod = row.ref.page ? pageModule(row.ref.page) : null
     if (!mod) notFound()
     const data = await hydrateSnapshot<{ method?: MethodNoteData }>(admin, row)
@@ -50,7 +50,7 @@ export default async function RenderPage({
     }
     const slides = mod.slides(data, row.ref.variant ?? 'default')
     const chrome = {
-      context: row.title,
+      context: mod.printContext ? mod.printContext(data) : row.title,
       footer: data.method ? <MethodNote data={data.method} /> : <span />,
     }
     return (
@@ -64,6 +64,5 @@ export default async function RenderPage({
     )
   }
 
-  // agent_thread: T11.
   notFound()
 }
