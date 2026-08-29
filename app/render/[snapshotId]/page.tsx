@@ -1,13 +1,23 @@
 import { notFound } from 'next/navigation'
+import { Fragment } from 'react'
 import { renderTokenSecret, verifyRenderToken } from '@/lib/render-token'
+import { createAdminClient } from '@/lib/supabase-admin'
+import { hydrateSnapshot, loadSnapshot } from '@/lib/snapshots'
+import { pageModule } from '@/components/pages/registry'
 import { PrintRoot, printStyleFrom } from '@/components/print/print-root'
+import { Slide } from '@/components/print/slide'
+import { PrintTile } from '@/components/print/print-tile'
+import { MethodNote, type MethodNoteData } from '@/components/print/method-note'
 
 // Print-mode HTML for one snapshot, fetched by the export route's headless
-// Chrome. proxy.ts lets /render through without a session; the token is the
-// gate (lib/render-token.ts) and it names exactly one snapshot.
+// Chrome. proxy.ts lets /render through without a session; the signed token
+// is the gate (lib/render-token.ts) and it names exactly one snapshot.
 //
-// Stage 1 T2: the frame and the gate. The body — snapshot → resolveQuotes →
-// PrintDeck / PrintTile / AgentThreadPrint — lands in T9.
+// snapshot → resolveQuotes (the words come back live) → the page module's
+// slides, each renderable in print mode. One section per slide; the method
+// note on every slide. A tile export renders that one tile on its own.
+
+export const dynamic = 'force-dynamic'
 
 export default async function RenderPage({
   params, searchParams,
@@ -19,9 +29,41 @@ export default async function RenderPage({
   const token = verifyRenderToken(sp.t, renderTokenSecret())
   if (!token || token.snapshotId !== snapshotId) notFound()
 
-  return (
-    <PrintRoot style={printStyleFrom(sp.style)}>
-      <div className="p-6 font-mono text-[11px] text-muted-foreground">render: snapshot {snapshotId}{token.tileKey ? ` · tile ${token.tileKey}` : ''}</div>
-    </PrintRoot>
-  )
+  const admin = createAdminClient()
+  const row = await loadSnapshot(admin, snapshotId)
+  if (!row) notFound()
+  const style = printStyleFrom(sp.style)
+
+  if (row.kind === 'page' || row.kind === 'tile') {
+    const mod = row.ref.page ? pageModule(row.ref.page) : null
+    if (!mod) notFound()
+    const data = await hydrateSnapshot<{ method?: MethodNoteData }>(admin, row)
+    const tileKey = token.tileKey ?? sp.tile ?? row.ref.tileKey
+    if (row.kind === 'tile' || tileKey) {
+      const r = tileKey ? mod.renderables[tileKey] : null
+      if (!r) notFound()
+      return (
+        <PrintRoot style={style}>
+          <PrintTile>{r.render(data, 'print')}</PrintTile>
+        </PrintRoot>
+      )
+    }
+    const slides = mod.slides(data, row.ref.variant ?? 'default')
+    const chrome = {
+      context: row.title,
+      footer: data.method ? <MethodNote data={data.method} /> : <span />,
+    }
+    return (
+      <PrintRoot style={style}>
+        {slides.map((s, i) => (
+          <Slide key={i} title={s.title} chrome={chrome} page={i + 1} pages={slides.length} layout={s.layout === 'grid' ? 'grid' : 'single'}>
+            {s.keys.map((k) => <Fragment key={k}>{mod.renderables[k]?.render(data, 'print') ?? null}</Fragment>)}
+          </Slide>
+        ))}
+      </PrintRoot>
+    )
+  }
+
+  // agent_thread: T11.
+  notFound()
 }

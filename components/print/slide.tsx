@@ -30,11 +30,13 @@ export function Slide({
         <h1 className="truncate text-[15px] font-semibold tracking-[-0.01em] text-foreground">{title}</h1>
         <span className="shrink-0 font-mono text-[10.5px] text-muted-foreground">{chrome.context}</span>
       </header>
-      {layout === 'grid' ? (
-        <div className="vb-print-grid flex-1">{children}</div>
-      ) : (
-        <div className="flex min-h-0 flex-1 flex-col">{children}</div>
-      )}
+      <div className="vb-slide-body">
+        {layout === 'grid' ? (
+          <div className="vb-print-grid">{children}</div>
+        ) : (
+          <div className="flex h-full min-h-0 flex-col">{children}</div>
+        )}
+      </div>
       <footer className="flex shrink-0 items-baseline justify-between gap-4 border-t border-border/70 pt-1.5">
         <div className="min-w-0 flex-1">{chrome.footer}</div>
         <span className="shrink-0 font-mono text-[9.5px] text-muted-foreground">{page} / {pages}</span>

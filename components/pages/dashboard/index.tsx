@@ -355,18 +355,43 @@ function FunnelBody({ d }: { d: D }) {
   )
 }
 
-/** The brief as one slide: the prose on the left, how the update was built on the right. */
-const brief: R = (d, mode) => (
-  <div className="grid h-full min-h-0 grid-cols-[3fr_2fr] gap-6">
-    <div className="min-h-0 overflow-hidden"><BriefBody d={d} mode={mode} /></div>
-    {d.funnel.length > 0 && (
-      <div className="min-h-0 overflow-hidden">
-        <p className="mb-3 text-[10.5px] font-semibold uppercase tracking-[0.06em] text-secondary-foreground">How this update was built</p>
-        <FunnelBody d={d} />
+/** The brief as one slide: the prose and the voices on the left; the one
+ *  thing to do and how the update was built on the right. */
+const brief: R = (d) => {
+  const h = d.hero
+  return (
+    <div className="grid h-full min-h-0 grid-cols-[3fr_2fr] gap-8">
+      <div className="min-h-0 space-y-4 overflow-hidden">
+        <p className="font-serif text-[20px] font-medium leading-snug [text-wrap:pretty]">{h.headline}</p>
+        {h.beats.map((b) => (
+          <p key={b.metric} className="text-[14px] leading-[1.5]">{b.before}<strong className="font-semibold">{b.figure}</strong>{b.after}</p>
+        ))}
+        {h.fallback && <p className="text-[11px] text-muted-foreground">Composed from this update’s counted figures.</p>}
+        {h.quotes.length > 0 && (
+          <div>
+            <p className="mb-2 text-[10.5px] font-semibold uppercase tracking-[0.06em] text-muted-foreground">In their words</p>
+            <Quotes items={h.quotes.map((q) => q.text)} />
+          </div>
+        )}
       </div>
-    )}
-  </div>
-)
+      <div className="min-h-0 space-y-5 overflow-hidden">
+        {h.oneThing && (
+          <div className="rounded-[4px] bg-inner p-3">
+            <p className="text-[10.5px] font-semibold uppercase tracking-[0.06em] text-muted-foreground">{priorityLabel(h.oneThing.priority)}</p>
+            <p className="mt-1 text-[13.5px] font-semibold">{h.oneThing.title}</p>
+            <p className="mt-1 text-[12.5px] text-secondary-foreground">{h.oneThing.reasoning}</p>
+          </div>
+        )}
+        {d.funnel.length > 0 && (
+          <div>
+            <p className="mb-3 text-[10.5px] font-semibold uppercase tracking-[0.06em] text-secondary-foreground">How this update was built</p>
+            <FunnelBody d={d} />
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
 
 const renderables: Record<string, Renderable<D>> = {
   'dashboard.strip': { key: 'dashboard.strip', title: 'Counted receipts', render: strip },
