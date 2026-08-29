@@ -13,7 +13,7 @@ export interface UnlockState { ok: boolean; message: string }
  *  password) and the page re-renders open. */
 export async function unlockShare(_prev: UnlockState, formData: FormData): Promise<UnlockState> {
   const token = String(formData.get('token') ?? '')
-  const password = String(formData.get('password') ?? '')
+  const password = String(formData.get('password') ?? '').trim()
   const admin = createAdminClient()
   const found = await loadShareLink(admin, token)
   if (found.status !== 'ok') return { ok: false, message: 'This link is no longer available.' }

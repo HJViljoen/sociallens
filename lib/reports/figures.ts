@@ -62,9 +62,10 @@ export function figuresFor(page: PageKey, data: unknown): FigureTable {
     case 'voice': {
       const map = d.map as { shownCount: number; tiersAll: { confirmed: number }; blocks: { label: string; count: number }[] } | undefined
       put('themes_confirmed', 'confirmed themes', map?.tiersAll?.confirmed)
-      if (map?.blocks?.[0]) {
-        put('top_theme', 'the theme heard most', map.blocks[0].label)
-        put('top_theme_conversations', 'conversations carrying that theme', map.blocks[0].count)
+      const top = map?.blocks?.length ? [...map.blocks].sort((a, b) => b.count - a.count)[0] : null
+      if (top) {
+        put('top_theme', 'the theme heard most', top.label)
+        put('top_theme_conversations', 'conversations carrying that theme', top.count)
       }
       const moods = d.moods as { emotion: string; pct: number }[] | undefined
       if (moods?.[0]) {

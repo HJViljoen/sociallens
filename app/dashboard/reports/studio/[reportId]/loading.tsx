@@ -5,7 +5,7 @@ import { Bone, BoneLines } from '@/components/shell/skeleton'
 export default function Loading() {
   return (
     <PageFrame className="min-h-0 flex-1">
-      <PageBar title={<Bone className="h-4 w-48" /> as unknown as string} context={<Bone className="h-3 w-40" />} />
+      <PageBar title={<Bone className="h-4 w-48" />} context={<Bone className="h-3 w-40" />} />
       <div className="flex min-h-0 flex-1 gap-3 md:h-[calc(100dvh_-_6.75rem)]">
         <section className="hidden min-h-0 flex-col overflow-hidden rounded-lg bg-tile shadow-tile md:flex md:w-[380px] md:shrink-0">
           <div className="border-b border-border/70 px-4 pt-3.5 pb-3"><Bone className="h-2.5 w-20" /></div>

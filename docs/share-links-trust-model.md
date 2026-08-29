@@ -6,7 +6,10 @@ For the LIA and for whoever changes `/r/<token>` next.
 page, no account, rendered from ONE `report_snapshots` row of kind `report`
 (a build of a Studio report). The page's only reads: the `share_links` row by
 token, the snapshot row, and the quote texts the snapshot's refs resolve to
-(`insight_evidence` and the hero-quote columns, by id). No tenant table is
+(`insight_evidence`, `comments` for a comment as posted, `language_samples`
+for a customer phrase, `run_summary.brand_voice` for a creator's words about
+the brand, and the hero-quote columns — every one by an id the snapshot
+holds). No tenant table is
 read live; a viewer cannot reach a page, a tile, a loader or a model.
 
 **Who can open it.** Anyone holding the link (Heinrich's default, re-confirmed

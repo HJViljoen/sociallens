@@ -1,10 +1,10 @@
 import { cookies, headers } from 'next/headers'
 import { createAdminClient } from '@/lib/supabase-admin'
-import { hydrateSnapshot } from '@/lib/snapshots'
 import { renderTokenSecret } from '@/lib/render-token'
 import { hashViewerIp, loadShareLink, shareCookieName, shareCookieValid } from '@/lib/reports/share'
 import { ShareShell } from '@/components/share/share-shell'
 import { PasswordForm } from '@/components/share/password-form'
+import { hydratedShare, recordShareView } from '@/lib/reports/share-view'
 import type { ReportSnapshotData } from '@/lib/reports/types'
 
 // /r/<token> — a shared report (Stage 2, D5/D6). Public prefix in proxy.ts;
@@ -49,13 +49,14 @@ export default async function SharePage({ params }: { params: Promise<{ token: s
   const h = await headers()
   const ip = (h.get('x-forwarded-for') ?? '').split(',')[0].trim() || h.get('x-real-ip')
   const ua = (h.get('user-agent') ?? '').slice(0, 160)
-  // Best effort, never in the reader's way.
-  await Promise.all([
-    admin.from('share_views').insert({ share_link_id: link.id, ip_hash: hashViewerIp(ip, renderTokenSecret()), user_agent: ua || null }),
-    admin.from('share_links').update({ view_count: link.view_count + 1, last_viewed_at: new Date().toISOString() }).eq('id', link.id),
-  ]).catch((e) => console.warn('[share] view log failed:', e))
+  // Best effort, never in the reader's way; one row per viewer per ten
+  // minutes, the count bumped atomically in the database.
+  await recordShareView(admin, link, { ipHash: hashViewerIp(ip, renderTokenSecret()), userAgent: ua || null })
 
-  const data = await hydrateSnapshot<ReportSnapshotData>(admin, snapshot)
+  // Hydration (the quote texts behind hundreds of refs) is cached a minute
+  // per snapshot: a reload, or a crawler ignoring noindex, is not a DB
+  // multiplier. A withdrawn voice is gone within that minute.
+  const data = await hydratedShare<ReportSnapshotData>(admin, snapshot)
   return (
     <main>
       <ShareShell data={data} appUrl={APP_URL} />

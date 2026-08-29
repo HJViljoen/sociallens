@@ -25,7 +25,7 @@ export async function proxy(request: NextRequest) {
       return NextResponse.redirect(url, 308)
     }
     // Old apex links to app paths (the apex used to 307 to the app) keep working.
-    const appPaths = ['/login', '/signup', '/invite', '/dashboard', '/onboarding', '/reset', '/auth', '/r']
+    const appPaths = ['/login', '/signup', '/invite', '/dashboard', '/onboarding', '/reset', '/auth', '/r/']
     if (appPaths.some((p) => url.pathname.startsWith(p))) {
       url.host = 'app.verbatimintel.com'
       return NextResponse.redirect(url, 308)

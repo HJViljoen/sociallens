@@ -89,6 +89,7 @@ const href = (month?: string | null, item?: string | null, group?: Group | null)
 const exportKindLabel = (e: ExportRow) => {
   const k = e.report_snapshots?.kind
   if (k === 'agent_thread') return 'Agent thread'
+  if (k === 'report') return 'Report'
   if (k === 'tile' || e.tile_key) return 'Tile'
   return e.report_snapshots?.ref?.variant === 'full' ? 'Page, everything' : 'Page'
 }
@@ -270,7 +271,7 @@ export default async function ReportsPage({ searchParams }: { searchParams?: Pro
             <ul className="flex flex-col gap-3">
               {builds.map((b) => (
                 <li key={b.id} className="rounded-[4px] bg-inner px-4 py-3">
-                  <p className="font-mono text-[10.5px] text-muted-foreground">built {fmtWhen(b.created_at)}{b.cover?.model ? '' : ' · cover written in code'}</p>
+                  <p className="font-mono text-[10.5px] text-muted-foreground">built {fmtWhen(b.created_at)}{b.cover?.model ? '' : ' · cover written in code'}{b === builds[0] && selectedStudio.status === 'draft' ? ' · edited since — build again for a current PDF' : ''}</p>
                   {b.cover && b.figures && <p className="mt-1.5 text-[12.5px] leading-relaxed text-secondary-foreground">{coverPlainText(b.cover.body, b.figures)}</p>}
                   <div className="mt-2 flex flex-wrap gap-3">
                     {b.artifacts.map((a) => (

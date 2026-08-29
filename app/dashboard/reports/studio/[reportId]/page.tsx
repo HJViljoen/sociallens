@@ -62,6 +62,7 @@ export default async function StudioPage({ params }: { params: Promise<{ reportI
           <PaneHeader title="Outline" meta={report.status === 'built' ? 'built' : 'draft'} />
           <PaneBody className="px-3 py-3">
             <Outline
+              key={report.updated_at}
               reportId={report.id}
               title={report.title}
               audience={report.audience}

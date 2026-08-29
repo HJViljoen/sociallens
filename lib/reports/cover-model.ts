@@ -6,7 +6,7 @@ import { COVER_MODEL } from '../config'
 import { logAiCall } from '../pipeline/ai-log'
 import { FIGURE_RE, MAGNITUDE_RE, tidy } from '../pipeline/narrative'
 import { CALIBRATED_PROSE_RULE } from '../pipeline/prose-rules'
-import { composeFallbackCover, dedupeTitles, readerOf, scrubCover, splitSentences } from './cover'
+import { composeFallbackCover, dedupeTitles, scrubCover, splitSentences } from './cover'
 import type { Audience, CoverText, FigureTable } from './types'
 
 /**

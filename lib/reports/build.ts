@@ -4,6 +4,8 @@ import { createSnapshot } from '../snapshots'
 import { artifactFilename, logExport, signedArtifactUrl, storeArtifact } from '../artifacts'
 import { renderArtifact } from '../render/render'
 import { figuresFor, mergeFigures } from './figures'
+import { deckSlides } from './compose'
+import { REPORT_MAX_SLIDES } from '../config'
 import { generateCover } from './cover-model'
 import { methodOf, type ReportRow, type ReportSection, type ReportSnapshotData, type SectionData } from './types'
 
@@ -28,22 +30,28 @@ export async function loadReportSections(supabase: unknown, clientId: string, re
   // show the same page with the same selection share a load.
   const byKey = new Map<string, Promise<unknown>>()
   const loadFor = (s: ReportSection) => {
-    const key = `${s.page}|${s.variant ?? 'default'}|${JSON.stringify(Object.entries(s.params).sort())}`
+    // Voice draws its ribbon from a random seed when none is given; a report
+    // pins one per section so the preview, the build and a rebuild agree.
+    const params = s.page === 'voice' && !s.params.seed ? { ...s.params, seed: String(seedFrom(s.id)) } : s.params
+    const key = `${s.page}|${s.variant ?? 'default'}|${JSON.stringify(Object.entries(params).sort())}`
     let p = byKey.get(key)
     if (!p) {
       const mod = pageModule(s.page)
-      p = mod ? mod.load({ supabase, clientId, params: s.params, variant: s.variant ?? 'default' }) : Promise.resolve(null)
+      p = mod ? mod.load({ supabase, clientId, params, variant: s.variant ?? 'default' }) : Promise.resolve(null)
       byKey.set(key, p)
     }
     return p
   }
-  const loaded = await Promise.all(report.sections.map((s) => loadFor(s).catch((e) => ({ __error: String(e?.message ?? e) }))))
+  const loaded = await Promise.all(report.sections.map((s) => loadFor(s).catch((e) => {
+    console.error(`[reports] loader failed for ${s.page}:`, e)
+    return { __error: true }
+  })))
   const out: LoadedSections = { sections: [], skipped: [] }
   report.sections.forEach((section, i) => {
     const mod = pageModule(section.page)
     const data = loaded[i] as unknown
     if (!mod) { out.skipped.push({ section, reason: 'That page cannot be included.' }); return }
-    if (data && typeof data === 'object' && '__error' in (data as object)) { out.skipped.push({ section, reason: `Could not load this page: ${(data as { __error: string }).__error}` }); return }
+    if (data && typeof data === 'object' && '__error' in (data as object)) { out.skipped.push({ section, reason: 'This page could not be loaded just now — try the build again.' }); return }
     if (!data) { out.skipped.push({ section, reason: 'Nothing to show yet — this page has no update behind it.' }); return }
     // A key the catalogue does not know is dropped, not fatal (a renamed tile
     // degrades a template rather than breaking it).
@@ -80,6 +88,8 @@ export async function snapshotReport(args: {
   const { sections, skipped } = await loadReportSections(args.supabase, args.clientId, args.report)
   if (!sections.length) throw new BuildEmptyError(skipped[0]?.reason ?? 'Nothing to build yet — your first update has not landed.')
 
+  const slideCount = deckSlides({ sections }, (p) => pageModule(p)).length
+  if (slideCount > REPORT_MAX_SLIDES) throw new BuildEmptyError(`That is ${slideCount} slides; a report holds at most ${REPORT_MAX_SLIDES}. Take "every item" off a section or drop one.`)
   const figures = mergeFigures(sections.map((s) => figuresFor(s.section.page, s.data)))
   const first = methodOf(sections[0].data)
   const company = first?.company || args.company
@@ -137,6 +147,13 @@ function briefOf(sections: SectionData[]): { headline: string; beats: string[] }
 }
 
 export class BuildEmptyError extends Error {}
+
+/** A stable small integer from a section id. */
+export function seedFrom(id: string): number {
+  let h = 0
+  for (const ch of id) h = (h * 31 + ch.charCodeAt(0)) >>> 0
+  return (h % 9) + 1
+}
 
 export async function buildReport(args: {
   admin: SupabaseClient

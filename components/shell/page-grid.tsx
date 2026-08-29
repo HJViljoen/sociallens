@@ -30,7 +30,7 @@ export function PageGrid({ children, className }: { children: ReactNode; classNa
  *  component-map §1: orientation and actions in one place. */
 export function PageBar({
   title, context, subtitle, children,
-}: { title: string; context?: ReactNode; subtitle?: ReactNode; children?: ReactNode }) {
+}: { title: ReactNode; context?: ReactNode; subtitle?: ReactNode; children?: ReactNode }) {
   return (
     <div className="flex shrink-0 flex-col gap-0.5">
       <div className="flex h-8 items-center gap-3">

@@ -73,6 +73,9 @@ export async function updateReport(args: { id: string; patch: z.infer<typeof rep
   if (p.title !== undefined) row.title = p.title
   if (p.audience !== undefined) row.audience = p.audience
   if (p.sections !== undefined) row.sections = tidySections(p.sections)
+  // An edit after a build makes the report a draft again: the latest build no
+  // longer shows what the outline says.
+  if (p.sections !== undefined || p.audience !== undefined || p.coverTitle !== undefined || p.title !== undefined) row.status = 'draft'
   const { error } = await admin.from('reports').update(row).eq('id', parsed.data.id).eq('client_id', clientId)
   if (error) return { ok: false, message: 'Could not save that — try again.' }
   revalidatePath(`${BASE}/studio/${parsed.data.id}`)

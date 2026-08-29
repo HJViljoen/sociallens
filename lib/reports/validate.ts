@@ -11,7 +11,7 @@ export const sectionSchema = z.object({
   id: z.string().min(1).max(40),
   page: z.enum(SECTION_PAGES as [string, ...string[]]),
   params: z.record(z.string().max(40), z.string().max(EXPORT_PARAMS_MAX_CHARS)).refine((p) => Object.keys(p).length <= EXPORT_PARAMS_MAX_KEYS, 'too many params'),
-  keys: z.array(z.string().max(60).refine(isStaticKey, 'not a static tile key')).max(40).optional(),
+  keys: z.array(z.string().max(60).refine(isStaticKey, 'not a static tile key')).min(1, 'a section keeps at least one tile').max(40).optional(),
   variant: z.enum(['default', 'full']).optional(),
   framing: z.string().max(REPORT_FRAMING_MAX).optional(),
 })

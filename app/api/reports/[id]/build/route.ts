@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server'
+import { z } from 'zod'
 import { getRouteSession } from '@/lib/auth'
 import { createAdminClient } from '@/lib/supabase-admin'
 import { getBaseUrl } from '@/lib/site'
@@ -20,6 +21,7 @@ export async function POST(_req: Request, ctx: { params: Promise<{ id: string }>
   if (!session) return NextResponse.json({ error: 'Not signed in.' }, { status: 401 })
   const { supabase, clientId, userId } = session
   const { id } = await ctx.params
+  if (!z.uuid().safeParse(id).success) return NextResponse.json({ error: 'No such report.' }, { status: 404 })
 
   const [{ data: report, error: reportErr }, { data: client }] = await Promise.all([
     supabase.from('reports').select('*').eq('id', id).eq('client_id', clientId).maybeSingle(),

@@ -27,6 +27,7 @@ export function sectionSlides(mod: Pick<PageModule<unknown>, 'slides'>, section:
 
 /** The key each page gives its "selected item" slide — redundant under `full`. */
 const SELECTED_ITEM_KEYS: Partial<Record<string, string>> = {
+  voice: 'voice.theme',
   competitive: 'competitive.finding',
   market: 'market.detail',
   profile: 'profile.persona',

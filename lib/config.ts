@@ -817,6 +817,9 @@ export const COVER_MODEL = 'gpt-5.4-mini'
  *  note in the Studio (renders take longer, readers read less). */
 export const REPORT_MAX_SECTIONS = 12
 export const REPORT_SLIDES_WARN = 40
+/** A build past this many slides is refused with a sentence — Chrome's
+ *  maxDuration would refuse it less politely. */
+export const REPORT_MAX_SLIDES = 120
 /** A share link's default life, in days; the UI offers 7 / 30 / 90 / none. */
 export const SHARE_DEFAULT_EXPIRY_DAYS = 30
 export const SHARE_EXPIRY_CHOICES = [7, 30, 90, null] as const

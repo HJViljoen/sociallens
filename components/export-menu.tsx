@@ -77,7 +77,7 @@ function useExport(scope: ExportScopeValue | null) {
   async function pick() {
     setState({ phase: 'picking', drafts: null })
     try {
-      const r = await fetch('/api/reports?status=draft')
+      const r = await fetch('/api/reports')
       const j = (await r.json().catch(() => ({}))) as { reports?: { id: string; title: string }[] }
       setState({ phase: 'picking', drafts: r.ok ? (j.reports ?? []) : [] })
     } catch {

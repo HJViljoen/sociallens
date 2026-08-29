@@ -29,6 +29,7 @@ async function cleanup(reportId: string) {
     await admin.from('report_snapshots').delete().eq('id', s.id)
   }
   await admin.from('reports').delete().eq('id', reportId)
+  await admin.from('report_templates').delete().eq('name', 'Smoke template')
   console.log(`cleaned up ${reportId}`)
 }
 
@@ -70,6 +71,20 @@ async function main() {
     await page.waitForFunction(() => !document.body.innerText.includes('Saving…'), { timeout: 60_000 })
     await new Promise((r) => setTimeout(r, 1500))
     await shot('3-edited')
+
+    // 2b. Save the arrangement as a template; the picker lists it.
+    const [tplBtn] = await page.$$('xpath/.//button[contains(., "as a template")]')
+    if (!tplBtn) throw new Error('no "Save as template" control')
+    await tplBtn.click()
+    await page.type('input[placeholder="Template name"]', 'Smoke template')
+    const [tplSave] = await page.$$('xpath/.//button[text()="Save"]')
+    await tplSave!.click()
+    await page.waitForFunction(() => document.body.innerText.includes('Saved as a template'), { timeout: 30_000 })
+    await page.goto(`${base}/dashboard/reports/new`, { waitUntil: 'networkidle0' })
+    const listed = await page.evaluate(() => document.body.innerText.includes('Smoke template'))
+    console.log(`template listed in the picker: ${listed}`)
+    await page.goto(`${base}/dashboard/reports/studio/${reportId}`, { waitUntil: 'networkidle0' })
+    await outlineReady()
 
     // 3. Add Competitive with a selection from its Export menu.
     await page.goto(`${base}/dashboard/competitive`, { waitUntil: 'networkidle0' })
