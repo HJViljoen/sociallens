@@ -317,6 +317,9 @@
 .vb-print [data-print-cols="3"] { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 .vb-print [data-print-cols="4"] { grid-template-columns: repeat(4, minmax(0, 1fr)); }
 .vb-print [data-print-contents] { display: contents; }
+/* The Studio preview: the same deck on screen, slides stacked and lifted. */
+.vb-preview { background: transparent; }
+.vb-preview .vb-slide { background: var(--background); border-radius: 6px; box-shadow: var(--shadow-tile); margin-bottom: 20px; }
 .vb-print [data-tile] { min-height: 0; }
 .vb-print [data-tile]:hover { transform: none; }
 

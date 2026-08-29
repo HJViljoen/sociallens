@@ -4,5 +4,5 @@ import { redirect } from 'next/navigation'
 // now opens in the Reports page's detail pane.
 export default async function ReportViewPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params
-  redirect(`/dashboard/reports?item=${encodeURIComponent(id)}`)
+  redirect(`/dashboard/reports?group=weekly&item=${encodeURIComponent(id)}`)
 }

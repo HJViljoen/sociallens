@@ -1,8 +1,14 @@
 import { getSessionContext } from '@/lib/auth'
-import { PageFrame, PageBar } from '@/components/shell/page-grid'
+import { PageFrame, PageBar, BarPill } from '@/components/shell/page-grid'
 import { MasterDetail } from '@/components/shell/master-detail'
 import { PaneHeader, PaneBody, RailGroup, RailLink, ListRows, ListRow, PaneEmpty, DetailHeader, DetailSection } from '@/components/shell/master-list'
 import { ListSearch } from '@/components/shell/list-search'
+import Link from 'next/link'
+import { BuildButton } from '@/components/reports/build-button'
+import { DeleteReport } from '@/components/reports/delete-report'
+import { coverPlainText } from '@/lib/reports/cover'
+import { catalogueTitle } from '@/lib/reports/catalogue'
+import { AUDIENCES, type CoverText, type FigureTable, type ReportSection } from '@/lib/reports/types'
 
 // Reports — "what changed, week by week": the archive of every periodic
 // report, as a page inside the page (component-map §2): months in the rail,
@@ -13,8 +19,12 @@ import { ListSearch } from '@/components/shell/list-search'
 //
 // Exports (Reports & Exports Stage 1, 2026-08-29): everything anyone on the
 // workspace has exported — a page, a tile, an agent thread — listed under
-// its own rail group so it can be found again. The Studio replaces this
-// group in Stage 2.
+// its own rail group so it can be found again.
+//
+// Reports (Stage 2): what the Studio composed — drafts and built reports,
+// each with its builds (PDFs) and, later, its share links. Kept apart from
+// Exports on purpose (Heinrich, 2026-08-29): the Studio is for building a
+// report; export is for single parts of a page or an agent thread.
 
 interface WeeklyReport {
   id: string
@@ -36,6 +46,28 @@ interface ExportRow {
   report_snapshots: { title: string; kind: string; ref: { page?: string; variant?: string } } | null
 }
 
+interface StudioReport {
+  id: string
+  title: string
+  audience: string
+  status: 'draft' | 'built'
+  sections: ReportSection[]
+  latest_snapshot_id: string | null
+  updated_at: string
+}
+
+interface BuildRow {
+  id: string
+  title: string
+  created_at: string
+  cover: CoverText | null
+  figures: FigureTable | null
+  artifacts: { id: string; format: string; bytes: number; stale: boolean; rendered_at: string; version: number }[]
+}
+
+type Group = 'reports' | 'weekly' | 'exports'
+const audienceLabel = (k: string) => AUDIENCES.find((a) => a.key === k)?.label ?? k
+
 const BASE = '/dashboard/reports'
 const fmtDate = (iso: string | null) =>
   iso ? new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) : null
@@ -43,9 +75,9 @@ const fmtWhen = (iso: string) => new Date(iso).toLocaleString('en-GB', { day: 'n
 const fmtBytes = (n: number) => (n >= 1_000_000 ? `${(n / 1_000_000).toFixed(1)} MB` : `${Math.max(1, Math.round(n / 1000))} KB`)
 const monthKey = (iso: string | null) => (iso ? iso.slice(0, 7) : 'undated')
 const monthLabel = (key: string) => (key === 'undated' ? 'Undated' : new Date(`${key}-01T00:00:00Z`).toLocaleDateString('en-GB', { month: 'long', year: 'numeric', timeZone: 'UTC' }))
-const href = (month?: string | null, item?: string | null, group?: 'exports' | null) => {
+const href = (month?: string | null, item?: string | null, group?: Group | null) => {
   const q = new URLSearchParams()
-  if (group) q.set('group', group)
+  if (group && group !== 'reports') q.set('group', group)
   if (month) q.set('month', month)
   if (item) q.set('item', item)
   const qs = q.toString()
@@ -73,13 +105,31 @@ export default async function ReportsPage({ searchParams }: { searchParams?: Pro
   ])
   const reports = (data ?? []) as WeeklyReport[]
   const exports = (exportData ?? []) as unknown as ExportRow[]
-  const showExports = sp.group === 'exports'
+  const group: Group = sp.group === 'exports' ? 'exports' : sp.group === 'weekly' ? 'weekly' : 'reports'
+  const showExports = group === 'exports'
+  const showStudio = group === 'reports'
+
+  // Studio reports — the default group. Builds are read for the selected one only.
+  const { data: studioData } = await supabase.from('reports')
+    .select('id, title, audience, status, sections, latest_snapshot_id, updated_at')
+    .eq('client_id', clientId).order('updated_at', { ascending: false })
+  const studio = (studioData ?? []) as StudioReport[]
+  const studioId = showStudio ? (sp.item && studio.some((r) => r.id === sp.item) ? sp.item : studio[0]?.id ?? null) : null
+  const selectedStudio = studioId ? studio.find((r) => r.id === studioId) ?? null : null
+  let builds: BuildRow[] = []
+  if (selectedStudio) {
+    const { data: b } = await supabase.from('report_snapshots')
+      .select('id, title, created_at, cover:data->cover, figures:data->figures, artifacts(id, format, bytes, stale, rendered_at, version)')
+      .eq('client_id', clientId).eq('report_id', selectedStudio.id).order('created_at', { ascending: false }).limit(20)
+    builds = (b ?? []) as unknown as BuildRow[]
+  }
 
   const months = new Map<string, number>()
   for (const r of reports) months.set(monthKey(r.week_end), (months.get(monthKey(r.week_end)) ?? 0) + 1)
-  const month = !showExports && sp.month && months.has(sp.month) ? sp.month : null
+  const showWeekly = group === 'weekly'
+  const month = showWeekly && sp.month && months.has(sp.month) ? sp.month : null
   const shown = month ? reports.filter((r) => monthKey(r.week_end) === month) : reports
-  const itemId = !showExports && sp.item && shown.some((r) => r.id === sp.item) ? sp.item : (showExports ? null : shown[0]?.id ?? null)
+  const itemId = showWeekly && sp.item && shown.some((r) => r.id === sp.item) ? sp.item : (showWeekly ? shown[0]?.id ?? null : null)
   const selected = itemId ? shown.find((r) => r.id === itemId) ?? null : null
   const exportId = showExports ? (sp.item && exports.some((e) => e.id === sp.item) ? sp.item : exports[0]?.id ?? null) : null
   const selectedExport = exportId ? exports.find((e) => e.id === exportId) ?? null : null
@@ -93,18 +143,17 @@ export default async function ReportsPage({ searchParams }: { searchParams?: Pro
 
   const rail = (
     <>
-      <PaneHeader title="Archive" meta={reports.length > 0 ? `${reports.length} report${reports.length === 1 ? '' : 's'}` : undefined} />
+      <PaneHeader title="Archive" meta={studio.length > 0 ? `${studio.length} report${studio.length === 1 ? '' : 's'}` : undefined} />
       <PaneBody>
-        <RailGroup>
-          <RailLink href={href()} active={!month && !showExports} count={reports.length}>All reports</RailLink>
+        <RailGroup label="Reports">
+          <RailLink href={href()} active={showStudio} count={studio.length}>Built in the Studio</RailLink>
         </RailGroup>
-        {months.size > 0 && (
-          <RailGroup label="By month">
-            {[...months.entries()].map(([key, n]) => (
-              <RailLink key={key} href={href(key)} active={month === key} count={n}>{monthLabel(key)}</RailLink>
-            ))}
-          </RailGroup>
-        )}
+        <RailGroup label="Weekly updates">
+          <RailLink href={href(null, null, 'weekly')} active={showWeekly && !month} count={reports.length}>All updates</RailLink>
+          {[...months.entries()].map(([key, n]) => (
+            <RailLink key={key} href={href(key, null, 'weekly')} active={month === key} count={n}>{monthLabel(key)}</RailLink>
+          ))}
+        </RailGroup>
         <RailGroup label="Exports">
           <RailLink href={href(null, null, 'exports')} active={showExports} count={exports.length}>Everything exported</RailLink>
         </RailGroup>
@@ -113,7 +162,31 @@ export default async function ReportsPage({ searchParams }: { searchParams?: Pro
   )
 
   const LIST_ID = 'reports-list'
-  const list = showExports ? (
+  const list = showStudio ? (
+    <>
+      <PaneHeader title="Reports" meta={studio.length > 0 ? 'newest first' : undefined}>
+        {studio.length > 5 && <ListSearch scope={LIST_ID} placeholder="Search reports…" />}
+      </PaneHeader>
+      <PaneBody>
+        <div id={LIST_ID}>
+          {studio.length > 0 ? (
+            <ListRows>
+              {studio.map((r) => (
+                <ListRow key={r.id} href={href(null, r.id)} active={r.id === studioId} search={`${r.title} ${audienceLabel(r.audience)}`}>
+                  <p className="line-clamp-2 text-[13px] font-semibold leading-[1.3]">{r.title}</p>
+                  <p className="mt-0.5 font-mono text-[10.5px] text-muted-foreground">
+                    for {audienceLabel(r.audience)} · {r.sections.length} section{r.sections.length === 1 ? '' : 's'} · {r.status === 'built' ? 'built' : 'draft'} · {fmtWhen(r.updated_at)}
+                  </p>
+                </ListRow>
+              ))}
+            </ListRows>
+          ) : (
+            <PaneEmpty>No reports yet. Start one from a template — it arranges the pages you already have, with a cover written for its reader.</PaneEmpty>
+          )}
+        </div>
+      </PaneBody>
+    </>
+  ) : showExports ? (
     <>
       <PaneHeader title="Exports" meta={exports.length > 0 ? 'newest first' : undefined}>
         {exports.length > 5 && <ListSearch scope={LIST_ID} placeholder="Search exports…" />}
@@ -147,7 +220,7 @@ export default async function ReportsPage({ searchParams }: { searchParams?: Pro
           {shown.length > 0 ? (
             <ListRows>
               {shown.map((r) => (
-                <ListRow key={r.id} href={href(month, r.id)} active={r.id === itemId} search={`${r.subject ?? ''} ${fmtDate(r.week_end) ?? ''}`}>
+                <ListRow key={r.id} href={href(month, r.id, 'weekly')} active={r.id === itemId} search={`${r.subject ?? ''} ${fmtDate(r.week_end) ?? ''}`}>
                   <p className="line-clamp-2 text-[13px] font-semibold leading-[1.3]">{r.subject ?? 'Report'}</p>
                   <p className="mt-0.5 font-mono text-[10.5px] text-muted-foreground">
                     {fmtDate(r.week_start)} – {fmtDate(r.week_end)} · {r.sent_at ? `emailed ${fmtDate(r.sent_at)}` : 'viewable here'}
@@ -163,7 +236,47 @@ export default async function ReportsPage({ searchParams }: { searchParams?: Pro
     </>
   )
 
-  const detail = showExports ? (
+  const detail = showStudio ? (
+    selectedStudio ? (
+      <>
+        <DetailHeader eyebrow={`Report · for ${audienceLabel(selectedStudio.audience)}`} title={selectedStudio.title}
+          meta={`${selectedStudio.sections.length} section${selectedStudio.sections.length === 1 ? '' : 's'} · ${[...new Set(selectedStudio.sections.map((s) => catalogueTitle(s.page)))].join(' · ') || 'empty'} · ${selectedStudio.status === 'built' ? 'built' : 'draft'} · edited ${fmtWhen(selectedStudio.updated_at)}`} />
+        <DetailSection>
+          <div className="flex flex-wrap items-center gap-3">
+            <Link href={`${BASE}/studio/${selectedStudio.id}`} className="inline-flex h-[26px] items-center rounded-full bg-tile px-3 text-[12px] font-medium text-secondary-foreground ring-1 ring-border hover:bg-inner">Open in Studio</Link>
+            <BuildButton reportId={selectedStudio.id} />
+            <DeleteReport id={selectedStudio.id} />
+          </div>
+        </DetailSection>
+        <DetailSection label="Builds">
+          {builds.length > 0 ? (
+            <ul className="flex flex-col gap-3">
+              {builds.map((b) => (
+                <li key={b.id} className="rounded-[4px] bg-inner px-4 py-3">
+                  <p className="font-mono text-[10.5px] text-muted-foreground">built {fmtWhen(b.created_at)}{b.cover?.model ? '' : ' · cover written in code'}</p>
+                  {b.cover && b.figures && <p className="mt-1.5 text-[12.5px] leading-relaxed text-secondary-foreground">{coverPlainText(b.cover.body, b.figures)}</p>}
+                  <div className="mt-2 flex flex-wrap gap-3">
+                    {b.artifacts.map((a) => (
+                      <a key={a.id} href={`/api/artifacts/${a.id}`} className="text-[12px] font-medium underline underline-offset-2">
+                        Download {a.format.toUpperCase()} · {fmtBytes(a.bytes)}{a.stale ? ' · re-renders' : ''}
+                      </a>
+                    ))}
+                  </div>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="text-[12px] text-muted-foreground">Not built yet. Building freezes the figures as they are now, writes the cover for its reader and prints the PDF.</p>
+          )}
+        </DetailSection>
+        <DetailSection label="Share">
+          <p className="text-[12px] text-muted-foreground">Share links come with the next step of this build.</p>
+        </DetailSection>
+      </>
+    ) : (
+      <PaneEmpty>Select a report, or start a new one.</PaneEmpty>
+    )
+  ) : showExports ? (
     selectedExport ? (
       <>
         <DetailHeader eyebrow={exportKindLabel(selectedExport)} title={selectedExport.report_snapshots?.title ?? 'Export'}
@@ -204,7 +317,9 @@ export default async function ReportsPage({ searchParams }: { searchParams?: Pro
 
   return (
     <PageFrame className="min-h-0 flex-1">
-      <PageBar title="Reports" context="what changed, update by update" />
+      <PageBar title="Reports" context="built for the people you send them to">
+        <Link href={`${BASE}/new`}><BarPill primary>New report</BarPill></Link>
+      </PageBar>
       <MasterDetail id="reports" rail={rail} list={list} detail={detail} />
     </PageFrame>
   )
