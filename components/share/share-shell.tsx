@@ -32,7 +32,6 @@ export function ShareShell({ data, appUrl }: { data: ReportSnapshotData; appUrl:
           const mod = pageModule(sec.section.page)
           if (!mod) return null
           const slides = sectionSlides(mod, sec.section, sec.data)
-          const keys = [...new Set(slides.flatMap((s) => s.keys))]
           const method = methodOf(sec.data)
           return (
             <section key={sec.section.id} className="flex flex-col gap-3" aria-labelledby={`sec-${i}`}>
@@ -40,9 +39,22 @@ export function ShareShell({ data, appUrl }: { data: ReportSnapshotData; appUrl:
                 <h2 id={`sec-${i}`} className="text-[17px] font-semibold tracking-[-0.01em]">{i + 1}. {sec.title.split(' · ')[0]}</h2>
                 {sec.section.framing && <p className="font-serif text-[14px] italic text-secondary-foreground">{sec.section.framing}</p>}
               </div>
-              <PageGrid>
-                {keys.map((k) => <Fragment key={k}>{mod.renderables[k]?.render(sec.data, 'app') ?? null}</Fragment>)}
-              </PageGrid>
+              {/* Grid slides are tiles and sit in the app grid; a single-layout
+                  slide (the executive brief, a selected item, a per-item
+                  slide) is a full-width pane on paper and gets one here too —
+                  dropped into the grid it would spill across the columns. */}
+              {slides.map((slide, j) =>
+                slide.layout === 'grid' ? (
+                  <PageGrid key={j}>
+                    {slide.keys.map((k) => <Fragment key={k}>{mod.renderables[k]?.render(sec.data, 'app') ?? null}</Fragment>)}
+                  </PageGrid>
+                ) : (
+                  <div key={j} className="flex flex-col gap-4 rounded-lg bg-tile px-6 py-5 shadow-tile">
+                    <p className="font-mono text-[10.5px] uppercase tracking-[0.08em] text-muted-foreground">{slide.title}</p>
+                    {slide.keys.map((k) => <Fragment key={k}>{mod.renderables[k]?.render(sec.data, 'app') ?? null}</Fragment>)}
+                  </div>
+                ),
+              )}
               {method && <div className="px-1"><MethodNote data={method} /></div>}
             </section>
           )
