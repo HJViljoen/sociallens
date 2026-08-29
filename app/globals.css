@@ -271,11 +271,9 @@
    The export renderer serves dashboard tiles under a `.vb-print` root and
    headless Chrome prints it: landscape, slide-shaped, one section per page.
    Same tokens, same components. What changes on paper:
-   · no ambient shadow (there is no light on a page) — the tile shadow resolves
-     through --shadow-tile, so a root-level override removes it without
-     touching Tile. The depth cue is then either (a) the page itself is the
-     inner grey and tiles are white, or (b) a hairline — data-print-variant
-     picks; decided on a mock (plan D3).
+   · depth stays the ambient tile shadow, as on screen (Heinrich's call);
+     data-print-variant "a" (grey page, no shadow) and "b" (hairline) are
+     kept for a later mock.
    · no motion: the draw-ins do nothing under reduced motion (Chrome emulates
      it) and are switched off here again for anything that is not gated.
    · the grid is addressed by data-col / data-row, not xl: classes — Chrome
@@ -284,7 +282,6 @@
      that must be multi-column on paper says so without a breakpoint prefix.
    No hex here on purpose: the drift guard scans this file. */
 .vb-print {
-  --shadow-tile: none;
   --shadow-tile-hover: none;
   /* The app's grid: 1168px wide (1440 − sidebar − padding), 116px rows, 16px
      gaps. Paper is laid out at exactly that and zoomed onto the slide, so a
@@ -296,7 +293,11 @@
   background: var(--background);
   color: var(--foreground);
 }
-.vb-print[data-print-variant="a"] { background: var(--inner); }
+/* Depth on paper (Heinrich, 2026-08-29): the same ambient shadow as on screen
+   — variant "c", the default. (a) grey page, white tiles, no shadow and (b)
+   hairline tiles stay one attribute away. */
+.vb-print[data-print-variant="a"] { --shadow-tile: none; background: var(--inner); }
+.vb-print[data-print-variant="b"] { --shadow-tile: none; }
 .vb-print[data-print-variant="b"] [data-tile] { outline: 1px solid var(--border); outline-offset: -1px; }
 .vb-print *, .vb-print *::before, .vb-print *::after { animation: none !important; transition: none !important; }
 .vb-print [data-print-hide] { display: none !important; }

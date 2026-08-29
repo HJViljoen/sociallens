@@ -57,7 +57,7 @@ export async function POST(request: Request) {
   const page = typeof body.page === 'string' && PAGE_KEYS.has(body.page as PageKey) ? (body.page as PageKey) : null
   const tileKey = typeof body.tileKey === 'string' && body.tileKey ? body.tileKey : null
   const variant: PrintVariant = body.variant === 'full' ? 'full' : 'default'
-  const style = body.style === 'b' ? 'b' : body.style === 'a' ? 'a' : null
+  const style = body.style === 'b' ? 'b' : body.style === 'a' ? 'a' : body.style === 'c' ? 'c' : null
   const params: Record<string, string | undefined> = {}
   if (body.params && typeof body.params === 'object') {
     for (const [k, v] of Object.entries(body.params as Record<string, unknown>)) if (typeof v === 'string') params[k] = v
