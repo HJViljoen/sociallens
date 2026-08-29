@@ -106,12 +106,14 @@ function PersonaBody({
       // On paper the composition gets a definite height (the slide body's),
       // which is what lets the figure's h-full mean something; on screen it
       // takes the pane.
-      className={`relative mx-auto grid w-full max-w-[84rem] gap-6 lg:grid-cols-[1fr_1.15fr_1fr] lg:gap-7 ${app ? 'lg:min-h-[calc(100dvh-10rem)]' : 'h-[540px] overflow-hidden'}`}
+      // lg:/xl: never fire in Chrome's print media (the page box measures
+      // under 1024px there), so paper states the three columns outright.
+      className={`relative mx-auto grid w-full max-w-[84rem] ${app ? 'gap-6 lg:min-h-[calc(100dvh-10rem)] lg:grid-cols-[1fr_1.15fr_1fr] lg:gap-7' : 'h-[540px] grid-cols-[1fr_1.15fr_1fr] gap-7 overflow-hidden'}`}
     >
       {/* ProfileConnectors measures the DOM client-side (ResizeObserver +
           getPointAtLength) — app only; print has no equivalent measurement pass. */}
       {app && <ProfileConnectors />}
-      <div className="order-2 flex flex-col gap-6 lg:order-1 lg:h-full lg:justify-center lg:gap-16">
+      <div className={app ? 'order-2 flex flex-col gap-6 lg:order-1 lg:h-full lg:justify-center lg:gap-16' : 'order-1 flex h-full flex-col justify-center gap-8'}>
         <div data-connector="left" className={app ? 'profile-in-left relative' : 'relative'}>
           <Card className="rounded-3xl ring-1 ring-primary/25">
             <CardHeader className="pb-2">
@@ -154,7 +156,7 @@ function PersonaBody({
         <SharePill percent={p.share} app={app} />
       </div>
 
-      <div className="relative z-10 order-1 flex h-full min-w-0 flex-col items-center lg:order-2">
+      <div className={app ? 'relative z-10 order-1 flex h-full min-w-0 flex-col items-center lg:order-2' : 'relative z-10 order-2 flex h-full min-w-0 flex-col items-center'}>
         {/* The figure takes whatever height is left and stands ON the bottom
             edge: -mb-6 eats the pane's own padding so the hem lands on the
             edge itself rather than floating above it. h-full + w-auto keeps
@@ -165,12 +167,15 @@ function PersonaBody({
             variant={figure}
             title={p.name}
             lean={1}
-            className={app ? 'profile-figure-in profile-figure-fade h-full w-auto max-w-full text-primary' : 'h-full w-auto max-w-full text-primary'}
+            className={app ? 'profile-figure-in profile-figure-fade h-full w-auto max-w-full text-primary' : 'w-auto max-w-full text-primary'}
+            // Paper: a percentage height has nothing definite to resolve
+            // against inside the zoomed slide body, so the figure is sized outright.
+            style={app ? undefined : { height: 430 }}
           />
         </div>
       </div>
 
-      <div className="order-3 flex flex-col gap-6 lg:h-full lg:justify-center lg:gap-16">
+      <div className={app ? 'order-3 flex flex-col gap-6 lg:h-full lg:justify-center lg:gap-16' : 'order-3 flex h-full flex-col justify-center gap-8'}>
         <Block title="What stops them" Icon={HeartCrack} body={p.blockers} quote={p.stopsQuote} className={app ? 'profile-in-right' : ''} connector="right" />
         <Block title="What works on them" Icon={Zap} body={p.triggers} quote={p.worksQuote} className={app ? 'profile-in-right profile-delay-2' : ''} connector="right" />
       </div>

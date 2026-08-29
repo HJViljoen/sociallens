@@ -279,9 +279,9 @@
    · no motion: the draw-ins do nothing under reduced motion (Chrome emulates
      it) and are switched off here again for anything that is not gated.
    · the grid is addressed by data-col / data-row, not xl: classes — Chrome
-     prints in `print` media where width queries see the PAGE box (297mm ≈
-     1122px), below the xl breakpoint. The row unit is 100px so a 4-row
-     composition fits a slide.
+     prints in `print` media where width queries see a page box that measures
+     under the lg (1024px) and xl breakpoints (sm/md still apply). Anything
+     that must be multi-column on paper says so without a breakpoint prefix.
    No hex here on purpose: the drift guard scans this file. */
 .vb-print {
   --shadow-tile: none;

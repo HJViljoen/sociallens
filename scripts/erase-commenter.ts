@@ -131,6 +131,12 @@ async function main() {
   }
   const del = await deleteCommentsProperly(admin, rows, { dryRun: !args.apply })
   console.log(`\nwill ${args.apply ? '' : '(would) '}delete ${del.deleted} comment row(s) → cascades ${evidenceRows} evidence row(s) + ${sampleRows} language sample(s), touching ${del.insightsAffected} insight(s); hero quotes nulled: ${del.heroQuotesNulled}`)
+  // 8. Stored exports (Reports & Exports): a PDF/PNG whose snapshot cited one of
+  //    these voices has the words in a file. deleteCommentsProperly finds those
+  //    snapshots by ref, deletes the files and flags the artifacts stale; the
+  //    next download re-renders without the voice. Copies already downloaded
+  //    or emailed are out of reach — say so in the reply.
+  console.log(`stored exports carrying the voice: ${del.artifactsStaled} → ${args.apply ? 'files deleted, flagged for re-render' : 'would have files deleted + be flagged for re-render'}`)
 
   // 5. ai_call_log bodies inside the window that carry the text.
   const clientIds = [...byClient.keys()]
@@ -316,7 +322,7 @@ async function main() {
 
   console.log(`\n--- reply template ---
 We have removed the ${rows.length} comment(s) tied to ${args.handle} on ${args.platform} from Verbatim, together with every quote of them in our analysis${del.heroQuotesNulled ? ' and in report headlines' : ''}, and we have recorded the handle so it is not collected again.
-What we cannot undo: report emails already sent to our customers before your request, and our AI provider's copy of any analysis input for its own retention period (up to 30 days).
+What we cannot undo: report emails and exported files already sent or downloaded by our customers before your request, and our AI provider's copy of any analysis input for its own retention period (up to 30 days).
 ${args.apply ? '' : '(DRY RUN — nothing has been changed yet.)'}`)
 }
 

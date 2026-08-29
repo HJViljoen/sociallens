@@ -3,6 +3,7 @@ import { selectAll } from '../supabase-admin'
 import { DEMO_CLIENT_ID } from '../config'
 import { adapters } from '../gather/platforms'
 import { loadHeroQuotes, matchHeroQuotes, nullHeroQuotes } from '../pipeline/hero-quotes'
+import { markSnapshotsStale } from '../artifacts'
 import {
   diffRefreshedComments, evidenceToDrop, phrasesToDrop, diffRefreshedVideos, videoTombstone,
   refreshCutoffs, distinctIds, assertPlausibleGoneRate, type StoredComment, type StoredVideoStats,
@@ -49,25 +50,43 @@ export async function deleteCommentsProperly(
   admin: SupabaseClient,
   rows: { id: string; client_id: string; text: string | null }[],
   opts: { dryRun?: boolean } = {},
-): Promise<{ deleted: number; insightsAffected: number; heroQuotesNulled: number }> {
-  if (!rows.length) return { deleted: 0, insightsAffected: 0, heroQuotesNulled: 0 }
+): Promise<{ deleted: number; insightsAffected: number; heroQuotesNulled: number; artifactsStaled: number }> {
+  if (!rows.length) return { deleted: 0, insightsAffected: 0, heroQuotesNulled: 0, artifactsStaled: 0 }
   const ids = rows.map((r) => r.id)
   const insights = new Set<string>()
+  const evidenceIds: string[] = []
   for (let i = 0; i < ids.length; i += CHUNK) {
-    const { data, error } = await admin.from('insight_evidence').select('audience_insight_id').in('comment_id', ids.slice(i, i + CHUNK))
+    const { data, error } = await admin.from('insight_evidence').select('id, audience_insight_id').in('comment_id', ids.slice(i, i + CHUNK))
     if (error) throw new Error(`count evidence: ${error.message}`)
-    for (const r of (data ?? []) as { audience_insight_id: string }[]) insights.add(r.audience_insight_id)
+    for (const r of (data ?? []) as { id: string; audience_insight_id: string }[]) { insights.add(r.audience_insight_id); evidenceIds.push(r.id) }
   }
   const clientIds = [...new Set(rows.map((r) => r.client_id))]
   const heroRows = await loadHeroQuotes(admin, clientIds)
   const heroHits = matchHeroQuotes(heroRows, rows.map((r) => r.text ?? ''))
-  if (opts.dryRun) return { deleted: ids.length, insightsAffected: insights.size, heroQuotesNulled: heroHits.length }
+  // Exports (Reports & Exports, plan D6): a stored PDF/PNG whose snapshot
+  // cited any of these voices has the words baked into a file. Find those
+  // snapshots by ref — c:<comment>, e:<evidence row>, h:<table>:<row> — delete
+  // the files now and flag the artifacts; the next download re-renders from
+  // the snapshot, where the erased voice no longer resolves.
+  const refs = [
+    ...ids.map((id) => `c:${id}`),
+    ...evidenceIds.map((id) => `e:${id}`),
+    ...heroHits.map((h) => `h:${h.table}:${h.id}`),
+  ]
+  const snapshotIds = new Set<string>()
+  for (let i = 0; i < refs.length; i += 150) {
+    const { data, error } = await admin.from('report_snapshots').select('id').overlaps('evidence_ids', refs.slice(i, i + 150))
+    if (error) throw new Error(`find snapshots: ${error.message}`)
+    for (const r of (data ?? []) as { id: string }[]) snapshotIds.add(r.id)
+  }
+  const staled = await markSnapshotsStale(admin, [...snapshotIds], { apply: !opts.dryRun })
+  if (opts.dryRun) return { deleted: ids.length, insightsAffected: insights.size, heroQuotesNulled: heroHits.length, artifactsStaled: staled.artifacts }
   const heroQuotesNulled = await nullHeroQuotes(admin, heroHits)
   for (let i = 0; i < ids.length; i += CHUNK) {
     const { error } = await admin.from('comments').delete().in('id', ids.slice(i, i + CHUNK))
     if (error) throw new Error(`delete comments: ${error.message}`)
   }
-  return { deleted: ids.length, insightsAffected: insights.size, heroQuotesNulled }
+  return { deleted: ids.length, insightsAffected: insights.size, heroQuotesNulled, artifactsStaled: staled.artifacts }
 }
 
 /** Refresh the YouTube comments that are due. */

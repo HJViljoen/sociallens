@@ -50,6 +50,7 @@ export function CrowdFigure({
   personaKey,
   variant,
   className = '',
+  style,
   lean = 0,
   title,
 }: {
@@ -57,6 +58,7 @@ export function CrowdFigure({
   /** Explicit silhouette. Omit to fall back to the per-key hash. */
   variant?: FigureKey
   className?: string
+  style?: React.CSSProperties
   /** Degrees, about the hem — the asset's own figures lean −3.93…+3.95°. */
   lean?: number
   title?: string
@@ -69,6 +71,7 @@ export function CrowdFigure({
     <svg
       viewBox={`${-(f.w + pad)} ${-pad} ${width} ${f.h + 2 * pad}`}
       className={className}
+      style={style}
       // Warm cream body, deep-green outline. The opaque cream (not --card,
       // which is translucent) matters: a see-through body would let the crowd
       // backdrop show through the subject. Filled this way the figure OCCLUDES
