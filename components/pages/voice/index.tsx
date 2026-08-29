@@ -186,7 +186,7 @@ const phrases: R = (d, mode) => (
       <div className="flex max-h-[112px] flex-wrap content-start gap-1 overflow-hidden">
         {d.phrases.shown.map((s, i) => (
           <span key={i} title={s.platform ? platformLabel(s.platform) : undefined} className="inline-flex h-[20px] max-w-full items-center truncate rounded-[4px] bg-inner px-2 text-[11px] italic leading-none text-foreground/80">
-            {s.phrase}
+            {s.text}
           </span>
         ))}
       </div>
@@ -443,7 +443,7 @@ export function VoicePage({ data: d, detail, params }: { data: VoiceData | Voice
       <DetailDrawer open={detail === 'language'} closeHref={closeHref} title="How your customers talk" description={`${fmtInt(d.phrases.total)} phrases, verbatim — the words to borrow`}>
         <div className="flex flex-wrap gap-1.5">
           {d.phrases.all.map((s, i) => (
-            <span key={i} title={s.platform ? platformLabel(s.platform) : undefined} className="rounded-[4px] bg-inner px-2.5 py-1 text-[12px] italic leading-[1.35] text-foreground/80">{s.phrase}</span>
+            <span key={i} title={s.platform ? platformLabel(s.platform) : undefined} className="rounded-[4px] bg-inner px-2.5 py-1 text-[12px] italic leading-[1.35] text-foreground/80">{s.text}</span>
           ))}
         </div>
         {d.phrases.total > d.phrases.all.length && <p className="mt-3 text-[11px] text-muted-foreground">showing {fmtInt(d.phrases.all.length)} of {fmtInt(d.phrases.total)}</p>}

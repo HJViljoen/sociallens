@@ -13,7 +13,8 @@ const nextConfig: NextConfig = {
   serverExternalPackages: ['@sparticuz/chromium', 'puppeteer-core'],
   outputFileTracingIncludes: {
     '/api/export': ['./node_modules/@sparticuz/chromium/bin/**/*'],
-    '/api/artifacts/[id]': ['./node_modules/@sparticuz/chromium/bin/**/*'],
+    // Route globs are picomatch: the brackets of a dynamic segment must be escaped.
+    '/api/artifacts/\\[id\\]': ['./node_modules/@sparticuz/chromium/bin/**/*'],
   },
   experimental: {
     // Client router cache. Every dashboard route is dynamic (cookies), and the

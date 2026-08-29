@@ -79,7 +79,7 @@ export async function POST(request: Request) {
     .from('export_events')
     .select('id', { count: 'exact', head: true })
     .eq('client_id', clientId)
-    .eq('action', 'export')
+    .in('action', ['export', 'rerender'])
     .gte('created_at', dayStartIso(new Date()))
   if (quotaErr) {
     console.error('[export] quota read failed:', quotaErr)

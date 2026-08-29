@@ -55,10 +55,16 @@ export async function deleteCommentsProperly(
   const ids = rows.map((r) => r.id)
   const insights = new Set<string>()
   const evidenceIds: string[] = []
+  const sampleIds: string[] = []
   for (let i = 0; i < ids.length; i += CHUNK) {
-    const { data, error } = await admin.from('insight_evidence').select('id, audience_insight_id').in('comment_id', ids.slice(i, i + CHUNK))
-    if (error) throw new Error(`count evidence: ${error.message}`)
-    for (const r of (data ?? []) as { id: string; audience_insight_id: string }[]) { insights.add(r.audience_insight_id); evidenceIds.push(r.id) }
+    const [ev, ls] = await Promise.all([
+      admin.from('insight_evidence').select('id, audience_insight_id').in('comment_id', ids.slice(i, i + CHUNK)),
+      admin.from('language_samples').select('id').in('comment_id', ids.slice(i, i + CHUNK)),
+    ])
+    if (ev.error) throw new Error(`count evidence: ${ev.error.message}`)
+    if (ls.error) throw new Error(`count samples: ${ls.error.message}`)
+    for (const r of (ev.data ?? []) as { id: string; audience_insight_id: string }[]) { insights.add(r.audience_insight_id); evidenceIds.push(r.id) }
+    for (const r of (ls.data ?? []) as { id: string }[]) sampleIds.push(r.id)
   }
   const clientIds = [...new Set(rows.map((r) => r.client_id))]
   const heroRows = await loadHeroQuotes(admin, clientIds)
@@ -68,10 +74,15 @@ export async function deleteCommentsProperly(
   // snapshots by ref — c:<comment>, e:<evidence row>, h:<table>:<row> — delete
   // the files now and flag the artifacts; the next download re-renders from
   // the snapshot, where the erased voice no longer resolves.
+  // The snapshots are FOUND before the delete (the refs come from rows about
+  // to go) and FLAGGED after it: flagging first would let a download in
+  // between re-render while the voice still resolves, writing an unflagged
+  // file a later sweep could no longer find.
   const refs = [
     ...ids.map((id) => `c:${id}`),
     ...ids.map((id) => `m:${id}`),
     ...evidenceIds.map((id) => `e:${id}`),
+    ...sampleIds.map((id) => `p:${id}`),
     ...heroHits.map((h) => `h:${h.table}:${h.id}`),
   ]
   const snapshotIds = new Set<string>()
@@ -80,13 +91,16 @@ export async function deleteCommentsProperly(
     if (error) throw new Error(`find snapshots: ${error.message}`)
     for (const r of (data ?? []) as { id: string }[]) snapshotIds.add(r.id)
   }
-  const staled = await markSnapshotsStale(admin, [...snapshotIds], { apply: !opts.dryRun })
-  if (opts.dryRun) return { deleted: ids.length, insightsAffected: insights.size, heroQuotesNulled: heroHits.length, artifactsStaled: staled.artifacts }
+  if (opts.dryRun) {
+    const would = await markSnapshotsStale(admin, [...snapshotIds], { apply: false })
+    return { deleted: ids.length, insightsAffected: insights.size, heroQuotesNulled: heroHits.length, artifactsStaled: would.artifacts }
+  }
   const heroQuotesNulled = await nullHeroQuotes(admin, heroHits)
   for (let i = 0; i < ids.length; i += CHUNK) {
     const { error } = await admin.from('comments').delete().in('id', ids.slice(i, i + CHUNK))
     if (error) throw new Error(`delete comments: ${error.message}`)
   }
+  const staled = await markSnapshotsStale(admin, [...snapshotIds], { apply: true })
   return { deleted: ids.length, insightsAffected: insights.size, heroQuotesNulled, artifactsStaled: staled.artifacts }
 }
 

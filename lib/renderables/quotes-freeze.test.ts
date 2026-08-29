@@ -91,5 +91,7 @@ describe('quote freeze / resolve', () => {
     expect(quoteRef.message('c9')).toBe('m:c9')
     expect(parseRef('m:c9')).toEqual({ kind: 'm', id: 'c9' })
     expect(isQuote({ ref: 'm:c9', text: 'x' })).toBe(true)
+    expect(quoteRef.phrase('ls1')).toBe('p:ls1')
+    expect(isQuote({ ref: 'p:ls1', text: 'x' })).toBe(true)
   })
 })

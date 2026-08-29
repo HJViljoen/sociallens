@@ -77,6 +77,31 @@ export async function storeArtifact(
   return data as ArtifactRow
 }
 
+/** Re-render a STALE artifact in place: a new file at the next version, the
+ *  same row updated and un-flagged — not a second row beside the first, which
+ *  would list twice in Reports and render again on every click. */
+export async function replaceArtifactFile(
+  admin: SupabaseClient,
+  artifact: ArtifactRow,
+  args: { buffer: Buffer; renderMs: number },
+): Promise<ArtifactRow> {
+  const version = artifact.version + 1
+  const path = artifactPath(artifact.client_id, artifact.snapshot_id, artifact.tile_key, version, artifact.format)
+  const up = await admin.storage.from(ARTIFACTS_BUCKET).upload(path, args.buffer, { contentType: CONTENT_TYPE[artifact.format], upsert: false })
+  if (up.error) throw new Error(`artifact: upload failed: ${up.error.message}`)
+  const { data, error } = await admin
+    .from('artifacts')
+    .update({ storage_path: path, bytes: args.buffer.length, version, render_ms: args.renderMs, stale: false, rendered_at: new Date().toISOString() })
+    .eq('id', artifact.id)
+    .select('*')
+    .single()
+  if (error || !data) {
+    await admin.storage.from(ARTIFACTS_BUCKET).remove([path])
+    throw new Error(`artifact: replace failed: ${error?.message ?? 'no row'}`)
+  }
+  return data as ArtifactRow
+}
+
 /** A one-hour signed URL that downloads as a sensible filename. */
 export async function signedArtifactUrl(admin: SupabaseClient, artifact: ArtifactRow, filename: string): Promise<string> {
   const { data, error } = await admin.storage
@@ -107,10 +132,12 @@ export async function markSnapshotsStale(
   const rows = (data ?? []) as { id: string; storage_path: string; stale: boolean }[]
   const live = rows.filter((r) => !r.stale)
   if (opts.apply && live.length) {
-    const rm = await admin.storage.from(ARTIFACTS_BUCKET).remove(live.map((r) => r.storage_path))
-    if (rm.error) throw new Error(`artifact: remove failed: ${rm.error.message}`)
+    // Flag FIRST: a flagged row with a file still present re-renders on the
+    // next download; a deleted file with an unflagged row 302s to nothing.
     const upd = await admin.from('artifacts').update({ stale: true }).in('id', live.map((r) => r.id))
     if (upd.error) throw new Error(`artifact: stale flag failed: ${upd.error.message}`)
+    const rm = await admin.storage.from(ARTIFACTS_BUCKET).remove(live.map((r) => r.storage_path))
+    if (rm.error) throw new Error(`artifact: remove failed: ${rm.error.message}`)
   }
   return { artifacts: live.length, files: live.length }
 }

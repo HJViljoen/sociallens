@@ -165,7 +165,8 @@ export interface VoiceData {
   }
   theme: ThemeDetail | null
   movers: { rows: Trajectory[]; steadyCount: number }
-  phrases: { shown: { phrase: string; platform: string | null }[]; all: { phrase: string; platform: string | null }[]; total: number }
+  /** Customer phrases are Quotes (ref `p:<language_samples.id>`): stripped from a snapshot, resolved live. */
+  phrases: { shown: (Quote & { platform: string | null })[]; all: (Quote & { platform: string | null })[]; total: number }
   moods: { emotion: string; count: number; pct: number; total: number }[]
   ribbon: { cards: VoiceCardData[]; total: number }
   list: { confirmed: ThemeListRow[]; early: ThemeListRow[]; heardOnce: ThemeListRow[]; entityLabel: string; typeLabel: string | null }
@@ -234,7 +235,7 @@ export async function loadVoice(scope: Scope): Promise<VoiceData | VoiceEmpty> {
       supabase.from('run_summary').select('run_id, run_date').eq('client_id', clientId).order('run_date', { ascending: true }),
     ),
     supabase.from('language_samples_current')
-      .select('phrase, platform', { count: 'exact' })
+      .select('id, phrase, platform', { count: 'exact' })
       .eq('client_id', clientId)
       .order('phrase')
       .limit(detail === 'language' ? PHRASES_DRAWER : PHRASES_POOL),
@@ -267,9 +268,10 @@ export async function loadVoice(scope: Scope): Promise<VoiceData | VoiceEmpty> {
   const updatesCount = runDates.size
   const runDate = runDates.get(runId) ?? (latestRun.started_at as string)
   const showNew = updatesCount > 1
-  const samples = (samplesRes.data ?? []) as { phrase: string; platform: string | null }[]
+  const samples = (samplesRes.data ?? []) as { id: string; phrase: string; platform: string | null }[]
   const sampleTotal = samplesRes.count ?? samples.length
-  const phrases = shortPhrases(samples, PHRASES_SHOWN)
+  const asQuote = (s: { id: string; phrase: string; platform: string | null }) => ({ ref: quoteRef.phrase(s.id), text: s.phrase, platform: s.platform })
+  const phrases = shortPhrases(samples, PHRASES_SHOWN).map(asQuote)
 
   // ---- bucket vocabulary (raw bucket values are never client-facing) ----
   const bucketName = (bucket: string) =>
@@ -498,7 +500,7 @@ export async function loadVoice(scope: Scope): Promise<VoiceData | VoiceEmpty> {
     },
     theme,
     movers: { rows: movers, steadyCount },
-    phrases: { shown: phrases, all: samples, total: sampleTotal },
+    phrases: { shown: phrases, all: samples.map(asQuote), total: sampleTotal },
     moods,
     ribbon: { cards, total: ribbon.total },
     list: {

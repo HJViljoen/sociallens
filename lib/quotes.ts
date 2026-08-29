@@ -266,7 +266,7 @@ export async function fetchQuoteTextsByRefs(
 ): Promise<Map<string, string>> {
   const c = client as EvidenceClient
   const out = new Map<string, string>()
-  const by = { e: [] as string[], c: [] as string[], v: [] as string[], m: [] as string[] }
+  const by = { e: [] as string[], c: [] as string[], v: [] as string[], m: [] as string[], p: [] as string[] }
   const heroes = new Map<string, string[]>()
   const brandVoice = new Map<string, number[]>()
   for (const ref of new Set(refs)) {
@@ -280,8 +280,8 @@ export async function fetchQuoteTextsByRefs(
       brandVoice.set(b[1], [...(brandVoice.get(b[1]) ?? []), Number(b[2])])
       continue
     }
-    const m = /^([ecvm]):(.+)$/.exec(ref)
-    if (m) by[m[1] as 'e' | 'c' | 'v' | 'm'].push(m[2])
+    const m = /^([ecvmp]):(.+)$/.exec(ref)
+    if (m) by[m[1] as 'e' | 'c' | 'v' | 'm' | 'p'].push(m[2])
   }
   const heroReads = [...heroes.entries()].map(async ([table, ids]) => {
     const rows = await fetchChunks<{ id: string; hero_quote: string | null }>(
@@ -322,6 +322,16 @@ export async function fetchQuoteTextsByRefs(
         for (const r of rows) if (r.text) out.set(`m:${r.id}`, cleanQuote(r.text))
       })()
     : Promise.resolve()
+  // p: a customer phrase — language_samples by id (cascade-deleted with its comment).
+  const phraseRead = by.p.length
+    ? (async () => {
+        const rows = await fetchChunks<{ id: string; phrase: string | null }>(
+          by.p,
+          (chunk) => c.from('language_samples').select('id, phrase').in('id', chunk) as unknown as Rows,
+        )
+        for (const r of rows) if (r.phrase) out.set(`p:${r.id}`, r.phrase)
+      })()
+    : Promise.resolve()
   const [byId, byComment, byVideo] = await Promise.all([
     fetchChunks<{ id: string; quote: string | null }>(
       by.e,
@@ -336,7 +346,7 @@ export async function fetchQuoteTextsByRefs(
       (chunk) => c.from('insight_evidence').select('source_video_id, quote').in('source_video_id', chunk).eq('redacted', false),
     ),
   ])
-  await Promise.all([...heroReads, brandVoiceRead, messageRead])
+  await Promise.all([...heroReads, brandVoiceRead, messageRead, phraseRead])
   for (const r of byId) if (r.quote && !out.has(`e:${r.id}`)) out.set(`e:${r.id}`, r.quote)
   for (const r of byComment) if (r.comment_id && r.quote && !out.has(`c:${r.comment_id}`)) out.set(`c:${r.comment_id}`, r.quote)
   for (const r of byVideo) if (r.source_video_id && r.quote && !out.has(`v:${r.source_video_id}`)) out.set(`v:${r.source_video_id}`, r.quote)

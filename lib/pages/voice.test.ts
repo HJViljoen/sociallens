@@ -32,15 +32,19 @@ describe('voice quotes freeze', () => {
       quotes: [{ ref: 'e:ev-1', text: 'the straps hurt' }, { ref: 'e:ev-2', text: 'too heavy after an hour' }], withheld: 1, memberThemes: ['comfort'],
     }
     const cards: VoiceCardData[] = [{ themeId: 't1', themeLabel: 'Comfort', themeCategory: 'pain_point', quote: { ref: 'e:ev-3', text: 'I need this' }, who: 'TikTok' }]
-    const data = { theme, ribbon: { cards, total: 9 } }
+    const phrases = { shown: [{ ref: 'p:ls1', text: 'built in cheats?', platform: 'tiktok' }], all: [{ ref: 'p:ls1', text: 'built in cheats?', platform: 'tiktok' }, { ref: 'p:ls2', text: 'gone', platform: null }], total: 2 }
+    const data = { theme, ribbon: { cards, total: 9 }, phrases }
     const { data: frozen, refs } = freezeQuotes(data)
-    expect(refs.sort()).toEqual(['e:ev-1', 'e:ev-2', 'e:ev-3'])
+    expect(refs.sort()).toEqual(['e:ev-1', 'e:ev-2', 'e:ev-3', 'p:ls1', 'p:ls2'])
+    expect(JSON.stringify(frozen)).not.toContain('cheats')
     expect(JSON.stringify(frozen)).not.toContain('straps')
-    const texts = new Map([['e:ev-1', 'the straps hurt'], ['e:ev-3', 'I need this']])
+    const texts = new Map([['e:ev-1', 'the straps hurt'], ['e:ev-3', 'I need this'], ['p:ls1', 'built in cheats?']])
     const thawed = resolveQuotes(frozen, texts)
     expect(thawed.theme.quotes).toEqual([{ ref: 'e:ev-1', text: 'the straps hurt' }])
     expect(thawed.theme.withheld).toBe(1)
     expect(thawed.ribbon.cards[0].quote.text).toBe('I need this')
     expect(thawed.ribbon.total).toBe(9)
+    expect(thawed.phrases.shown).toEqual([{ ref: 'p:ls1', text: 'built in cheats?', platform: 'tiktok' }])
+    expect(thawed.phrases.all.map((p) => p.ref)).toEqual(['p:ls1'])
   })
 })
