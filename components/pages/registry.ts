@@ -1,5 +1,6 @@
 import type { PageKey, PageModule } from '@/lib/renderables/types'
 import { dashboardPage } from './dashboard'
+import { voicePage } from './voice'
 
 // The catalogue of renderables (plan D1): every page module, keyed. A tile is
 // addressed as `<page>.<tile>` — the export route, the render page and, later,
@@ -12,6 +13,7 @@ import { dashboardPage } from './dashboard'
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export const PAGES: Partial<Record<PageKey, PageModule<any>>> = {
   dashboard: dashboardPage,
+  voice: voicePage,
 }
 
 export function pageModule(key: string): PageModule<unknown> | null {

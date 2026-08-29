@@ -10,7 +10,7 @@ import { Sparkline } from '@/components/charts/sparkline'
 // colour on a block — the category chip is a quiet neutral. Server-rendered: the
 // layout is solved once on a reference frame and placed with percentages, so
 // the map fills whatever the tile gives it. Every block is a link one click
-// deeper (?detail=<themeId>).
+// deeper (?theme=<themeId>).
 
 export interface ThemeBlock {
   id: string
