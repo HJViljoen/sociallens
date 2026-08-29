@@ -32,17 +32,29 @@ import type { DeltaVerdict } from './report-bands'
 // Sending goes through lib/email.ts (Resend, optional): with no provider the
 // report is still built + stored to weekly_reports for the in-app Reports page.
 
-// Matches the site's warm green-refresh tokens (app/globals.css :root) — the
-// email must read as the same product: cream canvas, green-black ink, sage
-// muted text, warm sand borders. No cool grays next to the green.
-const GREEN = '#14503A'
-const CREAM = '#F6F1E7'
-const CARD = '#FDFAF3'
-const INK = '#14291F'
-const MUTED = '#5F6B5E'
-const BORDER = '#E4DCCC'
-const UP = '#2E8B5E'
-const DOWN = '#B4472F'
+// Mirrors the app tokens (app/globals.css :root, MASTER.md §Visual identity
+// 2026-08-28): white card on a cool-grey canvas, charcoal ink, grey chrome;
+// the Verbatim green does its four jobs only (primary button, "good", links as
+// actions). No cream, no pine, no dark hero block. Interim re-skin 2026-08-29 —
+// the Reports & Exports build retires this file (vault: Architecture/Reports-Exports).
+const GREEN = '#0E8A5F'
+const GREEN_TINT = '#DDF3E9'
+const LINK = '#0B6E4C'
+const CANVAS = '#F6F7F8'
+const CARD = '#FFFFFF'
+const INNER = '#F6F7F8'
+const INK = '#26292C'
+const INK_2 = '#45494D'
+const MUTED = '#6E7378'
+const FAINT = '#9AA0A6'
+const BORDER = '#DCDFE3'
+const HAIRLINE = '#EBEDF0'
+const UP = '#0E8A5F'
+const DOWN = '#DB3B2E'
+const DOWN_TINT = '#FBE3E1'
+const SANS = "'IBM Plex Sans',-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif"
+const SERIF = "'IBM Plex Serif',Georgia,'Times New Roman',serif"
+const MONO = "'IBM Plex Mono',SFMono-Regular,Menlo,Consolas,monospace"
 
 // The app lives on the app. subdomain — the apex is the marketing site.
 const DEFAULT_APP_URL = 'https://app.verbatimintel.com'
@@ -436,7 +448,7 @@ function escapeHtml(s: string): string {
 
 /** Neutral chip: a state, not a movement. */
 function stateChip(text: string): string {
-  return `<span style="display:inline-block;background:#ECE7DA;color:${MUTED};font-size:11px;font-weight:600;padding:2px 8px;border-radius:10px;white-space:nowrap">${escapeHtml(text)}</span>`
+  return `<span style="display:inline-block;background:${INNER};color:${MUTED};font-size:11px;font-weight:600;padding:2px 8px;border-radius:10px;white-space:nowrap">${escapeHtml(text)}</span>`
 }
 
 /**
@@ -449,7 +461,7 @@ function changeChip(verdict: DeltaVerdict, unit: string): string {
   if (verdict.state === 'no_clear_change') return stateChip('no clear change')
   const up = verdict.change > 0
   const color = up ? UP : DOWN
-  const bg = up ? '#E1E8DA' : '#F2DFD8'
+  const bg = up ? GREEN_TINT : DOWN_TINT
   return `<span style="display:inline-block;background:${bg};color:${color};font-size:11px;font-weight:700;padding:2px 8px;border-radius:10px;white-space:nowrap">${up ? '▲' : '▼'} ${Math.abs(verdict.change)}${unit}</span>`
 }
 
@@ -463,17 +475,17 @@ interface Row {
 
 function rowBlock(r: Row): string {
   const link = r.href
-    ? `<div style="margin-top:4px"><a href="${r.href}" style="color:${GREEN};font-size:12px;font-weight:600;text-decoration:none">${escapeHtml(r.linkText ?? 'See the detail')} →</a></div>`
+    ? `<div style="margin-top:4px"><a href="${r.href}" style="color:${LINK};font-size:12px;font-weight:600;text-decoration:none">${escapeHtml(r.linkText ?? 'See the detail')} →</a></div>`
     : ''
   return `
-    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-bottom:1px solid ${BORDER}">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-bottom:1px solid ${HAIRLINE}">
       <tr>
         <td style="padding:12px 0;vertical-align:top">
-          <div style="font-size:11px;font-weight:700;color:${MUTED};text-transform:uppercase;letter-spacing:.5px">${escapeHtml(r.label)}</div>
+          <div style="font-size:11px;font-weight:600;color:${FAINT};text-transform:uppercase;letter-spacing:.5px;font-family:${MONO}">${escapeHtml(r.label)}</div>
           <div style="font-size:14px;color:${INK};line-height:1.5;margin-top:3px">${r.text}</div>
           ${link}
         </td>
-        ${r.chip ? `<td style="padding:12px 0 12px 12px;vertical-align:top;text-align:right;white-space:nowrap">${r.chip}</td>` : ''}
+        ${r.chip ? `<td style="padding:12px 0 12px 12px;vertical-align:top;text-align:right">${r.chip}</td>` : ''}
       </tr>
     </table>`
 }
@@ -481,7 +493,7 @@ function rowBlock(r: Row): string {
 function sectionTitle(title: string): string {
   return `
     <div style="margin:22px 0 2px">
-      <div style="font-size:13px;font-weight:700;color:${GREEN};text-transform:uppercase;letter-spacing:.6px">${escapeHtml(title)}</div>
+      <div style="font-size:12px;font-weight:600;color:${MUTED};text-transform:uppercase;letter-spacing:.6px">${escapeHtml(title)}</div>
     </div>`
 }
 
@@ -562,16 +574,16 @@ function renderReportHtml(d: ReportData, subject: string): string {
       ? `${d.appUrl}/dashboard/voice?themes=${encodeURIComponent(t.slug)}`
       : `${d.appUrl}/dashboard/voice`
     const badge = showNewBadges && t.firstSeen
-      ? ` <span style="display:inline-block;background:#E1E8DA;color:${GREEN};font-size:10px;font-weight:700;padding:1px 7px;border-radius:9px;vertical-align:2px">NEW</span>`
+      ? ` <span style="display:inline-block;background:${GREEN_TINT};color:${LINK};font-size:10px;font-weight:700;padding:1px 7px;border-radius:9px;vertical-align:2px">NEW</span>`
       : ''
     return `
-      <div style="padding:11px 0;border-bottom:1px solid ${BORDER}">
+      <div style="padding:11px 0;border-bottom:1px solid ${HAIRLINE}">
         <div style="font-size:14px;font-weight:600;color:${INK}">
           <a href="${href}" style="color:${INK};text-decoration:none">${escapeHtml(t.label)}</a>${badge}
         </div>
         ${t.description ? `<div style="font-size:13px;color:${MUTED};line-height:1.5;margin-top:2px">${escapeHtml(t.description)}</div>` : ''}
         <div style="margin-top:4px">
-          <a href="${href}" style="color:${GREEN};font-size:12px;font-weight:600;text-decoration:none">${t.evidenceCount} voice${t.evidenceCount === 1 ? '' : 's'} →</a>
+          <a href="${href}" style="color:${LINK};font-size:12px;font-weight:600;text-decoration:none">${t.evidenceCount} voice${t.evidenceCount === 1 ? '' : 's'} →</a>
         </div>
       </div>`
   }).join('')
@@ -581,12 +593,12 @@ function renderReportHtml(d: ReportData, subject: string): string {
   // below the fold. Order now: what to do, the voice it rests on, then state.
   const recHtml = d.rec ? `
     ${sectionTitle('The one thing to act on')}
-    <div style="background:${GREEN};border-radius:12px;padding:16px 18px;margin-top:8px">
-      <div style="font-size:15px;font-weight:700;color:#FFFFFF;line-height:1.4">${escapeHtml(d.rec.title)}</div>
-      ${d.rec.reasoning ? `<div style="font-size:13px;color:#CBDCD1;line-height:1.55;margin-top:6px">${escapeHtml(firstSentence(d.rec.reasoning))}</div>` : ''}
-      ${d.rec.heroQuote ? `<div style="font-size:14px;font-style:italic;color:#FFFFFF;line-height:1.55;margin-top:12px;border-left:3px solid #7FA98F;padding-left:12px">&ldquo;${escapeHtml(d.rec.heroQuote)}&rdquo;</div>` : ''}
+    <div style="background:${INNER};border-radius:6px;padding:16px 18px;margin-top:8px">
+      <div style="font-size:16px;font-weight:600;color:${INK};line-height:1.4">${escapeHtml(d.rec.title)}</div>
+      ${d.rec.reasoning ? `<div style="font-size:13px;color:${INK_2};line-height:1.55;margin-top:6px">${escapeHtml(firstSentence(d.rec.reasoning))}</div>` : ''}
+      ${d.rec.heroQuote ? `<div style="font-size:15px;font-style:italic;color:${INK};line-height:1.55;margin-top:12px;border-left:2px solid ${BORDER};padding-left:12px;font-family:${SERIF}">&ldquo;${escapeHtml(d.rec.heroQuote)}&rdquo;</div>` : ''}
       <div style="margin-top:12px">
-        <a href="${d.appUrl}/dashboard/market" style="color:#FFFFFF;font-size:12px;font-weight:700;text-decoration:none">Why this, why now →</a>
+        <a href="${d.appUrl}/dashboard/market" style="color:${LINK};font-size:12px;font-weight:600;text-decoration:none">Why this, why now →</a>
       </div>
     </div>` : ''
 
@@ -598,17 +610,17 @@ function renderReportHtml(d: ReportData, subject: string): string {
   const explainedEvents = d.ownedEvents.filter((e) => e.explained && e.explanation)
   const ownedItems = explainedEvents.length
     ? explainedEvents.map((e) => `
-      <div style="padding:11px 0;border-bottom:1px solid ${BORDER}">
-        ${e.heroQuote ? `<div style="font-size:14px;font-style:italic;color:${INK};line-height:1.5;border-left:3px solid #BCD3C6;padding-left:10px">&ldquo;${escapeHtml(e.heroQuote)}&rdquo;</div>` : ''}
+      <div style="padding:11px 0;border-bottom:1px solid ${HAIRLINE}">
+        ${e.heroQuote ? `<div style="font-size:15px;font-style:italic;color:${INK};line-height:1.5;border-left:2px solid ${BORDER};padding-left:10px;font-family:${SERIF}">&ldquo;${escapeHtml(e.heroQuote)}&rdquo;</div>` : ''}
         <div style="font-size:14px;font-weight:600;color:${INK};margin-top:${e.heroQuote ? '8px' : '0'}">${escapeHtml(e.magnitudeLabel)}</div>
         <div style="font-size:13px;color:${MUTED};line-height:1.5;margin-top:2px">${escapeHtml(e.explanation ?? '')}</div>
         <div style="margin-top:4px">
-          <a href="${d.appUrl}/dashboard/videos" style="color:${GREEN};font-size:12px;font-weight:600;text-decoration:none">See what moved →</a>
+          <a href="${d.appUrl}/dashboard/videos" style="color:${LINK};font-size:12px;font-weight:600;text-decoration:none">See what moved →</a>
         </div>
       </div>`).join('')
     : d.ownedEvents.length
       ? `
-      <div style="padding:11px 0;border-bottom:1px solid ${BORDER}">
+      <div style="padding:11px 0;border-bottom:1px solid ${HAIRLINE}">
         <div style="font-size:14px;font-weight:600;color:${INK}">${escapeHtml(d.ownedEvents[0].magnitudeLabel)}</div>
         <div style="font-size:13px;color:${MUTED};line-height:1.5;margin-top:2px">The conversation we track doesn't account for this move, so we flag it rather than guess at a cause. (${escapeHtml(platformLabel(d.ownedEvents[0].platform))})</div>
       </div>`
@@ -621,7 +633,7 @@ function renderReportHtml(d: ReportData, subject: string): string {
     ${sectionTitle('Worth a reply')}
     ${d.engage.map((e) => rowBlock({
       label: e.categoryLabel,
-      text: `&ldquo;${escapeHtml(e.text)}&rdquo; <span style="color:${MUTED}">· ${escapeHtml(platformLabel(e.platform))}</span>`,
+      text: `<span style="font-family:${SERIF};font-style:italic">&ldquo;${escapeHtml(e.text)}&rdquo;</span> <span style="color:${MUTED}">· ${escapeHtml(platformLabel(e.platform))}</span>`,
       href: e.href ?? undefined,
       linkText: 'Join the conversation',
     })).join('')}` : ''
@@ -637,16 +649,19 @@ function renderReportHtml(d: ReportData, subject: string): string {
 
   return `<!doctype html>
 <html>
-  <head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
-  <body style="margin:0;background:${CREAM};font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:${INK}">
+  <head>
+    <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+    <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;600&family=IBM+Plex+Serif:ital@1&family=IBM+Plex+Mono:wght@400;600&display=swap" rel="stylesheet">
+  </head>
+  <body style="margin:0;background:${CANVAS};font-family:${SANS};color:${INK}">
     <span style="display:none;max-height:0;overflow:hidden;opacity:0">${escapeHtml(subject)}</span>
-    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="padding:24px 12px">
-      <tr><td align="center">
-        <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:600px;background:${CARD};border-radius:14px;overflow:hidden;border:1px solid ${BORDER}">
-          <tr><td style="background:${GREEN};padding:24px 28px">
-            <div style="color:${CREAM};font-size:12px;font-weight:700;letter-spacing:1.2px;text-transform:uppercase;opacity:.9">Verbatim · Consumer Intelligence</div>
-            <div style="color:#FFFFFF;font-size:20px;font-weight:700;margin-top:8px">${escapeHtml(d.companyName)}: ${escapeHtml(lead.rows.length ? lead.title.toLowerCase() : `your ${cadence} update`)}</div>
-            <div style="color:#BCD3C6;font-size:13px;margin-top:4px">Data through ${escapeHtml(fmtDate(d.runDate))}</div>
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+      <tr><td align="center" style="padding:24px 12px">
+        <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:600px;background:${CARD};border-radius:6px;overflow:hidden;box-shadow:0 0 0 1px rgba(38,41,44,.04),0 1px 3px rgba(38,41,44,.05),0 0 16px rgba(38,41,44,.09)">
+          <tr><td style="padding:26px 28px 6px">
+            <div style="font-size:12px;font-weight:600;letter-spacing:.8px;text-transform:uppercase;color:${MUTED}"><span style="color:${INK}">Verbatim</span> · Consumer Intelligence</div>
+            <div style="color:${INK};font-size:20px;font-weight:600;margin-top:10px;line-height:1.3">${escapeHtml(d.companyName)}: ${escapeHtml(lead.rows.length ? lead.title.toLowerCase() : `your ${cadence} update`)}</div>
+            <div style="color:${FAINT};font-size:12px;margin-top:6px;font-family:${MONO}">Data through ${escapeHtml(fmtDate(d.runDate))}</div>
           </td></tr>
           <tr><td style="padding:8px 24px 22px">
             ${recHtml}
@@ -657,14 +672,14 @@ function renderReportHtml(d: ReportData, subject: string): string {
             ${compHtml}
             <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:22px 0 4px">
               <tr><td align="center">
-                <a href="${d.appUrl}/dashboard" style="display:inline-block;background:${GREEN};color:#FFFFFF;text-decoration:none;font-weight:600;font-size:15px;padding:12px 28px;border-radius:10px">
+                <a href="${d.appUrl}/dashboard" style="display:inline-block;background:${GREEN};color:#FFFFFF;text-decoration:none;font-weight:600;font-size:15px;padding:12px 28px;border-radius:6px">
                   Open your dashboard
                 </a>
               </td></tr>
             </table>
           </td></tr>
-          <tr><td style="padding:16px 28px;border-top:1px solid ${BORDER}">
-            <div style="font-size:12px;color:${MUTED};line-height:1.5">Verbatim. Consumer intelligence, in their own words. You're receiving this because your team gets ${cadence} updates.</div>
+          <tr><td style="padding:16px 28px;border-top:1px solid ${HAIRLINE}">
+            <div style="font-size:12px;color:${FAINT};line-height:1.5">Verbatim. Consumer intelligence, in their own words. You're receiving this because your team gets ${cadence} updates.</div>
           </td></tr>
         </table>
       </td></tr>
