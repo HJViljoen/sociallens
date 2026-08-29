@@ -1,6 +1,8 @@
 import type { PageKey, PageModule } from '@/lib/renderables/types'
 import { dashboardPage } from './dashboard'
 import { voicePage } from './voice'
+import { profilePage } from './profile'
+import { competitivePage } from './competitive'
 
 // The catalogue of renderables (plan D1): every page module, keyed. A tile is
 // addressed as `<page>.<tile>` — the export route, the render page and, later,
@@ -14,6 +16,8 @@ import { voicePage } from './voice'
 export const PAGES: Partial<Record<PageKey, PageModule<any>>> = {
   dashboard: dashboardPage,
   voice: voicePage,
+  profile: profilePage,
+  competitive: competitivePage,
 }
 
 export function pageModule(key: string): PageModule<unknown> | null {
