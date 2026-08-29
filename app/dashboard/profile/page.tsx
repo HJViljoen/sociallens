@@ -9,5 +9,5 @@ export default async function Page({ searchParams }: { searchParams: Promise<Pro
   const { supabase, clientId } = await getSessionContext()
   const sp = await searchParams
   const data = await loadProfile({ supabase, clientId, params: sp })
-  return <ProfilePage data={data} />
+  return <ProfilePage data={data} params={sp} />
 }

@@ -10,5 +10,5 @@ export default async function Page({ searchParams }: { searchParams?: Promise<Co
   const { supabase, clientId } = await getSessionContext()
   const sp = (await searchParams) ?? {}
   const data = await loadCompetitive({ supabase, clientId, params: sp })
-  return <CompetitivePage data={data} detail={sp.detail} />
+  return <CompetitivePage data={data} detail={sp.detail} params={sp} />
 }

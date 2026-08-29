@@ -18,9 +18,12 @@ import type { Quote } from './types'
  * a recommendations / market_insights / competitive_insights / account_events
  * row (`hero_quote`), which erase-commenter nulls by string match, so resolving
  * through the row is as erasure-safe as resolving through insight_evidence.
+ * `b:<run_id>:<n>` is a "said about you" claim quoted from a VIDEO
+ * (run_summary.brand_voice.about[n].quote — a creator's words, not a
+ * commenter's; kept as a ref all the same so no stored export carries them).
  */
 
-const REF_RE = /^([ecv]:.+|h:[a-z_]+:.+)$/
+const REF_RE = /^([ecv]:.+|h:[a-z_]+:.+|b:[^:]+:\d+)$/
 
 export function isQuote(v: unknown): v is Quote {
   if (!v || typeof v !== 'object' || Array.isArray(v)) return false
@@ -35,12 +38,15 @@ export const quoteRef = {
   comment: (id: string) => `c:${id}`,
   video: (id: string) => `v:${id}`,
   hero: (table: HeroTable, id: string) => `h:${table}:${id}`,
+  brandVoice: (runId: string, index: number) => `b:${runId}:${index}`,
 }
 
 /** Split a ref into its kind, bare id and (for heroes) table. */
-export function parseRef(ref: string): { kind: 'e' | 'c' | 'v'; id: string } | { kind: 'h'; table: string; id: string } | null {
+export function parseRef(ref: string): { kind: 'e' | 'c' | 'v'; id: string } | { kind: 'h'; table: string; id: string } | { kind: 'b'; runId: string; index: number } | null {
   const h = /^h:([a-z_]+):(.+)$/.exec(ref)
   if (h) return { kind: 'h', table: h[1], id: h[2] }
+  const b = /^b:([^:]+):(\d+)$/.exec(ref)
+  if (b) return { kind: 'b', runId: b[1], index: Number(b[2]) }
   const m = /^([ecv]):(.+)$/.exec(ref)
   return m ? { kind: m[1] as 'e' | 'c' | 'v', id: m[2] } : null
 }

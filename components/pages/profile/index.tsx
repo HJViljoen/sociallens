@@ -1,4 +1,5 @@
 import Link from 'next/link'
+import { ExportMenu, ExportScope } from '@/components/export-menu'
 import type { ReactNode } from 'react'
 import { HeartCrack, Compass, Users, UserRound, Layers, Zap } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -309,7 +310,7 @@ export const profilePage: PageModule<D> = {
 /** The app page: the switcher + composition, then the two summary cards —
  *  same order the old page returned, no `PageFrame`/`PageGrid` (this page's
  *  own bespoke layout). */
-export function ProfilePage({ data: d }: { data: ProfileData | ProfileEmpty }) {
+export function ProfilePage({ data: d, params }: { data: ProfileData | ProfileEmpty; params: Record<string, string | undefined> }) {
   if (isProfileEmpty(d)) {
     return (
       <div className="space-y-6">
@@ -324,10 +325,15 @@ export function ProfilePage({ data: d }: { data: ProfileData | ProfileEmpty }) {
   return (
     // min-h-full + flex: the grid must be able to claim the remaining height,
     // which is what lets the figure reach the bottom of the pane.
-    <div className="flex min-h-full flex-col gap-5">
-      {renderables['profile.persona'].render(d, 'app')}
-      {renderables['profile.platformMix'].render(d, 'app')}
-      {renderables['profile.shareOverTime'].render(d, 'app')}
-    </div>
+    <ExportScope page="profile" params={params} tiles={Object.values(renderables).map((r) => ({ key: r.key, title: r.title }))}>
+      <div className="relative flex min-h-full flex-col gap-5">
+        {/* No page bar on this page: the export control sits in the top-right
+            corner, over nothing (the switcher is top-left). */}
+        <div className="absolute right-0 top-0 z-10"><ExportMenu /></div>
+        {renderables['profile.persona'].render(d, 'app')}
+        {renderables['profile.platformMix'].render(d, 'app')}
+        {renderables['profile.shareOverTime'].render(d, 'app')}
+      </div>
+    </ExportScope>
   )
 }

@@ -268,10 +268,16 @@ export async function fetchQuoteTextsByRefs(
   const out = new Map<string, string>()
   const by = { e: [] as string[], c: [] as string[], v: [] as string[] }
   const heroes = new Map<string, string[]>()
+  const brandVoice = new Map<string, number[]>()
   for (const ref of new Set(refs)) {
     const h = /^h:([a-z_]+):(.+)$/.exec(ref)
     if (h) {
       if (HERO_TABLES.has(h[1])) heroes.set(h[1], [...(heroes.get(h[1]) ?? []), h[2]])
+      continue
+    }
+    const b = /^b:([^:]+):(\d+)$/.exec(ref)
+    if (b) {
+      brandVoice.set(b[1], [...(brandVoice.get(b[1]) ?? []), Number(b[2])])
       continue
     }
     const m = /^([ecv]):(.+)$/.exec(ref)
@@ -284,6 +290,21 @@ export async function fetchQuoteTextsByRefs(
     )
     for (const r of rows) if (r.hero_quote) out.set(`h:${table}:${r.id}`, cleanQuote(r.hero_quote))
   })
+  // "Said about you" claims quoted from videos: run_summary.brand_voice.about[n].
+  const brandVoiceRead = brandVoice.size
+    ? (async () => {
+        const rows = await fetchChunks<{ run_id: string; brand_voice: { about?: { quote?: string | null }[] } | null }>(
+          [...brandVoice.keys()],
+          (chunk) => c.from('run_summary').select('run_id, brand_voice').in('run_id', chunk) as unknown as Rows,
+        )
+        for (const r of rows) {
+          for (const n of brandVoice.get(r.run_id) ?? []) {
+            const q = r.brand_voice?.about?.[n]?.quote
+            if (q) out.set(`b:${r.run_id}:${n}`, cleanQuote(q))
+          }
+        }
+      })()
+    : Promise.resolve()
   const [byId, byComment, byVideo] = await Promise.all([
     fetchChunks<{ id: string; quote: string | null }>(
       by.e,
@@ -298,7 +319,7 @@ export async function fetchQuoteTextsByRefs(
       (chunk) => c.from('insight_evidence').select('source_video_id, quote').in('source_video_id', chunk).eq('redacted', false),
     ),
   ])
-  await Promise.all(heroReads)
+  await Promise.all([...heroReads, brandVoiceRead])
   for (const r of byId) if (r.quote && !out.has(`e:${r.id}`)) out.set(`e:${r.id}`, r.quote)
   for (const r of byComment) if (r.comment_id && r.quote && !out.has(`c:${r.comment_id}`)) out.set(`c:${r.comment_id}`, r.quote)
   for (const r of byVideo) if (r.source_video_id && r.quote && !out.has(`v:${r.source_video_id}`)) out.set(`v:${r.source_video_id}`, r.quote)

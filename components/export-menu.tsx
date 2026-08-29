@@ -29,22 +29,23 @@ export function ExportScope({ page, params, tiles, children }: ExportScopeValue 
 
 type Format = 'pdf' | 'png'
 interface Job { kind: 'page' | 'tile'; tileKey?: string; format: Format; variant?: 'default' | 'full'; label: string }
-type State = { phase: 'idle' } | { phase: 'busy'; label: string; started: number } | { phase: 'done'; url: string; label: string } | { phase: 'error'; message: string }
+const NOUN: Record<Format, string> = { pdf: 'PDF', png: 'image' }
+type State = { phase: 'idle' } | { phase: 'busy'; noun: string; started: number } | { phase: 'done'; url: string; noun: string } | { phase: 'error'; message: string }
 
 function useExport(scope: ExportScopeValue | null) {
   const [state, setState] = useState<State>({ phase: 'idle' })
-  const [elapsed, setElapsed] = useState(0)
+  // A ticking clock while busy; elapsed is derived, never set in the effect.
+  const [now, setNow] = useState(0)
   useEffect(() => {
     if (state.phase !== 'busy') return
-    const started = state.started
-    setElapsed(0)
-    const id = setInterval(() => setElapsed(Math.floor((Date.now() - started) / 1000)), 250)
+    const id = setInterval(() => setNow(Date.now()), 250)
     return () => clearInterval(id)
   }, [state])
+  const elapsed = state.phase === 'busy' ? Math.max(0, Math.floor((now - state.started) / 1000)) : 0
 
   async function run(job: Job) {
     if (!scope) return
-    setState({ phase: 'busy', label: job.label, started: Date.now() })
+    setState({ phase: 'busy', noun: NOUN[job.format], started: Date.now() })
     try {
       const r = await fetch('/api/export', {
         method: 'POST',
@@ -56,7 +57,7 @@ function useExport(scope: ExportScopeValue | null) {
         setState({ phase: 'error', message: j.error ?? 'Couldn’t render this — try again.' })
         return
       }
-      setState({ phase: 'done', url: j.url, label: job.label })
+      setState({ phase: 'done', url: j.url, noun: NOUN[job.format] })
       // The signed URL carries Content-Disposition: attachment — the browser
       // downloads it and the page stays put.
       window.location.assign(j.url)
@@ -113,11 +114,11 @@ function Menu({ anchor, open, onClose, jobs, ex, id }: {
       {state.phase === 'busy' ? (
         <p className="flex items-center gap-2 px-2 py-2 text-secondary-foreground">
           <LoaderCircle className="size-3.5 animate-spin" aria-hidden />
-          Preparing {state.label} · {elapsed}s
+          Preparing your {state.noun} · {elapsed}s
         </p>
       ) : state.phase === 'done' ? (
         <div className="px-2 py-2">
-          <p className="text-secondary-foreground">Your {state.label} is downloading.</p>
+          <p className="text-secondary-foreground">Your {state.noun} is downloading.</p>
           <a href={state.url} className="mt-1 inline-block font-medium underline underline-offset-2">Download again</a>
           <button type="button" onClick={ex.reset} className="ml-3 text-muted-foreground hover:text-foreground">Export another</button>
         </div>
@@ -183,7 +184,9 @@ export function TileExportButton({ tileKey }: { tileKey: string }) {
   ]
   const busy = ex.state.phase === 'busy'
   return (
-    <span className={`absolute -right-1 top-1/2 -translate-y-1/2 ${open || busy ? 'opacity-100' : 'opacity-0 group-hover/tile:opacity-100 focus-within:opacity-100'}`}>
+    // No transform here: a transformed ancestor would trap the position:fixed
+    // menu inside the tile's overflow-hidden box.
+    <span className={`absolute -right-1 -top-0.5 ${open || busy ? 'opacity-100' : 'opacity-0 group-hover/tile:opacity-100 focus-within:opacity-100'}`}>
       <button ref={btn} type="button" aria-label="Export this tile" aria-expanded={open} aria-controls={id} aria-haspopup="dialog" data-print-hide=""
         onClick={() => setOpen((o) => !o)}
         className="grid size-5 place-items-center rounded-[4px] text-muted-foreground hover:bg-inner hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring">

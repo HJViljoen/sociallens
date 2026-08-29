@@ -1,6 +1,7 @@
 import Link from 'next/link'
 import { Fragment, type ReactNode } from 'react'
 import { HowToRead } from '@/components/how-to-read'
+import { ExportMenu, ExportScope } from '@/components/export-menu'
 import { PageFrame, PageGrid, PageBar, BarPill } from '@/components/shell/page-grid'
 import { Tile, TileEmpty } from '@/components/shell/tile'
 import { cn } from '@/lib/utils'
@@ -73,14 +74,14 @@ const standings: R = (d, mode) => {
   const s = d.standings
   if (!s) {
     return (
-      <Tile col={12} row={2} eyebrow="Where you stand" meta={d.layerWord}>
+      <Tile exportKey="competitive.standings" col={12} row={2} eyebrow="Where you stand" meta={d.layerWord}>
         <TileEmpty>The face-off starts once a competitor’s videos are tracked — add competitors in Settings, and the next update compares you side by side.</TileEmpty>
       </Tile>
     )
   }
   const sel = d.selection
   return (
-    <Tile col={4} row={3} eyebrow="Where you stand" meta={`by videos · ${d.layerWord}`}
+    <Tile exportKey="competitive.standings" col={4} row={3} eyebrow="Where you stand" meta={`by videos · ${d.layerWord}`}
       footerNote={`${s.competitors.length} competitor${s.competitors.length === 1 ? '' : 's'} tracked`}
       footer={app ? <span className="text-[11.5px] font-normal text-muted-foreground">Select a competitor to face off →</span> : undefined}
     >
@@ -113,7 +114,7 @@ const faceoff: R = (d, mode) => {
   const app = mode === 'app'
   const fo = d.faceoff
   return (
-    <Tile col={8} row={3} eyebrow={`Face-off · ${d.brandShort} vs ${fo.lead}`} meta={d.layerWord}
+    <Tile exportKey="competitive.faceoff" col={8} row={3} eyebrow={`Face-off · ${d.brandShort} vs ${fo.lead}`} meta={d.layerWord}
       footer={fo.leadFindings > 0 ? (
         app
           ? <Link href={competitiveFindingHref({ vs: fo.lead, about: fo.lead }, 'findings')}>{fo.leadFindings} finding{fo.leadFindings === 1 ? '' : 's'} about {fo.lead} ↓</Link>
@@ -141,7 +142,7 @@ const shareLine: R = (d) => {
   const series = d.shareLine.series
   const lead = d.selection.vs
   return (
-    <Tile col={7} row={2} eyebrow="Share of tracked conversation over time"
+    <Tile exportKey="competitive.shareLine" col={7} row={2} eyebrow="Share of tracked conversation over time"
       meta={series ? `${d.updatesCount} updates · ${series.layer === 'cumulative' ? 'all-time share' : 'share per update'}` : undefined}
       footerNote={series ? `since your first update: ${d.brandShort} ${fmtDelta(series.youDelta, 'pt', 1)}${series.themDelta != null ? ` · ${lead} ${fmtDelta(series.themDelta, 'pt', 1)}` : ''}` : undefined}
       bodyClassName="min-h-0 justify-center">
@@ -168,7 +169,7 @@ const table: R = (d) => {
   const rows = d.table.rows
   const lead = d.selection.vs
   return (
-    <Tile col={5} row={2} eyebrow="The full comparison" meta="incl. the wider category" bodyClassName="min-h-0 overflow-auto">
+    <Tile exportKey="competitive.table" col={5} row={2} eyebrow="The full comparison" meta="incl. the wider category" bodyClassName="min-h-0 overflow-auto">
       {rows.length > 0 ? (
         <table className="w-full text-[11.5px]">
           <thead>
@@ -421,7 +422,7 @@ export const competitivePage: PageModule<D> = {
 }
 
 /** The app page: page bar, the overview grid, the findings master-detail. */
-export function CompetitivePage({ data: d, detail: detailParam }: { data: CompetitiveData | CompetitiveEmpty; detail?: string }) {
+export function CompetitivePage({ data: d, detail: detailParam, params }: { data: CompetitiveData | CompetitiveEmpty; detail?: string; params: Record<string, string | undefined> }) {
   const showLegend = detailParam === 'legend'
   if (isCompetitiveEmpty(d)) {
     return (
@@ -434,8 +435,10 @@ export function CompetitivePage({ data: d, detail: detailParam }: { data: Compet
     )
   }
   return (
+    <ExportScope page="competitive" params={params} tiles={Object.values(baseRenderables).map((r) => ({ key: r.key, title: r.title }))}>
     <PageFrame className="min-h-0 flex-1">
       <PageBar title="Competitive Intelligence" context={d.context}>
+        <ExportMenu />
         {d.updatesCount > 1 && <BarPill>Last {d.updatesCount} updates</BarPill>}
         <HowToRead items={d.legendItems ?? LEGEND_ITEMS} open={showLegend} basePath="/dashboard/competitive" />
       </PageBar>
@@ -450,5 +453,6 @@ export function CompetitivePage({ data: d, detail: detailParam }: { data: Compet
         <MasterDetail id="competitive-findings" className="md:h-[600px]" rail={rail(d, 'app')} list={list(d, 'app')} detail={detail(d, 'app')} />
       </div>
     </PageFrame>
+    </ExportScope>
   )
 }
