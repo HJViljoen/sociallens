@@ -16,6 +16,7 @@ function cand(over: {
   n++
   return {
     insightId: `i${n}`,
+    evidenceId: `e${n}`,
     category: over.category ?? 'question',
     strength: over.strength === undefined ? 5 : over.strength,
     theme: 'theme',

@@ -50,6 +50,10 @@ export interface EngageComment {
 
 export interface EngageCandidate {
   insightId: string
+  /** insight_evidence.id — the evidence row this candidate is drawn from
+   *  (Reports & Exports, 2026-08-29): the ref a "why it surfaced" quote
+   *  freezes through, distinct from the inbox row's own comment ref. */
+  evidenceId: string
   category: string
   /** Parent insight strength_score, 1-10. */
   strength: number | null
@@ -204,10 +208,10 @@ export async function loadEngageCandidates(
   if (insights.length === 0) return []
   const byInsight = new Map(insights.map((i) => [i.id, i]))
 
-  const evidence = await chunkedIn<{ audience_insight_id: string; comment_id: string | null }>(
+  const evidence = await chunkedIn<{ id: string; audience_insight_id: string; comment_id: string | null }>(
     (ids) => () =>
       db.from('insight_evidence')
-        .select('audience_insight_id, comment_id')
+        .select('id, audience_insight_id, comment_id')
         .in('audience_insight_id', ids)
         .eq('source', 'comment')
         .order('id'),
@@ -251,6 +255,7 @@ export async function loadEngageCandidates(
     const video = videoByKey.get(`${comment.platform}::${comment.video_id}`)
     candidates.push({
       insightId: insight.id,
+      evidenceId: e.id,
       category: insight.category,
       strength: insight.strength_score,
       theme: insight.theme,

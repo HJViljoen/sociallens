@@ -1,10 +1,12 @@
 import { describe, it, expect } from 'vitest'
 import {
-  intentOf, ageLabel, contextLine, orderInbox, inboxRows, intentCounts,
+  intentOf, ageLabel, contextLine, orderInbox, inboxRows, intentCounts, shapeInbox,
   medianEngagement, perfVsMedian, fmtMultiple, bestDuration,
   fieldSentence, topVoices, roleByAccount, initials,
-  type InboxRow, type InboxSource, type VoiceRole,
+  entityKey, entityScoreboard, durationPerf, entityPlaybooks, trendingSounds, durationLabel, pretty,
+  type InboxRow, type InboxSource, type VoiceRole, type EntityVideo,
 } from './content-tiles'
+import type { EngageCandidate } from './engage'
 
 const NOW = '2026-08-16T12:00:00Z'
 
@@ -72,6 +74,36 @@ describe('inbox ordering', () => {
       { src: src('b', 'question', '2026-08-14T00:00:00Z'), intent: 'question', age: '2d', context: '' },
     ]
     expect(orderInbox(rows).map((r) => r.src.id)).toEqual(['a', 'b'])
+  })
+})
+
+describe('shapeInbox', () => {
+  const candidate = (over: { commentId?: string; category?: string; commentDate?: string | null; likes?: number }): EngageCandidate => ({
+    insightId: 'i1',
+    evidenceId: 'e1',
+    category: over.category ?? 'question',
+    strength: 5,
+    theme: 'battery_life',
+    comment: {
+      id: over.commentId ?? 'c1',
+      author: 'a',
+      text: 'how long does the battery actually last',
+      likes: over.likes ?? 0,
+      commentDate: over.commentDate === undefined ? '2026-08-15T00:00:00Z' : over.commentDate,
+      platform: 'tiktok',
+      videoUrl: 'https://t.example/1',
+      account: 'ossur',
+      platformCommentId: 'p1',
+    },
+  })
+  it('shapes candidates into ordered inbox rows, the candidate riding along as src', () => {
+    const rows = shapeInbox(
+      [candidate({ commentId: 'c-old', category: 'objection', commentDate: '2026-08-10T00:00:00Z' }), candidate({ commentId: 'c-new' })],
+      { now: NOW, ownHandles: new Set(), roleByAccount: new Map() },
+    )
+    expect(rows.map((r) => r.src.id)).toEqual(['c-new', 'c-old'])
+    expect(rows[0].src.comment.text).toBe('how long does the battery actually last')
+    expect(rows[0].intent).toBe('question')
   })
 })
 
@@ -188,5 +220,70 @@ describe('topVoices', () => {
     expect(initials('@ossur')).toBe('OS')
     expect(initials('runningblade_life')).toBe('RL')
     expect(initials('x')).toBe('X')
+  })
+})
+
+describe('entityKey and the scoreboard', () => {
+  const vid = (over: Partial<EntityVideo> = {}): EntityVideo => ({
+    is_client: false, is_competitor: false, competitor_name: null,
+    duration_seconds: 20, engagement_rate: 3, views: 1000,
+    classified_type: null, hook_style: null, audio_name: null,
+    ...over,
+  })
+  it('reads a video’s entity: you, a named competitor, or category creators', () => {
+    expect(entityKey(vid({ is_client: true }))).toEqual({ label: 'You', kind: 'you' })
+    expect(entityKey(vid({ is_competitor: true, competitor_name: 'Ottobock' }))).toEqual({ label: 'Ottobock', kind: 'competitor' })
+    expect(entityKey(vid({ is_competitor: true, competitor_name: null }))).toEqual({ label: 'Competitor', kind: 'competitor' })
+    expect(entityKey(vid())).toEqual({ label: 'Category creators', kind: 'category' })
+  })
+
+  it('groups the scoreboard by entity, You first, then competitors by volume, category last', () => {
+    const rows = entityScoreboard([
+      vid({ is_client: true, duration_seconds: 10, engagement_rate: 4, views: 100 }),
+      vid({ is_client: true, duration_seconds: 30, engagement_rate: 2, views: 200 }),
+      vid({ is_competitor: true, competitor_name: 'Ottobock', engagement_rate: 0, views: 50 }),
+      vid(), vid(), vid(),
+    ])
+    expect(rows.map((r) => r.label)).toEqual(['You', 'Ottobock', 'Category creators'])
+    const you = rows[0]
+    expect(you).toMatchObject({ videos: 2, views: 300, medianDuration: 20, avgEng: 3, engN: 2 })
+    expect(rows.find((r) => r.label === 'Ottobock')).toMatchObject({ avgEng: null, engN: 0 })
+  })
+
+  it('buckets videos into non-empty duration bands, engagement averaged per band', () => {
+    const out = durationPerf([
+      vid({ duration_seconds: 10, engagement_rate: 2 }),
+      vid({ duration_seconds: 12, engagement_rate: 4 }),
+      vid({ duration_seconds: 45, engagement_rate: 0 }),
+      vid({ duration_seconds: 0 }), // uncounted — no duration
+    ])
+    expect(out).toEqual([
+      { label: 'Under 15 s', count: 2, avgEng: 3, engN: 2 },
+      { label: '30–60 s', count: 1, avgEng: null, engN: 0 },
+    ])
+  })
+
+  it('builds per-entity playbooks: top formats and hook, coverage stated', () => {
+    const out = entityPlaybooks([
+      vid({ is_client: true, classified_type: 'review', hook_style: 'direct_question' }),
+      vid({ is_client: true, classified_type: 'review' }),
+      vid({ is_client: true }),
+    ])
+    expect(out[0]).toMatchObject({ label: 'You', total: 3, classified: 2, topFormats: [{ k: 'review', count: 2 }], topHook: { k: 'direct_question', count: 1 } })
+  })
+
+  it('picks sounds shared by 2+ videos, most-used and highest-viewed first', () => {
+    const out = trendingSounds([
+      vid({ audio_name: 'trend-a', views: 10 }),
+      vid({ audio_name: 'trend-a', views: 20 }),
+      vid({ audio_name: 'solo-track', views: 999 }),
+    ])
+    expect(out).toEqual([{ name: 'trend-a', count: 2, views: 30 }])
+  })
+
+  it('formats a duration and humanizes a slug', () => {
+    expect(durationLabel(9)).toBe('9s')
+    expect(durationLabel(92)).toBe('1:32 min')
+    expect(pretty('before_after')).toBe('before after')
   })
 })
