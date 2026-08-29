@@ -97,6 +97,9 @@ export interface SectionData {
 export interface Figure {
   label: string
   value: string
+  /** How the placeholder reads: a count is followed by what it counts, a
+   *  percentage stands where the % reads, a name where the name reads. */
+  kind: 'count' | 'pct' | 'name'
 }
 export type FigureTable = Record<string, Figure>
 

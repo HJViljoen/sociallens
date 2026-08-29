@@ -88,3 +88,40 @@ export function dedupeTitles(titles: string[]): string[] {
   }
   return out
 }
+
+// ── the scrub ─────────────────────────────────────────────────────────────
+// The write-time rules of the executive brief (lib/pipeline/narrative.ts),
+// applied sentence by sentence to model prose that names figures by key.
+
+const KEYED_FIGURE_RE = /\[\[([a-z_]+)\]\]/g
+
+export interface ScrubbedCover {
+  body: string
+  /** Sentences dropped: an unknown key, a leaked digit that could not be re-anchored, or nothing left after the strip. */
+  dropped: number
+  /** True when a magnitude word or a literal number had to be removed. */
+  leaked: boolean
+}
+
+/** Keep only sentences that cite known keys, strip magnitude words, and
+ *  drop any sentence in which the model typed a number of its own — a
+ *  figure in a cover is either substituted by code or absent. */
+export function scrubCover(body: string, figures: FigureTable, rules: { magnitude: RegExp; figure: RegExp; tidy: (s: string) => string }): ScrubbedCover {
+  const kept: string[] = []
+  let dropped = 0
+  let leaked = false
+  for (const raw of splitSentences(body)) {
+    const keys = [...raw.matchAll(KEYED_FIGURE_RE)].map((m) => m[1])
+    if (keys.some((k) => !figures[k])) { dropped += 1; continue }
+    const withoutKeys = raw.replace(KEYED_FIGURE_RE, ' ')
+    // A literal number outside a placeholder: the model wrote a figure.
+    rules.figure.lastIndex = 0
+    if (withoutKeys.replace(rules.figure, '') !== withoutKeys) { dropped += 1; leaked = true; continue }
+    const stripped = raw.replace(rules.magnitude, '')
+    if (stripped !== raw) leaked = true
+    const text = rules.tidy(stripped)
+    if (!text || text.replace(KEYED_FIGURE_RE, '').replace(/[\s.,;:!?]/g, '') === '') { dropped += 1; continue }
+    kept.push(text)
+  }
+  return { body: kept.join(' '), dropped, leaked }
+}

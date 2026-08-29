@@ -1,11 +1,11 @@
 import { describe, expect, it } from 'vitest'
-import { composeFallbackCover, coverPlainText, dedupeTitles, splitSentences, substituteFigures } from './cover'
+import { composeFallbackCover, coverPlainText, dedupeTitles, scrubCover, splitSentences, substituteFigures } from './cover'
 import type { FigureTable } from './types'
 
 const figures: FigureTable = {
-  videos: { label: 'conversations analysed', value: '374' },
-  comments: { label: 'comments read', value: '4,626' },
-  sentiment_positive_pct: { label: 'positive sentiment', value: '92.7%' },
+  videos: { label: 'conversations analysed', value: '374', kind: 'count' },
+  comments: { label: 'comments read', value: '4,626', kind: 'count' },
+  sentiment_positive_pct: { label: 'positive sentiment', value: '92.7%', kind: 'pct' },
 }
 
 describe('substituteFigures', () => {
@@ -43,5 +43,27 @@ describe('composeFallbackCover', () => {
   })
   it('dedupes titles by their first segment', () => {
     expect(dedupeTitles(['A · x', 'A · y', 'B'])).toEqual(['A', 'B'])
+  })
+})
+
+describe('scrubCover', () => {
+  const rules = { magnitude: /\b(very|most|many|strong)\b/gi, figure: /[+-]?\d[\d.,]*\s?(?:%|k|m|bn|pts?|percent)?/gi, tidy: (s: string) => s.replace(/\s{2,}/g, ' ').replace(/\s+([.,;:!?])/g, '$1').trim() }
+  it('keeps clean sentences, strips magnitude words, drops unknown keys and typed digits', () => {
+    const out = scrubCover(
+      'Sentiment stands at [[sentiment_positive_pct]] across the rated conversations. Very many people praised the fit. Share reached [[share_of_voice_pct]] this month. Ottobock drew 82 videos. Fine.',
+      figures, rules,
+    )
+    expect(out.body).toBe('Sentiment stands at [[sentiment_positive_pct]] across the rated conversations. people praised the fit. Fine.')
+    expect(out.dropped).toBe(2)
+    expect(out.leaked).toBe(true)
+  })
+  it('drops a sentence that is only placeholders after the strip', () => {
+    const out = scrubCover('[[videos]].', figures, rules)
+    expect(out.body).toBe('')
+    expect(out.dropped).toBe(1)
+  })
+  it('does not count a placeholder key as a typed number', () => {
+    const out = scrubCover('It rests on [[videos]] conversations.', figures, rules)
+    expect(out).toEqual({ body: 'It rests on [[videos]] conversations.', dropped: 0, leaked: false })
   })
 })

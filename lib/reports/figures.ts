@@ -12,14 +12,14 @@ import type { Figure, FigureTable } from './types'
 export function figuresFor(page: PageKey, data: unknown): FigureTable {
   const d = data as Record<string, unknown>
   const out: FigureTable = {}
+  const pct = (n: number) => fmtPct(n, n % 1 === 0 ? 0 : 1)
   const put = (key: string, label: string, value: string | number | null | undefined, fmt?: (n: number) => string) => {
     if (value === null || value === undefined || value === '') return
     if (typeof value === 'number') {
       if (!Number.isFinite(value)) return
-      out[key] = { label, value: fmt ? fmt(value) : fmtInt(value) }
-    } else out[key] = { label, value }
+      out[key] = { label, value: fmt ? fmt(value) : fmtInt(value), kind: fmt === pct ? 'pct' : 'count' }
+    } else out[key] = { label, value, kind: 'name' }
   }
-  const pct = (n: number) => fmtPct(n, n % 1 === 0 ? 0 : 1)
 
   switch (page) {
     case 'dashboard': {

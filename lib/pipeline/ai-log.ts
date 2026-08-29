@@ -8,7 +8,8 @@ import { ANALYSIS_MODEL, estimateCost } from '../config'
 
 export interface AiLogArgs {
   clientId: string
-  runId: string
+  /** null for calls outside a pipeline run (a report cover). */
+  runId: string | null
   pass: string
   callIndex: number
   /** Model the call ran on. Defaults to ANALYSIS_MODEL for older callers. */

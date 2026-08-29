@@ -10,7 +10,9 @@ describe('figuresFor', () => {
       themes: { rows: [{ label: 'Walking strain', conversations: 41 }] },
       hero: { oneThing: { title: 'Launch the Access Navigator' }, headline: 'x' },
     })
-    expect(f.videos).toEqual({ label: 'conversations analysed', value: '374' })
+    expect(f.videos).toEqual({ label: 'conversations analysed', value: '374', kind: 'count' })
+    expect(f.sentiment_positive_pct.kind).toBe('pct')
+    expect(f.top_theme.kind).toBe('name')
     expect(f.comments.value).toBe('4,626')
     expect(f.platforms.value).toBe('Instagram, TikTok & YouTube')
     expect(f.sentiment_positive_pct.value).toBe('92.7%')
@@ -34,7 +36,7 @@ describe('figuresFor', () => {
 
 describe('mergeFigures', () => {
   it('keeps the first section’s value for a shared key', () => {
-    const m = mergeFigures([{ top_theme: { label: 'a', value: 'Dashboard says' } }, { top_theme: { label: 'a', value: 'Voice says' }, phrases: { label: 'p', value: '3' } }])
+    const m = mergeFigures([{ top_theme: { label: 'a', value: 'Dashboard says', kind: 'name' } }, { top_theme: { label: 'a', value: 'Voice says', kind: 'name' }, phrases: { label: 'p', value: '3', kind: 'count' } }])
     expect(m.top_theme.value).toBe('Dashboard says')
     expect(m.phrases.value).toBe('3')
   })

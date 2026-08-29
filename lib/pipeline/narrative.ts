@@ -16,20 +16,20 @@ export const FIGURE_TOKEN = '[[n]]'
 
 // The CALIBRATED_PROSE_RULE banned set — magnitude/frequency words code owns,
 // never the model. Whole-word, case-insensitive.
-const MAGNITUDE_WORDS = [
+export const MAGNITUDE_WORDS = [
   'very', 'extremely', 'significant', 'significantly', 'overwhelming', 'overwhelmingly',
   'huge', 'hugely', 'strong', 'strongly', 'most', 'many', 'widespread', 'frequent',
   'frequently', 'consistently', 'growing', 'increasingly', 'increasing', 'vast', 'majority',
 ]
-const MAGNITUDE_RE = new RegExp(`\\b(${MAGNITUDE_WORDS.join('|')})\\b`, 'gi')
+export const MAGNITUDE_RE = new RegExp(`\\b(${MAGNITUDE_WORDS.join('|')})\\b`, 'gi')
 
 // A figure-like token: an optional sign, digits with separators, an optional
 // unit (%/k/m/bn/pts). Catches "71%", "12.4k", "3", "+8 pts" — anything the
 // model might type where a `[[n]]` token belongs.
-const FIGURE_RE = /[+-]?\d[\d.,]*\s?(?:%|k|m|bn|pts?|percent)?/gi
+export const FIGURE_RE = /[+-]?\d[\d.,]*\s?(?:%|k|m|bn|pts?|percent)?/gi
 
 /** Collapse whitespace and tidy the punctuation a strip leaves behind. */
-function tidy(text: string): string {
+export function tidy(text: string): string {
   return text
     .replace(/\s{2,}/g, ' ')
     .replace(/\s+([.,;:!?])/g, '$1')

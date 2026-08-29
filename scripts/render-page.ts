@@ -60,6 +60,11 @@ async function renderReport() {
   const snap = await snapshotReport({ admin, supabase: admin, clientId, userId: null, report: flag('report') ? report : { ...report, id: '' }, company: (client?.company_name as string) ?? '' })
   const t1 = Date.now()
   try {
+    if (has('no-render')) {
+      console.log(`${report.title}: load+cover ${t1 - t0} ms · sections ${snap.data.sections.length} · figures ${Object.keys(snap.data.figures).length}`)
+      console.log(`  cover${snap.data.cover.fallback ? ' (code)' : ` (${snap.data.cover.model})`}: ${snap.data.cover.body}`)
+      return
+    }
     const { buffer, ms } = await renderArtifact({ baseUrl: base, snapshotId: snap.snapshotId, format: 'pdf', style })
     const name = `report-${(report.template_key ?? report.id).replace(/[^a-z0-9_-]/gi, '_')}.pdf`
     writeFileSync(join(out, name), buffer)
