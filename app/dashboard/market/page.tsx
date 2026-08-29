@@ -14,6 +14,7 @@ import {
   type ClaimTone,
 } from '@/lib/market-tiles'
 import { PageFrame, PageBar, BarPill } from '@/components/shell/page-grid'
+import { Tile, TileBlock, TileEmpty } from '@/components/shell/tile'
 import { MasterDetail } from '@/components/shell/master-detail'
 import { PaneHeader, PaneBody, RailGroup, RailLink, Segmented, ListRows, ListRow, PaneEmpty, DetailHeader, DetailSection, Verbatim } from '@/components/shell/master-list'
 import { ListSearch } from '@/components/shell/list-search'
@@ -67,10 +68,10 @@ interface NewsRow {
   ring: number
 }
 
-type Group = 'recs' | 'insights' | 'claims' | 'about' | 'news' | 'read'
+type Group = 'recs' | 'insights' | 'claims' | 'about'
 type Filter = 'all' | 'strong' | 'early'
 
-const GROUPS: Group[] = ['recs', 'insights', 'claims', 'about', 'news', 'read']
+const GROUPS: Group[] = ['recs', 'insights', 'claims', 'about']
 const isGroup = (s: string | undefined): s is Group => !!s && (GROUPS as string[]).includes(s)
 const isFilter = (s: string | undefined): s is Filter => s === 'all' || s === 'strong' || s === 'early'
 
@@ -277,9 +278,7 @@ export default async function MarketIntelligencePage({ searchParams }: { searchP
     group === 'recs' ? agendaShown.map((a) => a.rec.id)
     : group === 'insights' ? insightsShown.map((mi) => mi.id)
     : group === 'claims' ? claims.map((_, i) => `c${i}`)
-    : group === 'about' ? aboutYou.map((_, i) => `a${i}`)
-    : group === 'news' ? news.map((_, i) => `n${i}`)
-    : QUADRANTS.map((q) => q.key as string)
+    : aboutYou.map((_, i) => `a${i}`)
   )
   const requested = sp.item ?? (group === 'recs' ? sp.rec : undefined)
   const itemId = requested && listIds.includes(requested) ? requested : (listIds[0] ?? null)
@@ -316,14 +315,13 @@ export default async function MarketIntelligencePage({ searchParams }: { searchP
         <RailGroup label="Decide">
           <RailLink href={href('recs')} active={group === 'recs'} count={agenda.length}>Recommendations</RailLink>
           <RailLink href={href('insights')} active={group === 'insights'} count={insights.length}>Key insights</RailLink>
-          <RailLink href={href('read')} active={group === 'read'} count={ciSummary ? 4 : 0}>The short read</RailLink>
         </RailGroup>
         <RailGroup label="Your brand">
           <RailLink href={href('claims')} active={group === 'claims'} count={claims.length}>Say vs hear</RailLink>
           <RailLink href={href('about')} active={group === 'about'} count={aboutYou.length}>Said about you</RailLink>
         </RailGroup>
         <RailGroup label="Context">
-          <RailLink href={href('news')} active={group === 'news'} count={newsTotal}>In the news</RailLink>
+          <RailLink href="#news" count={newsTotal}>In the news ↓</RailLink>
         </RailGroup>
       </PaneBody>
     </>
@@ -331,14 +329,12 @@ export default async function MarketIntelligencePage({ searchParams }: { searchP
 
   // ── list ────────────────────────────────────────────────────────────────
   const LIST_ID = 'market-list'
-  const listTitle: Record<Group, string> = { recs: 'Recommendations', insights: 'Key insights', claims: 'What you say vs what they hear', about: 'Said about you', news: 'In the news', read: 'The short read' }
+  const listTitle: Record<Group, string> = { recs: 'Recommendations', insights: 'Key insights', claims: 'What you say vs what they hear', about: 'Said about you' }
   const listMeta: Record<Group, string | undefined> = {
     recs: agenda.length > 0 ? `${agenda.length} ${plural(agenda.length, 'recommendation')} · ordered by evidence` : undefined,
     insights: insights.length > 0 ? `${tiers.confirmed} confirmed · ${tiers.early} early · ${tiers.archive} below the bar` : undefined,
     claims: claims.length > 0 ? claimCountsLine(counts) : undefined,
     about: aboutYou.length > 0 ? `${aboutYou.length} ${plural(aboutYou.length, 'mention')} in other people’s videos` : undefined,
-    news: newsTotal > 0 ? `${fmtInt(newsTotal)} ${plural(newsTotal, 'headline')}` : undefined,
-    read: undefined,
   }
   const tierFilter = (group === 'recs' || group === 'insights') ? (
     <Segmented items={[
@@ -427,37 +423,6 @@ export default async function MarketIntelligencePage({ searchParams }: { searchP
               ))}
             </ListRows>
           ) : <PaneEmpty>Nothing said about you in other people’s videos yet.</PaneEmpty>)}
-
-          {group === 'news' && (news.length > 0 ? (
-            <ListRows>
-              {news.map((n, i) => {
-                const chip = newsRingChip(n.ring)
-                return (
-                  <ListRow key={i} href={href('news', `n${i}`)} active={`n${i}` === itemId} search={`${n.title} ${n.source_ref}`}>
-                    <div className="flex items-start justify-between gap-2">
-                      <p className="line-clamp-2 text-[12.5px] font-medium leading-[1.35]">{n.title}</p>
-                      <Chip tone={chip.tone} title={glossaryRule('news')}>{chip.label}</Chip>
-                    </div>
-                    <p className="mt-0.5 font-mono text-[10.5px] text-muted-foreground">{n.source_ref}{n.published_at ? ` · ${shortDate(n.published_at)}` : ''}</p>
-                  </ListRow>
-                )
-              })}
-            </ListRows>
-          ) : <PaneEmpty>Nothing in the news this week.</PaneEmpty>)}
-
-          {group === 'read' && (ciSummary ? (
-            <ListRows>
-              {QUADRANTS.map((q) => {
-                const items = quadrantItems(ciSummary, q.key)
-                return (
-                  <ListRow key={q.key} href={href('read', q.key as string)} active={q.key === itemId} search={`${q.title} ${items.join(' ')}`}>
-                    <p className="flex items-center gap-1.5 text-[13px] font-semibold"><span className={`size-1.5 rounded-full ${q.dot}`} aria-hidden />{q.title}</p>
-                    <p className="mt-0.5 line-clamp-1 text-[11.5px] text-muted-foreground">{items[0] ?? '— nothing stood out here this update'}</p>
-                  </ListRow>
-                )
-              })}
-            </ListRows>
-          ) : <PaneEmpty>The short read lands with your next update.</PaneEmpty>)}
         </div>
       </PaneBody>
     </>
@@ -612,49 +577,56 @@ export default async function MarketIntelligencePage({ searchParams }: { searchP
     }
   }
 
-  if (group === 'news' && itemId) {
-    const n = news[Number(itemId.slice(1))]
-    if (n) {
-      const chip = newsRingChip(n.ring)
-      detail = (
-        <>
-          <DetailHeader eyebrow={chip.label} title={n.title} meta={`${n.source_ref}${n.published_at ? ` · ${shortDate(n.published_at)}` : ''}`} />
-          <PaneBody>
-            <DetailSection>
-              <p className="text-[12.5px] leading-[1.5] text-secondary-foreground">Coverage of your brand, competitors and category — context beside the conversation, not a cause of anything measured.</p>
-              <a href={n.url} target="_blank" rel="noopener noreferrer" className="mt-3 inline-block text-[12.5px] font-medium hover:underline">Read the article →</a>
-            </DetailSection>
-          </PaneBody>
-        </>
-      )
-    }
-  }
+  // ── the short read: four blocks across, above the fold ──────────────────
+  const shortRead = (
+    <Tile col={12} row={2} eyebrow="The short read" meta={weekdayDate(runDate)} bodyClassName="justify-center">
+      {ciSummary ? (
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          {QUADRANTS.map((q) => {
+            const items = quadrantItems(ciSummary, q.key)
+            return (
+              <TileBlock key={q.key} className="flex flex-col gap-2">
+                <p className="flex items-center gap-1.5 text-[12.5px] font-semibold"><span className={`size-1.5 rounded-full ${q.dot}`} aria-hidden />{q.title}</p>
+                {items.length > 0 ? (
+                  <ul className="flex flex-col gap-1.5">
+                    {items.map((it, i) => <li key={i} className="text-[12.5px] leading-[1.45] text-secondary-foreground">{it}</li>)}
+                  </ul>
+                ) : <p className="text-[12px] text-muted-foreground">— nothing stood out here this update</p>}
+              </TileBlock>
+            )
+          })}
+        </div>
+      ) : <TileEmpty>The short read lands with your next update.</TileEmpty>}
+    </Tile>
+  )
 
-  if (group === 'read' && itemId && ciSummary) {
-    const q = QUADRANTS.find((x) => x.key === itemId)
-    if (q) {
-      const items = quadrantItems(ciSummary, q.key)
-      detail = (
-        <>
-          <DetailHeader eyebrow="The short read" title={q.title} meta={weekdayDate(runDate)} />
-          <PaneBody>
-            <DetailSection>
-              {items.length > 0 ? (
-                <ul className="flex flex-col gap-2.5">
-                  {items.map((it, i) => (
-                    <li key={i} className="flex items-start gap-2.5 text-[13px] leading-[1.5]">
-                      <span className={`mt-[7px] size-1.5 shrink-0 rounded-full ${q.dot}`} aria-hidden />
-                      <span>{it}</span>
-                    </li>
-                  ))}
-                </ul>
-              ) : <p className="text-[12.5px] text-muted-foreground">— nothing stood out here this update</p>}
-            </DetailSection>
-          </PaneBody>
-        </>
-      )
-    }
-  }
+  // ── in the news: a dated feed beneath, headlines linking out ────────────
+  const inTheNews = (
+    <div id="news" className="scroll-mt-3">
+      <Tile col={12} row={2} eyebrow="In the news"
+        meta={newsTotal > 0 ? `${fmtInt(newsTotal)} ${plural(newsTotal, 'headline')} · newest first` : undefined}
+        footerNote="Coverage of your brand, competitors and category — context beside the conversation, never a claimed cause of anything measured.">
+        {news.length > 0 ? (
+          <ol className="grid gap-x-6 sm:grid-cols-2 xl:grid-cols-3">
+            {news.map((n, i) => {
+              const chip = newsRingChip(n.ring)
+              return (
+                <li key={i} className="border-b border-border/70 py-2">
+                  <a href={n.url} target="_blank" rel="noopener noreferrer" className="group block">
+                    <p className="line-clamp-2 text-[12.5px] font-medium leading-[1.35] group-hover:underline">{n.title}</p>
+                    <p className="mt-1 flex items-center gap-2 font-mono text-[10.5px] text-muted-foreground">
+                      <span className="shrink-0 font-sans font-medium text-secondary-foreground" title={glossaryRule('news')}>{chip.label}</span>
+                      <span className="truncate">· {n.source_ref}{n.published_at ? ` · ${shortDate(n.published_at)}` : ''}</span>
+                    </p>
+                  </a>
+                </li>
+              )
+            })}
+          </ol>
+        ) : <TileEmpty>Nothing in the news this week.</TileEmpty>}
+      </Tile>
+    </div>
+  )
 
   return (
     <PageFrame className="min-h-0 flex-1">
@@ -662,7 +634,9 @@ export default async function MarketIntelligencePage({ searchParams }: { searchP
         <BarPill active>This update</BarPill>
         <HowToRead items={LEGEND_ITEMS} open={showLegend} basePath={BASE} />
       </PageBar>
-      <MasterDetail id="market" rail={rail} list={list} detail={detail} />
+      {shortRead}
+      <MasterDetail id="market" className="md:h-[640px]" rail={rail} list={list} detail={detail} />
+      {inTheNews}
     </PageFrame>
   )
 }
