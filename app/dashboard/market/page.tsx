@@ -585,7 +585,7 @@ export default async function MarketIntelligencePage({ searchParams }: { searchP
           {QUADRANTS.map((q) => {
             const items = quadrantItems(ciSummary, q.key)
             return (
-              <TileBlock key={q.key} className="flex flex-col gap-2">
+              <TileBlock key={q.key} className="flex flex-col gap-2 shadow-block">
                 <p className="flex items-center gap-1.5 text-[12.5px] font-semibold"><span className={`size-1.5 rounded-full ${q.dot}`} aria-hidden />{q.title}</p>
                 {items.length > 0 ? (
                   <ul className="flex flex-col gap-1.5">
