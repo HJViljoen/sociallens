@@ -12,11 +12,15 @@ import type { Quote } from './types'
  * comment disappears from an export rendered after the erasure.
  *
  * A Quote is recognised structurally: an object whose `ref` is a string of the
- * form `e:…`, `c:…` or `v:…` and whose `text` is a string. Nothing else in the
- * pages uses that shape, and the prefix is what keeps this from being a guess.
+ * form `e:…`, `c:…`, `v:…` or `h:<table>:…` and whose `text` is a string.
+ * Nothing else in the pages uses that shape, and the prefix is what keeps this
+ * from being a guess. `h:` is a HERO quote — the pipeline's copy of a voice on
+ * a recommendations / market_insights / competitive_insights / account_events
+ * row (`hero_quote`), which erase-commenter nulls by string match, so resolving
+ * through the row is as erasure-safe as resolving through insight_evidence.
  */
 
-const REF_RE = /^[ecv]:.+/
+const REF_RE = /^([ecv]:.+|h:[a-z_]+:.+)$/
 
 export function isQuote(v: unknown): v is Quote {
   if (!v || typeof v !== 'object' || Array.isArray(v)) return false
@@ -24,14 +28,19 @@ export function isQuote(v: unknown): v is Quote {
   return typeof o.ref === 'string' && REF_RE.test(o.ref) && typeof o.text === 'string'
 }
 
+export type HeroTable = 'recommendations' | 'market_insights' | 'competitive_insights' | 'account_events'
+
 export const quoteRef = {
   evidence: (id: string) => `e:${id}`,
   comment: (id: string) => `c:${id}`,
   video: (id: string) => `v:${id}`,
+  hero: (table: HeroTable, id: string) => `h:${table}:${id}`,
 }
 
-/** Split a ref into its kind and bare id. */
-export function parseRef(ref: string): { kind: 'e' | 'c' | 'v'; id: string } | null {
+/** Split a ref into its kind, bare id and (for heroes) table. */
+export function parseRef(ref: string): { kind: 'e' | 'c' | 'v'; id: string } | { kind: 'h'; table: string; id: string } | null {
+  const h = /^h:([a-z_]+):(.+)$/.exec(ref)
+  if (h) return { kind: 'h', table: h[1], id: h[2] }
   const m = /^([ecv]):(.+)$/.exec(ref)
   return m ? { kind: m[1] as 'e' | 'c' | 'v', id: m[2] } : null
 }
