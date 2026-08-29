@@ -1,6 +1,6 @@
 // End-to-end export smoke: sign in as the demo tenant, POST /api/export for
 // the pages the spine knows, download the files, report sizes and timings.
-//   node --env-file=.env.local --import tsx scripts/export-smoke.ts --out scratch/exports [--pages dashboard,voice] [--tile dashboard.strip] [--variant full] [--style a|b]
+//   node --env-file=.env.local --import tsx scripts/export-smoke.ts --out scratch/exports [--pages dashboard,voice] [--tile dashboard.strip] [--variant full] [--style a|b] [--param seed=1]
 // Needs a dev server (RENDER_BASE_URL or http://localhost:3000) and the
 // report_snapshots/artifacts tables applied.
 
@@ -19,6 +19,8 @@ const pages = flag('pages', 'dashboard,voice').split(',').filter(Boolean)
 const tile = flag('tile', '')
 const variant = flag('variant', 'default')
 const style = flag('style', '')
+const params: Record<string, string> = {}
+for (let i = 0; i < args.length; i++) if (args[i] === '--param' && args[i + 1]) { const [k, v] = args[i + 1].split('='); params[k] = v }
 const email = process.env.SHOT_EMAIL ?? 'demo@verbatimintel.com'
 const password = process.env.SHOT_PASSWORD ?? process.env.DEMO_PASSWORD ?? ''
 
@@ -43,7 +45,7 @@ async function main() {
 
     const jobs: { name: string; body: Record<string, unknown> }[] = pages.map((p) => ({
       name: `${p}${variant === 'full' ? '-full' : ''}`,
-      body: { kind: 'page', page: p, format: 'pdf', variant, ...(style ? { style } : {}) },
+      body: { kind: 'page', page: p, format: 'pdf', variant, params, ...(style ? { style } : {}) },
     }))
     if (tile) jobs.push({ name: tile.replace(/[^a-z0-9.]/gi, '_'), body: { kind: 'tile', page: tile.split('.')[0], tileKey: tile, format: 'png', ...(style ? { style } : {}) } })
 
