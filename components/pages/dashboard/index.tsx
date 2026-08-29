@@ -1,6 +1,7 @@
 import Link from 'next/link'
 import { Fragment, type ReactNode } from 'react'
 import { HowToRead } from '@/components/how-to-read'
+import { ExportMenu, ExportScope } from '@/components/export-menu'
 import { Quotes } from '@/components/quotes'
 import { ProportionBar } from '@/components/proportion-bar'
 import { PageFrame, PageGrid, PageBar, BarPill } from '@/components/shell/page-grid'
@@ -106,7 +107,7 @@ const hero: R = (d, mode) => {
     ? { voices: h.voices, platforms: h.platforms, quotes: h.quotes.map((q) => q.text), href: `/dashboard/market?rec=${encodeURIComponent(h.oneThing.id)}`, hrefLabel: 'See all the voices in Market Intelligence →' }
     : null
   return (
-    <Tile col={7} row={3} variant="hero" distribute="between" eyebrow="Executive brief · this update" meta={weekdayDate(d.runDate)}
+    <Tile exportKey="dashboard.hero" col={7} row={3} variant="hero" distribute="between" eyebrow="Executive brief · this update" meta={weekdayDate(d.runDate)}
       lead={h.show ? h.headline : undefined}
       footer={h.oneThing ? (
         <span className="inline-flex max-w-full items-baseline gap-2">
@@ -155,7 +156,7 @@ const hero: R = (d, mode) => {
 
 // ── sentiment ──────────────────────────────────────────────────────────────
 const sentiment: R = ({ sentiment: s }) => (
-  <Tile col={5} row={1} eyebrow="Audience sentiment" meta={s ? `${fmtInt(s.judged)} judged · to date` : undefined} distribute="center">
+  <Tile exportKey="dashboard.sentiment" col={5} row={1} eyebrow="Audience sentiment" meta={s ? `${fmtInt(s.judged)} judged · to date` : undefined} distribute="center">
     {s ? (
       <>
         <div className="flex items-end gap-3">
@@ -199,7 +200,7 @@ const share: R = ({ share: s }, mode) => {
     </>
   ) : null
   return (
-    <Tile col={5} row={2} eyebrow="Share of tracked conversation" meta={s?.usePeriodShare ? 'by videos · this update' : 'by videos · all updates'}
+    <Tile exportKey="dashboard.share" col={5} row={2} eyebrow="Share of tracked conversation" meta={s?.usePeriodShare ? 'by videos · this update' : 'by videos · all updates'}
       footer={app ? <Link href="/dashboard/competitive">Where you stand{s?.topCompetitor ? ` vs ${s.topCompetitor.name}` : ''} →</Link> : undefined}
       distribute="center"
     >
@@ -216,7 +217,7 @@ const share: R = ({ share: s }, mode) => {
 const themes: R = ({ themes: t }, mode) => {
   const app = mode === 'app'
   return (
-    <Tile col={5} row={2} eyebrow="What your market is talking about" meta="conversations per theme"
+    <Tile exportKey="dashboard.themes" col={5} row={2} eyebrow="What your market is talking about" meta="conversations per theme"
       footer={app ? <Link href="/dashboard/voice">All {t.confirmed > 0 ? `${t.confirmed} confirmed ` : ''}themes →</Link> : undefined}
       footerNote={
         <span className="flex items-center gap-2.5">
@@ -249,7 +250,7 @@ const themes: R = ({ themes: t }, mode) => {
 
 // ── movement since the first update ────────────────────────────────────────
 const movement: R = ({ movement: mv, updatesCount }, mode) => (
-  <Tile col={4} row={2} eyebrow="Since your first update"
+  <Tile exportKey="dashboard.movement" col={4} row={2} eyebrow="Since your first update"
     meta={mv ? `${updatesCount} updates · ${shortDate(mv.dates[0])} → ${shortDate(mv.dates[mv.dates.length - 1])}` : undefined}
     footer={mv && mode === 'app' ? <Link href="/dashboard/competitive">Where you stand over time →</Link> : undefined}
     distribute="center"
@@ -270,7 +271,7 @@ const recommendation: R = ({ hero: h }, mode) => {
   const app = mode === 'app'
   const grounded = h.voices > 0 ? `Grounded in ${fmtInt(h.voices)} voices${h.platforms.length > 1 ? ` · ${h.platforms.length} platforms` : ''}` : null
   return (
-    <Tile col={3} row={1} distribute="center" hoverable={app && !!h.oneThing} className="py-3" eyebrow="Top recommendation" meta={h.oneThing ? priorityLabel(h.oneThing.priority) : undefined}
+    <Tile exportKey="dashboard.recommendation" col={3} row={1} distribute="center" hoverable={app && !!h.oneThing} className="py-3" eyebrow="Top recommendation" meta={h.oneThing ? priorityLabel(h.oneThing.priority) : undefined}
       footer={h.oneThing ? (
         app ? (
           <Link href={`/dashboard/market?rec=${encodeURIComponent(h.oneThing.id)}`} className="after:absolute after:inset-0">
@@ -288,7 +289,7 @@ const recommendation: R = ({ hero: h }, mode) => {
 
 // ── your accounts ──────────────────────────────────────────────────────────
 const accounts: R = ({ accounts: a }, mode) => (
-  <Tile col={3} row={1} distribute="center" eyebrow="On your accounts" meta={a.series.length > 0 ? 'followers · 30 days' : undefined}
+  <Tile exportKey="dashboard.accounts" col={3} row={1} distribute="center" eyebrow="On your accounts" meta={a.series.length > 0 ? 'followers · 30 days' : undefined}
     footer={a.topEvent ? (mode === 'app' ? <Link href="/dashboard/videos">{a.topEvent.magnitude_label} →</Link> : a.topEvent.magnitude_label) : undefined}
   >
     {a.series.length > 0 ? (
@@ -429,7 +430,7 @@ export const dashboardPage: PageModule<D> = {
 }
 
 /** The app page: page bar, the grid, the drawers. */
-export function DashboardPage({ data: d, detail }: { data: DashboardData | DashboardEmpty; detail?: string }) {
+export function DashboardPage({ data: d, detail, params }: { data: DashboardData | DashboardEmpty; detail?: string; params: Record<string, string | undefined> }) {
   if (isDashboardEmpty(d)) {
     return (
       <PageFrame>
@@ -443,9 +444,11 @@ export function DashboardPage({ data: d, detail }: { data: DashboardData | Dashb
     )
   }
   return (
+    <ExportScope page="dashboard" params={params} tiles={GRID_ORDER.map((k) => ({ key: k, title: renderables[k].title }))}>
     <PageFrame>
       <PageBar title="Dashboard" context={d.context}>
         {d.updatesCount > 1 && <BarPill>Last {d.updatesCount} updates</BarPill>}
+        <ExportMenu />
         <HowToRead items={d.legendItems} open={detail === 'legend'} basePath="/dashboard" />
       </PageBar>
 
@@ -462,6 +465,7 @@ export function DashboardPage({ data: d, detail }: { data: DashboardData | Dashb
         <FunnelBody d={d} />
       </DetailDrawer>
     </PageFrame>
+    </ExportScope>
   )
 }
 

@@ -6,6 +6,7 @@ import { fmtInt, fmtPct, weekdayDate, shortDate, platformLabel, cap } from '@/li
 import { categoryLabel, categoryChip, emotionTone, bucketKind, type Trajectory } from '@/lib/voice-tiles'
 import { VoiceFilters } from '@/components/voice-filters'
 import { HowToRead } from '@/components/how-to-read'
+import { ExportMenu, ExportScope } from '@/components/export-menu'
 import { PageFrame, PageGrid, PageBar, BarPill } from '@/components/shell/page-grid'
 import { Tile, TileEmpty } from '@/components/shell/tile'
 import { DetailDrawer } from '@/components/shell/detail-drawer'
@@ -58,7 +59,7 @@ const map: R = (d, mode) => {
   const f = d.filters
   const blocks: ThemeBlock[] = d.map.blocks.map((b) => ({ ...b, href: voiceHref(f, { theme: b.id }) }))
   return (
-    <Tile col={8} row={4} eyebrow="The conversation, by theme"
+    <Tile exportKey="voice.map" col={8} row={4} eyebrow="The conversation, by theme"
       meta={app && d.map.totalThemes > 0 ? <VoiceFilters stage={f.stage} min={String(f.min)} deepLinked={f.deepLinked} showStage={d.stagesPresent} /> : undefined}
       bodyClassName="gap-2"
       footer={d.map.totalThemes > 0 ? (
@@ -143,7 +144,7 @@ function ThemeBody({ t, showNew }: { t: ThemeDetail; showNew: boolean }) {
 const theme: R = (d, mode) => {
   const t = d.theme
   return (
-    <Tile col={4} row={4} eyebrow="Theme"
+    <Tile exportKey="voice.theme" col={4} row={4} eyebrow="Theme"
       meta={t ? `${t.bucketName} · ${categoryLabel(t.category)}` : undefined}
       bodyClassName="overflow-y-auto pr-1"
       footer={mode === 'app' && t && t.memberThemes.length > 0 ? <Link href={`/dashboard/videos?themes=${encodeURIComponent(t.memberThemes.join(','))}`}>Videos behind this theme →</Link> : undefined}
@@ -157,7 +158,7 @@ const theme: R = (d, mode) => {
 const movers: R = (d, mode) => {
   const { rows, steadyCount } = d.movers
   return (
-    <Tile col={4} row={2} eyebrow="Gaining and fading" meta={rows.length > 0 ? `${fmtInt(rows.length)} moved` : undefined}
+    <Tile exportKey="voice.movers" col={4} row={2} eyebrow="Gaining and fading" meta={rows.length > 0 ? `${fmtInt(rows.length)} moved` : undefined}
       footer={mode === 'app' && rows.length > 0 ? <DrawerLink href={voiceHref(d.filters, { detail: 'movers' })}>All movers →</DrawerLink> : undefined}
     >
       {d.updatesCount < 2 ? (
@@ -175,7 +176,7 @@ const movers: R = (d, mode) => {
 
 // ── how your customers talk ────────────────────────────────────────────────
 const phrases: R = (d, mode) => (
-  <Tile col={4} row={2} eyebrow="How your customers talk" meta={d.phrases.total > 0 ? `${fmtInt(d.phrases.total)} phrases` : undefined} distribute="center"
+  <Tile exportKey="voice.phrases" col={4} row={2} eyebrow="How your customers talk" meta={d.phrases.total > 0 ? `${fmtInt(d.phrases.total)} phrases` : undefined} distribute="center"
     footer={mode === 'app' && d.phrases.total > 0 ? <Link href={voiceHref(d.filters, { detail: 'language' })} scroll={false}>Borrow the language →</Link> : undefined}
   >
     {d.phrases.shown.length > 0 ? (
@@ -197,7 +198,7 @@ const phrases: R = (d, mode) => (
 const mood: R = (d) => {
   const moodMax = d.moods[0]?.pct ?? 0
   return (
-    <Tile col={4} row={2} eyebrow="Audience mood" meta={d.moods.length > 0 ? `of ${fmtInt(d.moods[0].total)} read` : undefined} distribute="center">
+    <Tile exportKey="voice.mood" col={4} row={2} eyebrow="Audience mood" meta={d.moods.length > 0 ? `of ${fmtInt(d.moods[0].total)} read` : undefined} distribute="center">
       {d.moods.length > 0 ? (
         <div className="flex flex-col gap-1.5">
           {d.moods.map((m) => (
@@ -215,7 +216,7 @@ const ribbon: R = (d, mode) => {
   const { cards, total } = d.ribbon
   const f = d.filters
   return (
-    <Tile col={12} row={2} eyebrow="Hear these voices"
+    <Tile exportKey="voice.ribbon" col={12} row={2} eyebrow="Hear these voices"
       meta={cards.length > 0 ? `${cards.length} of ${fmtInt(total)}` : undefined}
       footer={app && cards.length > 0 && total > cards.length ? <Link href={voiceHref(f, { seed: String(f.seed + 1), detail: null })} scroll={false}>Next five →</Link> : undefined}
     >
@@ -371,7 +372,7 @@ export const voicePage: PageModule<D> = {
 }
 
 /** The app page: page bar, the grid, the drawers. */
-export function VoicePage({ data: d, detail }: { data: VoiceData | VoiceEmpty; detail?: string }) {
+export function VoicePage({ data: d, detail, params }: { data: VoiceData | VoiceEmpty; detail?: string; params: Record<string, string | undefined> }) {
   const showLegend = detail === 'legend'
   if (isVoiceEmpty(d)) {
     return (
@@ -390,10 +391,15 @@ export function VoicePage({ data: d, detail }: { data: VoiceData | VoiceEmpty; d
   const f = d.filters
   const closeHref = voiceHref(f, { detail: null })
   const themeHref = (id: string) => voiceHref(f, { theme: id })
+  // The export carries the seed the reader is looking at, so the snapshot
+  // shows these five voices, not a fresh draw.
+  const exportParams = { ...params, seed: String(f.seed) }
   return (
+    <ExportScope page="voice" params={exportParams} tiles={GRID_ORDER.map((k) => ({ key: k, title: renderables[k].title }))}>
     <PageFrame>
       <PageBar title="Voice of Customer" context={`What are they saying? · ${weekdayDate(d.runDate)}`}>
         {d.pillsInBar && <EntityPills d={d} />}
+        <ExportMenu />
         <HowToRead items={d.legendItems} open={showLegend} basePath="/dashboard/voice" />
       </PageBar>
 
@@ -443,5 +449,6 @@ export function VoicePage({ data: d, detail }: { data: VoiceData | VoiceEmpty; d
         {d.phrases.total > d.phrases.all.length && <p className="mt-3 text-[11px] text-muted-foreground">showing {fmtInt(d.phrases.all.length)} of {fmtInt(d.phrases.total)}</p>}
       </DetailDrawer>
     </PageFrame>
+    </ExportScope>
   )
 }

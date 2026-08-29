@@ -11,5 +11,5 @@ export default async function Page({ searchParams }: { searchParams?: Promise<{ 
   const sp = (await searchParams) ?? {}
   const { supabase, clientId } = await getSessionContext()
   const data = await loadDashboard({ supabase, clientId, params: sp })
-  return <DashboardPage data={data} detail={sp.detail} />
+  return <DashboardPage data={data} detail={sp.detail} params={sp} />
 }

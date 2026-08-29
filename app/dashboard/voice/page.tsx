@@ -9,5 +9,5 @@ export default async function Page({ searchParams }: { searchParams?: Promise<Vo
   const { supabase, clientId } = await getSessionContext()
   const sp = (await searchParams) ?? {}
   const data = await loadVoice({ supabase, clientId, params: sp })
-  return <VoicePage data={data} detail={sp.detail} />
+  return <VoicePage data={data} detail={sp.detail} params={sp} />
 }

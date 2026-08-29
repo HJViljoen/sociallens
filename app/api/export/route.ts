@@ -65,6 +65,7 @@ export async function POST(request: Request) {
   if (!kind || !format || !page) return NextResponse.json({ error: 'Bad request.' }, { status: 400 })
   if (kind === 'tile' && !tileKey) return NextResponse.json({ error: 'A tile export names its tile.' }, { status: 400 })
   if (format === 'png' && kind !== 'tile') return NextResponse.json({ error: 'PNG is for a single tile; a page exports as PDF.' }, { status: 400 })
+  // A tile as PDF: the render page shows that one tile; Chrome prints it on one slide-sized page.
 
   const mod = pageModule(page)
   if (!mod) return NextResponse.json({ error: 'That page cannot be exported yet.' }, { status: 400 })

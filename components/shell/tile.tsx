@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react'
 import { cn } from '@/lib/utils'
+import { TileExportButton } from '@/components/export-menu'
 
 // The grid's unit. Every tile has the same anatomy — eyebrow + meta on top,
 // content, a footer that links deeper — so the pages read as one system even
@@ -48,6 +49,9 @@ export interface TileProps {
   footerNote?: ReactNode
   /** The whole tile is a link target: lifts on hover (only clickable tiles lift). */
   hoverable?: boolean
+  /** The tile's renderable key ('dashboard.strip'): shows the export control
+   *  when an ExportScope is around it (the app pages); nothing on paper. */
+  exportKey?: string
   className?: string
   bodyClassName?: string
   /** How the body's groups share spare height: packed at the top, spread
@@ -57,7 +61,7 @@ export interface TileProps {
 }
 
 export function Tile({
-  col, row, variant = 'default', eyebrow, meta, lead, footer, footerNote, hoverable = false, className, bodyClassName, distribute = 'start', children,
+  col, row, variant = 'default', eyebrow, meta, lead, footer, footerNote, hoverable = false, exportKey, className, bodyClassName, distribute = 'start', children,
 }: TileProps) {
   const isHero = variant === 'hero'
   const isStrip = variant === 'strip'
@@ -71,7 +75,7 @@ export function Tile({
       data-row={row}
       style={{ '--vb-span': col } as React.CSSProperties}
       className={cn(
-        'relative flex min-h-0 flex-col overflow-hidden rounded-lg bg-tile text-[12.5px] leading-[1.45] shadow-tile',
+        'group/tile relative flex min-h-0 flex-col overflow-hidden rounded-lg bg-tile text-[12.5px] leading-[1.45] shadow-tile',
         COL[col] ?? 'xl:col-span-12',
         ROW[row] ?? 'xl:row-span-1',
         MIN_H[row] ?? 'min-h-[116px]',
@@ -83,18 +87,21 @@ export function Tile({
         className,
       )}
     >
-      {!isStrip && (eyebrow || meta) && (
-        <header className="flex items-baseline justify-between gap-2">
+      {!isStrip && (eyebrow || meta || exportKey) && (
+        <header className="relative flex items-baseline justify-between gap-2">
           {eyebrow ? (
             <h2 className="truncate text-[10.5px] font-semibold uppercase tracking-[0.06em] text-secondary-foreground">
               {eyebrow}
             </h2>
           ) : <span />}
           {meta && (
-            <span className="shrink-0 whitespace-nowrap font-mono text-[11px] text-muted-foreground">
+            <span className={cn('shrink-0 whitespace-nowrap font-mono text-[11px] text-muted-foreground', exportKey && 'group-hover/tile:mr-6 group-focus-within/tile:mr-6')}>
               {meta}
             </span>
           )}
+          {/* Export control: absolutely placed so the header keeps its height;
+              the meta slides left only while the tile is hovered. */}
+          {exportKey && <TileExportButton tileKey={exportKey} />}
         </header>
       )}
       {isHero && lead && (
