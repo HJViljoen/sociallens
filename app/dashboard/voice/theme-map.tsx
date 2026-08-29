@@ -27,11 +27,13 @@ export interface ThemeBlock {
 }
 
 // Bucket fills are the tile surface tinted with the bucket colour (green for
-// your audience, stone for the wider category, clay for a competitor), and
-// they still read on the dark tile. Class strings can't carry these, so inline.
+// your audience, a light grey for the wider category, clay for a competitor).
+// Blocks carry --shadow-block instead of an outline (Heinrich, 2026-08-29:
+// "remove the darker outlines… give the blocks a shadow… neutral blocks a bit
+// lighter grey"). Class strings can't carry the mixes, so inline.
 const FILL: Record<Bucket, string> = {
   client: 'color-mix(in srgb, var(--you) 12%, var(--tile))',
-  category: 'color-mix(in srgb, var(--cat) 14%, var(--tile))',
+  category: 'color-mix(in srgb, var(--cat) 7%, var(--tile))',
   competitor: 'color-mix(in srgb, var(--comp) 14%, var(--tile))',
 }
 export const EDGE: Record<Bucket, string> = {
@@ -55,21 +57,19 @@ export function ThemeMap({ blocks, className }: { blocks: ThemeBlock[]; classNam
         // chip + spark, mid blocks the New chip, small ones label + count only.
         const big = r.w > 150 && r.h > 70
         const mid = r.w > 95 && r.h > 48
-        const edge = EDGE[b.bucket]
         return (
           <Link
             key={b.id}
             href={b.href}
             scroll={false}
             title={`${b.label} · ${b.count} conversation${b.count === 1 ? '' : 's'}`}
-            className={`absolute flex flex-col gap-[3px] overflow-hidden rounded-[6px] text-foreground transition-[filter] hover:brightness-[0.97] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 ${mid ? 'px-[9px] py-2' : 'px-1.5 py-[5px]'}`}
+            className={`absolute flex flex-col gap-[3px] overflow-hidden rounded-[6px] text-foreground shadow-block transition-[filter] hover:brightness-[0.97] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 ${mid ? 'px-[9px] py-2' : 'px-1.5 py-[5px]'}`}
             style={{
               left: `calc(${(r.x / REF_W) * 100}% + ${GAP / 2}px)`,
               top: `calc(${(r.y / REF_H) * 100}% + ${GAP / 2}px)`,
               width: `calc(${(r.w / REF_W) * 100}% - ${GAP}px)`,
               height: `calc(${(r.h / REF_H) * 100}% - ${GAP}px)`,
               background: FILL[b.bucket],
-              boxShadow: `0 0 0 1px ${edge}`,
             }}
           >
             <span className={`font-semibold leading-[1.2] ${big ? 'line-clamp-3 text-[13px]' : mid ? 'line-clamp-2 text-[11.5px]' : 'line-clamp-2 text-[10.5px]'}`}>{b.label}</span>
@@ -78,7 +78,7 @@ export function ThemeMap({ blocks, className }: { blocks: ThemeBlock[]; classNam
               {big && <Chip className="bg-tile/75 text-muted-foreground">{b.category}</Chip>}
               {b.isNew && mid && <Chip className="bg-tile/85 text-muted-foreground">New</Chip>}
               {big && b.series && b.series.length >= 2 && (
-                <Sparkline values={b.series} color={edge} width={54} height={14} endDot={false} className="ml-auto" />
+                <Sparkline values={b.series} color={EDGE[b.bucket]} width={54} height={14} endDot={false} className="ml-auto" />
               )}
             </span>
           </Link>
