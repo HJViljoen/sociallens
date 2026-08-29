@@ -17,6 +17,7 @@ function insight(id: string, videoId: string | null, quotes = 1): RetrievedInsig
     quotes: Array.from({ length: quotes }, (_, i) => ({
       quote: `quote ${i} for ${id}`,
       rank: i,
+      evidenceId: `e-${id}-${i}`,
       commentId: `c-${id}-${i}`,
       videoId,
     })),

@@ -790,3 +790,15 @@ export function periodWindowDays(period: string): number {
   return period === 'daily' ? 1 : period === 'monthly' ? 30 : 7
 }
 
+
+// ------------------------------------------------- Reports & Exports (2026-08-29)
+
+/** Exports per tenant per UTC day. A render is ~5–12 s of a 2 GB function and
+ *  a Storage object; uncapped, one account holding the button is a bill and a
+ *  starved function pool. Same crude daily count as the Ask/Agent caps. */
+export const EXPORT_DAILY_LIMIT = 50
+
+/** Items the `full` page variant will render as their own slide. A Market
+ *  page with sixty findings is a deck nobody presents; past this the export
+ *  says so and stops. */
+export const EXPORT_FULL_MAX_ITEMS = 40

@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import {
+  createCitedQuotePicker,
   bucketByAudienceId,
   scopeToClientVoices,
   scopeToCompetitor,
@@ -63,8 +64,8 @@ describe('readsAsHeroQuote', () => {
 
 describe('createQuotePicker', () => {
   const pool = new Map<string, QuoteRow[]>([
-    ['c1', [{ quote: 'I love this bag so much, it is my daily carry now', rank: 1 }]],
-    ['c2', [{ quote: 'The straps hurt my shoulders after an hour of use', rank: 2 }]],
+    ['c1', [{ quote: 'I love this bag so much, it is my daily carry now', rank: 1, evidenceId: 'ev1' }]],
+    ['c2', [{ quote: 'The straps hurt my shoulders after an hour of use', rank: 2, evidenceId: 'ev2' }]],
   ])
   const slugs = new Map([
     ['c1', 'brand_love'],
@@ -78,5 +79,36 @@ describe('createQuotePicker', () => {
     // Second card: the used hero must not repeat, even as a pool candidate.
     const second = pick(['c1', 'c2'], 2, 'brand loyalty')
     expect(second).not.toContain('The straps hurt my shoulders after an hour of use')
+  })
+})
+
+describe('createCitedQuotePicker', () => {
+  const pool = new Map<string, QuoteRow[]>([
+    ['c1', [{ quote: 'I love this bag so much, it is my daily carry now', rank: 1, evidenceId: 'ev1' }]],
+    ['c2', [{ quote: 'The straps hurt my shoulders after an hour of use', rank: 2, evidenceId: 'ev2' }]],
+  ])
+  const slugs = new Map([['c1', 'brand_love'], ['c2', 'strap_comfort']])
+
+  it('returns refs the snapshot can freeze, preferring the on-topic voice', () => {
+    const pick = createCitedQuotePicker(pool, slugs)
+    const got = pick(['c1', 'c2'], 1, 'strap comfort complaints')
+    expect(got).toEqual([{ ref: 'e:ev2', text: 'The straps hurt my shoulders after an hour of use' }])
+  })
+
+  it('cites a hero quote through the evidence row that carries the same words, and skips one nothing vouches for', () => {
+    const pick = createCitedQuotePicker(pool, slugs)
+    const hero = pick(['c1'], 2, 'anything', 'I love this bag so much, it is my daily carry now')
+    expect(hero[0]).toEqual({ ref: 'e:ev1', text: 'I love this bag so much, it is my daily carry now' })
+    const pick2 = createCitedQuotePicker(pool, slugs)
+    const orphan = pick2(['c2'], 1, 'straps', 'A hero quote no evidence row carries')
+    expect(orphan).toEqual([{ ref: 'e:ev2', text: 'The straps hurt my shoulders after an hour of use' }])
+  })
+
+  it('never repeats a voice across cards', () => {
+    const pick = createCitedQuotePicker(pool, slugs)
+    const first = pick(['c1', 'c2'], 2, 'bag')
+    const second = pick(['c1', 'c2'], 2, 'bag')
+    expect(first.length).toBe(2)
+    expect(second).toEqual([])
   })
 })

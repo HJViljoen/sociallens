@@ -8,6 +8,9 @@
 export interface QuoteRow {
   quote: string
   rank: number
+  /** insight_evidence.id — the ref a snapshot keeps in place of the words
+   *  (Reports & Exports, 2026-08-29). */
+  evidenceId: string
 }
 
 /** A quote plus what it can be traced back to. The agent's grounded register
@@ -162,14 +165,14 @@ export async function fetchQuotesByAudience(
   // redacted = false: demographic_signal evidence cites but never quotes
   // (counts-not-quotes, 2026-08-22); its rows carry quote '' and must never
   // reach a picker.
-  const rows = await fetchChunks<{ audience_insight_id: string; quote: string | null; relevance_rank: number | null }>(
+  const rows = await fetchChunks<{ id: string; audience_insight_id: string; quote: string | null; relevance_rank: number | null }>(
     audienceIds,
-    (chunk) => c.from('insight_evidence').select('audience_insight_id, quote, relevance_rank').in('audience_insight_id', chunk).eq('redacted', false),
+    (chunk) => c.from('insight_evidence').select('id, audience_insight_id, quote, relevance_rank').in('audience_insight_id', chunk).eq('redacted', false),
   )
   for (const r of rows) {
     if (!r.quote) continue
     const arr = byAudience.get(r.audience_insight_id) ?? []
-    arr.push({ quote: r.quote, rank: r.relevance_rank ?? 99 })
+    arr.push({ quote: r.quote, rank: r.relevance_rank ?? 99, evidenceId: r.id })
     byAudience.set(r.audience_insight_id, arr)
   }
   return byAudience
@@ -191,6 +194,7 @@ export async function fetchQuoteCitationsByAudience(
   // redacted = false: demographic_signal evidence cites but never quotes
   // (counts-not-quotes, 2026-08-22). Same rule as fetchQuotesByAudience.
   const rows = await fetchChunks<{
+    id: string
     audience_insight_id: string
     quote: string | null
     relevance_rank: number | null
@@ -198,7 +202,7 @@ export async function fetchQuoteCitationsByAudience(
     source_video_id: string | null
   }>(
     audienceIds,
-    (chunk) => c.from('insight_evidence').select('audience_insight_id, quote, relevance_rank, comment_id, source_video_id').in('audience_insight_id', chunk).eq('redacted', false),
+    (chunk) => c.from('insight_evidence').select('id, audience_insight_id, quote, relevance_rank, comment_id, source_video_id').in('audience_insight_id', chunk).eq('redacted', false),
   )
   for (const r of rows) {
     if (!r.quote) continue
@@ -210,6 +214,7 @@ export async function fetchQuoteCitationsByAudience(
     arr.push({
       quote: r.quote,
       rank: r.relevance_rank ?? 99,
+      evidenceId: r.id,
       commentId: r.comment_id,
       videoId: r.source_video_id,
     })
@@ -242,6 +247,43 @@ export async function fetchQuoteTextsByCommentId(
   for (const r of rows) {
     if (r.comment_id && r.quote && !out.has(r.comment_id)) out.set(r.comment_id, r.quote)
   }
+  return out
+}
+
+/** Resolve quote TEXT for snapshot refs — 'e:<insight_evidence.id>',
+ *  'c:<comments.id>', 'v:<videos.id>' (lib/renderables/quotes-freeze.ts).
+ *  Same rule and same reason as fetchQuoteTextsByCommentId: through
+ *  insight_evidence, redacted = false, so a stored export re-renders without
+ *  any voice the erasure sweep has removed. Refs that do not resolve are
+ *  absent from the map and the resolver drops them. */
+export async function fetchQuoteTextsByRefs(
+  client: unknown,
+  refs: string[],
+): Promise<Map<string, string>> {
+  const c = client as EvidenceClient
+  const out = new Map<string, string>()
+  const by = { e: [] as string[], c: [] as string[], v: [] as string[] }
+  for (const ref of new Set(refs)) {
+    const m = /^([ecv]):(.+)$/.exec(ref)
+    if (m) by[m[1] as 'e' | 'c' | 'v'].push(m[2])
+  }
+  const [byId, byComment, byVideo] = await Promise.all([
+    fetchChunks<{ id: string; quote: string | null }>(
+      by.e,
+      (chunk) => c.from('insight_evidence').select('id, quote').in('id', chunk).eq('redacted', false),
+    ),
+    fetchChunks<{ comment_id: string | null; quote: string | null }>(
+      by.c,
+      (chunk) => c.from('insight_evidence').select('comment_id, quote').in('comment_id', chunk).eq('redacted', false),
+    ),
+    fetchChunks<{ source_video_id: string | null; quote: string | null }>(
+      by.v,
+      (chunk) => c.from('insight_evidence').select('source_video_id, quote').in('source_video_id', chunk).eq('redacted', false),
+    ),
+  ])
+  for (const r of byId) if (r.quote && !out.has(`e:${r.id}`)) out.set(`e:${r.id}`, r.quote)
+  for (const r of byComment) if (r.comment_id && r.quote && !out.has(`c:${r.comment_id}`)) out.set(`c:${r.comment_id}`, r.quote)
+  for (const r of byVideo) if (r.source_video_id && r.quote && !out.has(`v:${r.source_video_id}`)) out.set(`v:${r.source_video_id}`, r.quote)
   return out
 }
 
@@ -300,6 +342,75 @@ export function createQuotePicker(
     for (const c of cand) {
       if (chosen.length >= n) break
       take(c.q)
+    }
+    return chosen
+  }
+}
+
+/** A quote the spine can freeze: the words plus the ref they resolve through. */
+export interface CitedQuote {
+  ref: string
+  text: string
+}
+
+/** As createQuotePicker, returning CITED quotes — { ref: 'e:<evidence id>',
+ *  text } — so a page loader's output can be frozen into a snapshot with the
+ *  words stripped and resolved live at render. Same scoring, same cross-card
+ *  de-duplication, same hero-quote lead; a hero quote carries no evidence id
+ *  (it is a copy in the parent row), so it is cited by the parent row —
+ *  `heroRef` — which the caller supplies (e.g. 'e:' + the evidence row that
+ *  matched it, or nothing, in which case the hero quote is skipped here and
+ *  the caller renders it from the row itself). */
+export function createCitedQuotePicker(
+  quotesByAudience: Map<string, QuoteRow[]>,
+  themeSlugById: Map<string, string>,
+) {
+  const used = new Set<string>()
+
+  return function pick(audienceIds: string[], n: number, claimText: string, heroQuote?: string | null): CitedQuote[] {
+    const chosen: CitedQuote[] = []
+    const localKeys = new Set<string>()
+    const take = (raw: string, ref: string) => {
+      const q = cleanQuote(raw)
+      const key = q.toLowerCase()
+      if (!q || used.has(key) || localKeys.has(key)) return
+      localKeys.add(key)
+      used.add(key)
+      chosen.push({ ref, text: q })
+    }
+
+    // The model's hero quote leads when the pool can vouch for it — i.e. an
+    // evidence row carries the same words. A hero quote with no evidence row
+    // behind it cannot be frozen honestly, so it is left to the caller.
+    if (heroQuote) {
+      const want = cleanQuote(heroQuote).toLowerCase()
+      let ref: string | null = null
+      outer: for (const aid of audienceIds) {
+        for (const row of quotesByAudience.get(aid) ?? []) {
+          if (cleanQuote(row.quote).toLowerCase() === want) { ref = `e:${row.evidenceId}`; break outer }
+        }
+      }
+      if (ref) take(heroQuote, ref)
+    }
+    if (chosen.length >= n) return chosen
+
+    const keywords = keywordsOf(claimText)
+    const cand: { q: string; ref: string; score: number; rank: number }[] = []
+    for (const aid of audienceIds) {
+      const themeBonus = themeRelevance(aid, keywords, themeSlugById) * 2
+      for (const { quote, rank, evidenceId } of quotesByAudience.get(aid) ?? []) {
+        const q = cleanQuote(quote)
+        const key = q.toLowerCase()
+        if (used.has(key) || localKeys.has(key)) continue
+        const base = quoteScore(q, keywords)
+        if (base <= 0) continue
+        cand.push({ q, ref: `e:${evidenceId}`, score: base + themeBonus, rank })
+      }
+    }
+    cand.sort((a, b) => b.score - a.score || a.rank - b.rank)
+    for (const c of cand) {
+      if (chosen.length >= n) break
+      take(c.q, c.ref)
     }
     return chosen
   }

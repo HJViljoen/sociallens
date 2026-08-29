@@ -89,6 +89,10 @@ export async function proxy(request: NextRequest) {
     pathname.startsWith('/auth/callback') ||
     // Keep-warm target — pinged unauthenticated every 5 min (inngest keep-warm).
     pathname === '/health' ||
+    // Print-mode HTML for the export renderer: fetched by headless Chrome
+    // server-side, with no session. Gated by a signed, short-lived token that
+    // the page itself verifies (lib/render-token.ts) — never by a session.
+    pathname.startsWith('/render/') ||
     // Marketing pages need no session — reachable directly in local dev, where
     // the host isn't the apex and the rewrite above doesn't apply.
     pathname.startsWith('/site')
