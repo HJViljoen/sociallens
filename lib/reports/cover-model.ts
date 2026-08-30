@@ -37,7 +37,10 @@ export interface CoverArgs {
   figures: FigureTable
 }
 
-export const COVER_PROMPT_VERSION = 'report_cover_v1'
+// v2 (Stage 3): a share figure gets a sentence template like a count does —
+// "Sentiment is 87.2%" read as a bare equation because the % sign is already in
+// the substituted value and the model was only told where it stands.
+export const COVER_PROMPT_VERSION = 'report_cover_v2'
 
 const CoverSchema = z.object({
   sentences: z.array(z.string()),
@@ -54,7 +57,7 @@ const REGISTER: Record<Audience, string> = {
 export function buildCoverPrompts(a: Omit<CoverArgs, 'admin' | 'clientId' | 'runId'>): { system: string; user: string } {
   const figureLines = Object.entries(a.figures).map(([k, f]) =>
     f.kind === 'count' ? `- [[${k}]] — a count of ${f.label}; write it as "[[${k}]] ${f.label}"`
-    : f.kind === 'pct' ? `- [[${k}]] — a percentage: ${f.label}; the placeholder stands where the % is read`
+    : f.kind === 'pct' ? `- [[${k}]] — a share, already written with its % sign: ${f.label}; put it after a verb, as in "${f.label} stood at [[${k}]]" or "reached [[${k}]]"; the placeholder ends the clause — never "is [[${k}]]", never "[[${k}]] of the …"`
     : `- [[${k}]] — a name: ${f.label}; the placeholder stands where the name is read`)
   const system = [
     'You write the cover paragraph of a research report built from what a brand\'s audience says in public comments. The report is prepared BY the client company for people inside it; you write as the company, never as a vendor.',
