@@ -5,7 +5,7 @@ import {
   SidebarHeader, SidebarMenu, SidebarMenuButton, SidebarMenuItem,
   useSidebar,
 } from "@/components/ui/sidebar"
-import { LayoutDashboard, Target, MessageCircle, Swords, Play, FileText, Users, UserRound, Sparkles, CreditCard, Settings, LogOut, BookOpen } from "lucide-react"
+import { LayoutDashboard, Target, MessageCircle, Swords, Play, FileText, LayoutTemplate, Users, UserRound, Sparkles, CreditCard, Settings, LogOut, BookOpen } from "lucide-react"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { signOut } from "@/app/login/actions"
@@ -23,6 +23,7 @@ const INTELLIGENCE = [
   { href: "/dashboard/videos",      label: "Content",             icon: Play },
 ]
 const ACCOUNT = [
+  { href: "/dashboard/studio",   label: "Studio",   icon: LayoutTemplate },
   { href: "/dashboard/reports",  label: "Reports",  icon: FileText },
   { href: "/dashboard/team",     label: "Team",     icon: Users },
   { href: "/dashboard/billing",  label: "Billing",  icon: CreditCard },

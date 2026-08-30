@@ -24,6 +24,7 @@
 import { randomBytes } from 'crypto'
 import { createAdminClient } from '../lib/supabase-admin'
 import { buildProvisionPlan, validateSpec, type TenantSpec } from '../lib/provisioning'
+import { ensureDefaultSchedule } from '../lib/schedules/default'
 
 const csv = (v: string | undefined) => (v ?? '').split(',').map((s) => s.trim()).filter(Boolean)
 
@@ -97,6 +98,8 @@ async function main() {
   const { error: cfgErr } = await admin
     .from('tracking_configs').insert({ client_id: clientId, ...plan.config })
   if (cfgErr) throw new Error(`create tracking_config: ${cfgErr.message}`)
+
+  await ensureDefaultSchedule(admin, clientId, spec.reportEmails)
 
   let inviteUrl: string | null = null
   if (invite) {

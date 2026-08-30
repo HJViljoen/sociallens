@@ -4,7 +4,7 @@ import { z } from 'zod'
 import { redirect } from 'next/navigation'
 import { createAdminClient } from '@/lib/supabase-admin'
 import { createServerSupabaseClient } from '@/lib/supabase-server'
-import { addRecipient } from '@/lib/recipients'
+import { joinDefaultSchedule } from '@/lib/schedules/default'
 import { loadInvite } from './data'
 
 // State shape lives here (a type, erased at build); the idle value is defined in
@@ -122,29 +122,16 @@ async function markAccepted(id: string) {
 }
 
 /**
- * Joining the workspace puts you on the report (T0-10). Before this,
- * report_emails held only whoever signed the tenant up: Össur had five users
- * and one address, so the people invited to read the intelligence never
- * received it. Non-fatal and admin-client: a bookkeeping failure must never
- * block someone from joining, and the accepter is usually a member, whom RLS
- * does not let write tracking_configs.
+ * Joining the workspace puts you on the workspace's default schedule (T0-10).
+ * Before this, report_emails held only whoever signed the tenant up: Össur had
+ * five users and one address, so the people invited to read the intelligence
+ * never received it. Non-fatal and admin-client: a bookkeeping failure must
+ * never block someone from joining, and the accepter is usually a member,
+ * whom RLS does not let write report_schedules.
  */
 async function addToReportRecipients(clientId: string, email: string): Promise<void> {
   try {
-    const admin = createAdminClient()
-    const { data } = await admin
-      .from('tracking_configs').select('report_emails').eq('client_id', clientId).maybeSingle()
-    const current = (data?.report_emails ?? []) as string[]
-    const next = addRecipient(current, email)
-    // Compare CONTENT, not length: addRecipient also drops stored blanks, so a
-    // list like ['owner@x', ''] plus a new address is the same length and the
-    // new teammate would have been silently left off the report.
-    if (next.length === current.length && next.every((e, i) => e === current[i])) return
-    const { error } = await admin.from('tracking_configs').update({ report_emails: next }).eq('client_id', clientId)
-    // supabase-js returns errors rather than throwing, so the surrounding
-    // try/catch never saw this: a 26th recipient hitting the cardinality CHECK
-    // would have failed in complete silence.
-    if (error) console.error(`[invite] report_emails not updated for ${clientId}: ${error.message}`)
+    await joinDefaultSchedule(createAdminClient(), clientId, email)
   } catch (e) {
     console.error(`[invite] could not add ${email} to report_emails: ${e instanceof Error ? e.message : String(e)}`)
   }

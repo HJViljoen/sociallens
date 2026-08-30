@@ -1,7 +1,9 @@
+import Link from 'next/link'
 import { UserPlus, Users, Clock, Mail } from 'lucide-react'
 import { SettingsFrame } from '@/components/settings-frame'
 import { getSessionContext, canManageTenant } from '@/lib/auth'
 import { createAdminClient } from '@/lib/supabase-admin'
+import { recipientsByschedule } from '@/lib/schedules/default'
 import { getBaseUrl } from '@/lib/site'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { InviteForm, RevokeButton, MemberControls, CopyLinkButton } from './team-ui'
@@ -29,13 +31,13 @@ export default async function TeamPage() {
   const canManage = canManageTenant(role)
   const isOwner = role === 'owner'
 
-  const [{ data: client }, { data: members }, { data: cfg }, { data: inviteData }] = await Promise.all([
+  const [{ data: client }, { data: members }, schedules, { data: inviteData }] = await Promise.all([
     supabase.from('clients').select('company_name').eq('id', clientId).maybeSingle(),
     supabase.from('users').select('id, full_name, email, role').eq('client_id', clientId).order('created_at'),
-    // Who actually receives the update. Accepting an invite adds you to this
-    // list (T0-10); showing it here is what makes "your team gets the update"
-    // checkable instead of a claim.
-    supabase.from('tracking_configs').select('report_emails').eq('client_id', clientId).maybeSingle(),
+    // Who actually receives the update. Accepting an invite adds you to the
+    // default schedule (T0-10); showing it here is what makes "your team gets
+    // the update" checkable instead of a claim.
+    recipientsByschedule(createAdminClient(), clientId),
     // Pending invites (managers only — see below) ride the same wave: round
     // trips, not rows, are the cost, and this read depends on nothing above.
     // The list comes through RLS (session client) and deliberately does NOT
@@ -52,7 +54,10 @@ export default async function TeamPage() {
           .order('created_at', { ascending: false })
       : Promise.resolve({ data: null }),
   ])
-  const reportEmails = ((cfg?.report_emails ?? []) as string[]).map((e) => e.trim()).filter(Boolean)
+  const totalRecipients = schedules.reduce((n, s) => n + s.recipients.length, 0)
+  const activeRecipientSet = new Set(
+    schedules.filter((s) => s.active).flatMap((s) => s.recipients.map((e) => e.toLowerCase())),
+  )
 
   // Pending invites + their shareable links are only fetched/built for managers.
   // The invite TOKEN is only fetched for the person who sent that invite
@@ -78,8 +83,7 @@ export default async function TeamPage() {
   }
 
   const memberRows = (members as MemberRow[] | null) ?? []
-  const recipientSet = new Set(reportEmails.map((e) => e.toLowerCase()))
-  const membersOffReport = memberRows.filter((m) => !recipientSet.has((m.email ?? '').toLowerCase()))
+  const membersOffReport = memberRows.filter((m) => !activeRecipientSet.has((m.email ?? '').toLowerCase()))
 
   return (
     <SettingsFrame active="team" title="Settings" context={`${client?.company_name ?? 'Workspace'}${!canManage ? ' · read-only' : ''}`} contentTitle="Team" contentMeta={`${memberRows.length} member${memberRows.length === 1 ? '' : 's'}`}>
@@ -112,7 +116,7 @@ export default async function TeamPage() {
                   </p>
                   <p className="truncate text-xs text-muted-foreground">
                     {m.email}
-                    {recipientSet.has((m.email ?? '').toLowerCase())
+                    {activeRecipientSet.has((m.email ?? '').toLowerCase())
                       ? <span className="ml-2 text-[11px] text-positive">gets the update</span>
                       : <span className="ml-2 text-[11px] text-muted-foreground/70">not on the update</span>}
                   </p>
@@ -127,17 +131,40 @@ export default async function TeamPage() {
       </Card>
 
       <Card>
-        <CardHeader><CardTitle className="flex items-center gap-2 text-sm"><Mail className="size-4 text-muted-foreground" aria-hidden /> Who gets the update ({reportEmails.length})</CardTitle></CardHeader>
-        <CardContent className="space-y-2">
-          {reportEmails.length === 0 ? (
-            <p className="text-sm text-muted-foreground">Nobody. Add an address in Settings, or invite a teammate and they are added when they join.</p>
+        <CardHeader><CardTitle className="flex items-center gap-2 text-sm"><Mail className="size-4 text-muted-foreground" aria-hidden /> Who gets the update ({activeRecipientSet.size})</CardTitle></CardHeader>
+        <CardContent className="space-y-3">
+          {totalRecipients === 0 ? (
+            <p className="text-sm text-muted-foreground">
+              Nobody yet. Add addresses to a schedule in{' '}
+              <Link href="/dashboard/studio?group=schedules" className="underline underline-offset-2">Studio › Schedules</Link>,
+              or invite a teammate — they join the Weekly digest when they accept.
+            </p>
           ) : (
-            <p className="text-sm">{reportEmails.join(' · ')}</p>
+            schedules.map((s) => (
+              <div key={s.id}>
+                <p className="text-xs font-medium text-muted-foreground">
+                  {s.name}
+                  {s.is_default && <span className="ml-1.5 text-[10px] text-muted-foreground/70">default</span>}
+                </p>
+                {!s.active ? (
+                  <p className="text-sm text-muted-foreground">paused</p>
+                ) : s.recipients.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">no addresses yet</p>
+                ) : (
+                  <p className="text-sm">{s.recipients.join(' · ')}</p>
+                )}
+              </div>
+            ))
           )}
           {membersOffReport.length > 0 && (
             <p className="text-xs text-muted-foreground">
-              {membersOffReport.length} teammate{membersOffReport.length === 1 ? '' : 's'} on this workspace {membersOffReport.length === 1 ? 'is' : 'are'} not on the list.
-              {canManage ? ' Add them in Settings.' : ''}
+              {membersOffReport.length} teammate{membersOffReport.length === 1 ? '' : 's'} on this workspace {membersOffReport.length === 1 ? 'is' : 'are'} not on any schedule.
+              {canManage ? (
+                <>
+                  {' '}Add them in{' '}
+                  <Link href="/dashboard/studio?group=schedules" className="underline underline-offset-2">Studio › Schedules</Link>.
+                </>
+              ) : null}
             </p>
           )}
         </CardContent>

@@ -8,7 +8,6 @@ import {
   type PerfMultiple, type EntityKind, type VoiceRole,
 } from '@/lib/content-tiles'
 import { ENGAGE_CATEGORY_LABEL } from '@/lib/engage'
-import { ExportMenu, ExportScope } from '@/components/export-menu'
 import { PageFrame, PageGrid, PageBar, BarPill } from '@/components/shell/page-grid'
 import { Tile, TileEmpty } from '@/components/shell/tile'
 import { DetailDrawer } from '@/components/shell/detail-drawer'
@@ -439,7 +438,7 @@ export const contentPage: PageModule<D> = {
 }
 
 /** The app page: page bar, the grid, the drawers. */
-export function ContentPage({ data: d, params }: { data: ContentData | ContentEmpty; params: Record<string, string | undefined> }) {
+export function ContentPage({ data: d }: { data: ContentData | ContentEmpty; params: Record<string, string | undefined> }) {
   if (isContentEmpty(d)) {
     return (
       <PageFrame>
@@ -458,10 +457,8 @@ export function ContentPage({ data: d, params }: { data: ContentData | ContentEm
   const repliesCloseHref = `${basePath}?detail=replies${filter ? `&intent=${filter}` : ''}`
 
   return (
-    <ExportScope page="content" params={params} tiles={Object.values(renderables).map((r) => ({ key: r.key, title: r.title }))}>
     <PageFrame>
       <PageBar title="Content" context={d.context}>
-        <ExportMenu />
         <BarPill>This update</BarPill>
         <BarPill>All platforms</BarPill>
         <HowToRead items={['conversations']} open={showLegend} basePath={basePath} />
@@ -493,6 +490,5 @@ export function ContentPage({ data: d, params }: { data: ContentData | ContentEm
         {d.engageDetail && <EngageDetailBody detail={d.engageDetail} />}
       </DetailDrawer>
     </PageFrame>
-    </ExportScope>
   )
 }

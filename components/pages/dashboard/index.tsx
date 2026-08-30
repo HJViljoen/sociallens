@@ -1,7 +1,6 @@
 import Link from 'next/link'
 import { Fragment, type ReactNode } from 'react'
 import { HowToRead } from '@/components/how-to-read'
-import { ExportMenu, ExportScope } from '@/components/export-menu'
 import { Quotes } from '@/components/quotes'
 import { ProportionBar } from '@/components/proportion-bar'
 import { PageFrame, PageGrid, PageBar, BarPill } from '@/components/shell/page-grid'
@@ -435,7 +434,7 @@ export const dashboardPage: PageModule<D> = {
 }
 
 /** The app page: page bar, the grid, the drawers. */
-export function DashboardPage({ data: d, detail, params }: { data: DashboardData | DashboardEmpty; detail?: string; params: Record<string, string | undefined> }) {
+export function DashboardPage({ data: d, detail }: { data: DashboardData | DashboardEmpty; detail?: string; params: Record<string, string | undefined> }) {
   if (isDashboardEmpty(d)) {
     return (
       <PageFrame>
@@ -449,11 +448,9 @@ export function DashboardPage({ data: d, detail, params }: { data: DashboardData
     )
   }
   return (
-    <ExportScope page="dashboard" params={params} tiles={GRID_ORDER.map((k) => ({ key: k, title: renderables[k].title }))}>
     <PageFrame>
       <PageBar title="Dashboard" context={d.context}>
         {d.updatesCount > 1 && <BarPill>Last {d.updatesCount} updates</BarPill>}
-        <ExportMenu />
         <HowToRead items={d.legendItems} open={detail === 'legend'} basePath="/dashboard" />
       </PageBar>
 
@@ -470,7 +467,6 @@ export function DashboardPage({ data: d, detail, params }: { data: DashboardData
         <FunnelBody d={d} />
       </DetailDrawer>
     </PageFrame>
-    </ExportScope>
   )
 }
 

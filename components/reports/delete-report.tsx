@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { deleteReport } from '@/app/dashboard/reports/studio/actions'
+import { deleteReport } from '@/app/dashboard/studio/actions'
 
 /** Two clicks, no browser dialog: the first arms, the second deletes. */
 export function DeleteReport({ id }: { id: string }) {

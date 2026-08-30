@@ -2,6 +2,8 @@ import Link from 'next/link'
 import { getSessionContext } from '@/lib/auth'
 import { platformLabel } from '@/lib/format'
 import { SettingsFrame, SettingsCard, ConnectionRow } from '@/components/settings-frame'
+import { createAdminClient } from '@/lib/supabase-admin'
+import { recipientsByschedule } from '@/lib/schedules/default'
 
 // Connections (component-map §3): where Verbatim reads from and where its
 // reports go, as status rows. Every status is a fact about this workspace —
@@ -13,13 +15,17 @@ const SOURCES = ['tiktok', 'instagram', 'youtube'] as const
 
 export default async function ConnectionsPage() {
   const { supabase, clientId } = await getSessionContext()
-  const [{ data: client }, { data: tc }] = await Promise.all([
+  const [{ data: client }, { data: tc }, schedules] = await Promise.all([
     supabase.from('clients').select('company_name').eq('id', clientId).maybeSingle(),
-    supabase.from('tracking_configs').select('platforms, own_handles, report_emails, report_period').eq('client_id', clientId).maybeSingle(),
+    supabase.from('tracking_configs').select('platforms, own_handles, report_period').eq('client_id', clientId).maybeSingle(),
+    recipientsByschedule(createAdminClient(), clientId),
   ])
   const platforms = new Set<string>((tc?.platforms as string[] | null) ?? [])
   const handles = (tc?.own_handles as Record<string, string> | null) ?? {}
-  const emails = (tc?.report_emails as string[] | null) ?? []
+  const activeSchedules = schedules.filter((s) => s.active)
+  const scheduleCount = activeSchedules.filter((s) => s.recipients.length > 0).length
+  const addressCount = activeSchedules.reduce((n, s) => n + s.recipients.length, 0)
+  const hasRecipients = addressCount > 0
   const paused = tc?.report_period === 'paused'
 
   return (
@@ -37,12 +43,12 @@ export default async function ConnectionsPage() {
           <ConnectionRow name="Reddit" what={platforms.has('reddit') ? 'Threads and comments' : 'Threads and comments — on request'} status={platforms.has('reddit') ? 'connected' : 'in-development'} />
         </SettingsCard>
 
-        <SettingsCard title="Where reports go" description="The weekly report is the product’s main surface. Email is live; chat destinations are next.">
+        <SettingsCard title="Where reports go" description="Scheduled updates go out by email — each schedule to its own list. Chat destinations are next.">
           <ConnectionRow
             name="Email"
-            what={paused ? 'Updates are paused for this workspace — nothing is being sent' : emails.length > 0 ? `${emails.length} recipient${emails.length === 1 ? '' : 's'} — edit the list under Tracking & reports` : 'No recipients yet — add them under Tracking & reports'}
-            status={paused ? 'paused' : emails.length > 0 ? 'connected' : 'not-connected'}
-            action={<Link href="/dashboard/settings#reports" className="text-[12px] font-medium hover:underline">Edit →</Link>}
+            what={paused ? 'Updates are paused for this workspace — nothing is being sent' : hasRecipients ? `${scheduleCount} schedule${scheduleCount === 1 ? '' : 's'} · ${addressCount} address${addressCount === 1 ? '' : 'es'}` : 'no addresses yet'}
+            status={paused ? 'paused' : hasRecipients ? 'connected' : 'not-connected'}
+            action={<Link href="/dashboard/studio?group=schedules" className="text-[12px] font-medium hover:underline">Edit →</Link>}
           />
           <ConnectionRow name="Slack" what="The weekly report and movement alerts in a channel" status="coming-soon" />
           <ConnectionRow name="Microsoft Teams" what="The weekly report and movement alerts in a channel" status="coming-soon" />

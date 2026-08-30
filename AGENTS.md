@@ -48,4 +48,15 @@ This version has breaking changes — APIs, conventions, and file structure may 
   render. Nothing under `lib/reports/` may store or send to a model a
   comment's text — the cover prompt gets figure KEYS and validated brief
   prose only. A share link (`/r/<token>`) reads the link, its snapshot and
-  the quote texts — never a tenant table live.
+  the quote texts — never a tenant table live. A scheduled send
+  (`report_sends`) stores subject, recipients and ids — never the email body;
+  "the email as sent" re-renders from the snapshot. `weekly_reports` is
+  legacy (read-only, stored HTML) and gets no new rows.
+- **Rendering never runs inside an Inngest step.** Chromium (PDF, PNG) and
+  the email body are produced in route handlers (`/api/export`,
+  `/api/reports/[id]/build`, `/api/admin/schedules/run`, `/api/schedules/*`);
+  an Inngest function only `fetch`es them, one step per schedule. The account
+  has a hard 5-slot concurrency shared with the pipeline. `react-dom/server`
+  cannot be imported statically in an app route (Next compiles it in the RSC
+  layer) — `lib/email/render-html.ts` loads it at runtime; new browser or
+  email routes need their `outputFileTracingIncludes` entry.

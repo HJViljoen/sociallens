@@ -4,6 +4,7 @@ import { z } from 'zod'
 import { redirect } from 'next/navigation'
 import { requireUser } from '@/lib/auth'
 import { createAdminClient } from '@/lib/supabase-admin'
+import { ensureDefaultSchedule } from '@/lib/schedules/default'
 import { SELECTABLE_PLATFORMS } from '@/app/dashboard/settings/constants'
 import { deriveCompetitorKeywords, ONBOARDING_MAX_VIDEOS } from '@/lib/onboarding-config'
 
@@ -92,6 +93,16 @@ export async function createWorkspace(_prev: OnboardingState, formData: FormData
     report_emails: user.email ? [user.email] : [],
   })
   if (cfgErr) return { ok: false, message: `Could not save tracking settings: ${cfgErr.message}` }
+
+  // 2b) Default schedule ("Weekly digest"), seeded with the creator's address
+  // — mirrors the tracking_configs.report_emails seed above, now the source
+  // recipients actually send from. Non-fatal: a bookkeeping failure must
+  // never block workspace creation.
+  try {
+    await ensureDefaultSchedule(admin, clientId, user.email ? [user.email] : [], user.id)
+  } catch (e) {
+    console.error(`[onboarding] default schedule not created for ${clientId}: ${e instanceof Error ? e.message : String(e)}`)
+  }
 
   // 3) Owner membership for the creator.
   const fullName = (user.user_metadata?.full_name as string | undefined) || user.email?.split('@')[0] || 'Owner'

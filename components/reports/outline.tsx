@@ -3,7 +3,7 @@
 import { useRef, useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import { ArrowDown, ArrowUp, ChevronDown, ChevronRight, LoaderCircle, X } from 'lucide-react'
-import { saveAsTemplate, updateReport, type ActionState } from '@/app/dashboard/reports/studio/actions'
+import { updateReport, type ActionState } from '@/app/dashboard/studio/actions'
 import { newSectionId } from '@/lib/reports/templates'
 import { AUDIENCES, REPORT_FRAMING_MAX, type Audience, type ReportSection } from '@/lib/reports/types'
 import type { CataloguePage } from '@/lib/reports/catalogue'
@@ -37,8 +37,6 @@ export function Outline(p: Props) {
   const [open, setOpen] = useState<string | null>(p.sections[0]?.id ?? null)
   const [status, setStatus] = useState<ActionState | null>(null)
   const [addPage, setAddPage] = useState(p.catalogue[0]?.page ?? 'dashboard')
-  const [templateName, setTemplateName] = useState('')
-  const [templateOpen, setTemplateOpen] = useState(false)
   const byPage = new Map(p.catalogue.map((c) => [c.page, c]))
   const skippedFor = new Map(p.skipped.map((s) => [s.sectionId, s.reason]))
 
@@ -168,24 +166,8 @@ export function Outline(p: Props) {
           Add page
         </button>
       </div>
-      <p className="text-[11px] text-muted-foreground/80">A specific selection — one competitor, one theme, an agent answer — is added from that page’s Export menu.</p>
+      <p className="text-[11px] text-muted-foreground/80">Each section shows its page’s default view; a selection it was given (one competitor, one theme) stays with it.</p>
 
-      <div className="flex flex-col gap-2 border-t border-border/60 pt-3">
-        {templateOpen ? (
-          <div className="flex items-center gap-2">
-            <input value={templateName} maxLength={80} placeholder="Template name" autoFocus onChange={(e) => setTemplateName(e.target.value)}
-              className="h-8 min-w-0 flex-1 rounded-[4px] border border-input bg-tile px-2.5 text-[13px] outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50" />
-            <button type="button" disabled={!templateName.trim() || pending} onClick={() => start(async () => {
-              const r = await saveAsTemplate({ id: p.reportId, name: templateName.trim() })
-              setStatus(r)
-              if (r.ok) { setTemplateOpen(false); setTemplateName('') }
-            })} className="inline-flex h-8 items-center rounded-full bg-primary px-3 text-[12px] font-medium text-primary-foreground hover:bg-accent-foreground disabled:opacity-50">Save</button>
-            <button type="button" onClick={() => setTemplateOpen(false)} className="text-[12px] text-muted-foreground hover:text-foreground">Cancel</button>
-          </div>
-        ) : (
-          <button type="button" onClick={() => setTemplateOpen(true)} className="w-fit text-[12px] text-muted-foreground hover:text-foreground">Save this arrangement as a template…</button>
-        )}
-      </div>
 
       <p className="flex items-center gap-2 font-mono text-[10.5px] text-muted-foreground" aria-live="polite">
         {pending ? <><LoaderCircle className="size-3 animate-spin" aria-hidden /> Saving…</> : status ? <span className={status.ok ? '' : 'text-negative'}>{status.message}</span> : <span>{p.slideCount} slide{p.slideCount === 1 ? '' : 's'}</span>}

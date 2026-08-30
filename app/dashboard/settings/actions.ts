@@ -24,7 +24,6 @@ const csv = (v: FormDataEntryValue | null) =>
 // arrives as a sentence rather than as a raw Postgres constraint name.
 const schema = z.object({
   competitor_names: z.array(z.string()).min(1, 'add at least one competitor').max(15, 'track at most 15 competitors'),
-  report_emails: z.array(z.email()).max(25, 'send to at most 25 addresses'),
   report_period: z.enum(PERIODS),
   report_day: z.enum(DAYS),
 })
@@ -58,7 +57,6 @@ export async function updateTrackingConfig(
 
   const parsed = schema.safeParse({
     competitor_names: csv(formData.get('competitor_names')),
-    report_emails: csv(formData.get('report_emails')),
     report_period: isPaused ? 'weekly' : formData.get('report_period'),
     report_day: formData.get('report_day'),
   })

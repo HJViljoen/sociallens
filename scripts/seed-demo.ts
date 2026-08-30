@@ -3,6 +3,7 @@ import { createAdminClient, selectAll } from '../lib/supabase-admin'
 import { computeMetrics } from '../lib/pipeline/metrics'
 import type { VideoRow, CommentRow, Step2aMetrics } from '../lib/pipeline/types'
 import { runStep2c } from '../lib/pipeline/owned-events'
+import { ensureDefaultSchedule } from '../lib/schedules/default'
 
 // Idempotent demo-tenant seeder (DATA ONLY — no UI). Creates "Össur — Demo":
 // a comped tenant with a login, six weekly pipeline_runs, the latest run (W6)
@@ -130,6 +131,8 @@ async function deleteDemo(): Promise<void> {
     'run_summary',
     'comments',
     'videos',
+    'report_sends',
+    'report_schedules',
     'weekly_reports',
     'ai_call_log',
     'invitations',
@@ -191,6 +194,8 @@ async function createTenant(): Promise<{ password: string; authUserId: string }>
     comment_depth: src.comment_depth ?? 100,
   })
   if (cfgErr) throw new Error(`create tracking_configs: ${cfgErr.message}`)
+
+  await ensureDefaultSchedule(admin, DEMO_CLIENT_ID, [DEMO_EMAIL])
 
   const password = demoPassword()
   const { data: created, error: authErr } = await admin.auth.admin.createUser({

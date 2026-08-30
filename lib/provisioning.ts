@@ -120,7 +120,7 @@ export function buildProvisionPlan(spec: TenantSpec, now = new Date()): Provisio
     warnings.push('reddit is enabled: it is a degradable, operator-enabled platform and spends on every run')
   }
   if (!spec.reportEmails?.length) {
-    warnings.push('no report recipients: this tenant will run and email nobody')
+    warnings.push('no recipients: the default schedule will email nobody')
   }
   if (spec.approve) {
     warnings.push('approved and active: the scheduler will pick this tenant up on its next report_day')

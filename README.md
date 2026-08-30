@@ -3,7 +3,7 @@
 Media-based consumer intelligence for mid-market D2C brands. Verbatim gathers
 TikTok / YouTube / Instagram video and comment conversations around a client's
 category, runs them through a multi-pass GPT analysis pipeline, and delivers a
-dashboard plus weekly email reports — multi-tenant SaaS at
+dashboard plus scheduled email updates — multi-tenant SaaS at
 [app.verbatimintel.com](https://app.verbatimintel.com).
 
 ## Stack
@@ -15,7 +15,7 @@ dashboard plus weekly email reports — multi-tenant SaaS at
 - **OpenAI** — analysis (`gpt-4.1-mini`), synthesis (`gpt-5.4`), embeddings,
   Whisper transcription
 - **Apify** (TikTok/Instagram scraping) + **YouTube Data API v3** (free, official)
-- **Resend** — invite + weekly-report email
+- **Resend** — invite + scheduled update emails (PDF attached)
 - **Vercel** — Hobby plan, region `dub1`; 300s function cap shapes the pipeline's
   step sizing
 
@@ -71,7 +71,8 @@ each sized to fit the 300s cap:
 5. **Synthesize** — metrics → Pass C (competitive) → Pass D (market insights,
    recommendations, executive brief) → `run_summary`.
 6. **Close run** → `prune-stale-analysis` → optionally emit
-   `report/send.requested` → `sendWeeklyReport` (Resend + `weekly_reports` row).
+   `report/send.requested` → `sendWeeklyReport` finds the due schedules and calls
+   `POST /api/admin/schedules/run` per schedule (build, PDF, link, email → `report_sends`).
 
 A daily cron (`inngest/functions/scheduler.ts`, 06:00 Africa/Johannesburg)
 dispatches runs for clients whose `report_day`/`report_period` are due.
@@ -111,8 +112,9 @@ functions (defined in the baseline).
   **not** re-read videos this same run already analysed — on a `skipGather`
   resume of the *same* `runId` those are already this run's output; use a new
   run id to force a genuine re-read.
-- **Report preview/send**: `scripts/send-report.ts` (safe preview by default;
-  `--commit` persists, `--no-send` skips email) or `POST /api/admin/send-report`.
+- **Schedule preview/send**: `scripts/send-report.ts` (preview by default →
+  `email-preview.html`; `--test <email>`; `--commit` sends to the list) or
+  `POST /api/admin/send-report { clientId, scheduleId?, mode }`.
 - **Retention** (`retention-daily`, 04:00 SAST, dormant until `RETENTION_ENABLED=1`):
   raw payloads and prompt bodies past 30 days go; **YouTube rows are refreshed,
   not deleted** — re-fetched from the API every ≤30 days (Developer Policy
@@ -136,23 +138,46 @@ Every dashboard page is a **loader** (`lib/pages/<page>.ts`) plus **renderers**
 (`components/pages/<page>`, catalogue `components/pages/registry.ts`, keys
 `<page>.<tile>`); the same data feeds the app, paper and the Studio.
 
-- **Export in place** (Stage 1): the page-bar Export menu (this page /
-  everything / any tile as PNG) and the hover control on every tile →
-  `POST /api/export` freezes a **snapshot** (`report_snapshots`: tile-ready
-  data, quotes as refs, never their text) → headless Chrome prints
-  `/render/<snapshot>` under a signed token → the file lands in the private
-  `artifacts` bucket → `GET /api/artifacts/<id>` 302s to a one-hour signed
-  URL. Erasure stales the artifacts whose snapshots cite a voice
-  (`deleteCommentsProperly`); the next download re-renders without it.
-- **Report Studio** (Stage 2): `/dashboard/reports` → New report → a starter
-  (`lib/reports/templates.ts` — templates only arrange existing pages) or the
-  workspace's own → `/dashboard/reports/studio/<id>`: ordered sections (page +
-  its selection + tiles + one framing line) beside the deck preview. **Build**
-  (`POST /api/reports/<id>/build`) runs every section's loader, writes the
-  cover in the reader's register (`COVER_MODEL`, figures substituted by code —
-  the model never sees a number or a quote), freezes it all into ONE snapshot
-  of kind `report`, prints the PDF. "Add to a report…" in any page's Export
-  menu carries that page with its selection into a draft.
+- **The spine** (Stage 1): `POST /api/export` freezes a **snapshot**
+  (`report_snapshots`: tile-ready data, quotes as refs, never their text) →
+  headless Chrome prints `/render/<snapshot>` under a signed token → the file
+  lands in the private `artifacts` bucket → `GET /api/artifacts/<id>` 302s to
+  a one-hour signed URL. Erasure stales the artifacts whose snapshots cite a
+  voice (`deleteCommentsProperly`); the next download re-renders without it.
+  The page-bar Export menu and the tile controls were removed from the
+  dashboard pages in Stage 3 (to be redone after the Studio); the routes and
+  `scripts/export-smoke.ts` remain.
+- **The Studio** (Stage 2, its own page since Stage 3): `/dashboard/studio` —
+  **Templates**: the five starters (`lib/reports/templates.ts` — templates only
+  arrange existing pages) and the workspace's own (a `reports` row); "Use as
+  my own" copies a starter into the editor `/dashboard/studio/edit/<id>`:
+  ordered sections (page + its selection + tiles + one framing line) beside
+  the deck preview. **Build** (`POST /api/reports/<id>/build`) runs every
+  section's loader, writes the cover in the reader's register (`COVER_MODEL`,
+  figures substituted by code — the model never sees a number or a quote),
+  freezes it all into ONE snapshot of kind `report` (now with `delta`, what
+  moved since the previous update), prints the PDF.
+- **Schedules** (Stage 3): `/dashboard/studio?group=schedules` —
+  `report_schedules`: a template (starter key or own), a cadence (every
+  update / first update of the month, SAST), its own recipient list (≤ 25),
+  attach the PDF, the share link's life; owners/admins edit, every member may
+  look and preview. Every workspace has a default **Weekly digest** (an
+  accepted invite joins its list; `tracking_configs.report_emails` is no
+  longer read). After a scheduled update the pipeline emits
+  `report/send.requested` → Inngest `send-weekly-report` finds the due
+  schedules and, one step each, calls `POST /api/admin/schedules/run`
+  (admin key) — the render never runs inside an Inngest step. The runner
+  (`lib/schedules/run.ts`) claims `report_sends (schedule_id, run_id)` first
+  (a retry cannot send twice), builds the snapshot, prints the PDF and the
+  email's inline PNGs in one browser session, mints a share link, renders
+  the **email from the same tiles** (`Renderable.email`, `components/email/*`
+  — tables, inline styles, literal hex; the delta block leads) and sends
+  through Resend with the PDF attached. A send stores ids, never the HTML:
+  "the email as sent" re-renders from the snapshot
+  (`GET /api/schedules/<id>/preview?send=`). **Reports** (`/dashboard/reports`)
+  is the archive: Sent (with the pre-Stage-3 `weekly_reports` rows beneath)
+  and Built. Ops: `POST /api/admin/send-report { clientId, scheduleId?, runId?,
+  mode: preview|test|send, to? }`.
 - **Share links**: `/r/<token>` renders a build live from its snapshot in
   app mode — no account, the evidence popovers work, dashboard links go
   quiet. 32-byte token, 7/30/90/no expiry, one-click revoke, optional
@@ -163,9 +188,12 @@ Every dashboard page is a **loader** (`lib/pages/<page>.ts`) plus **renderers**
   cookies; falls back to the service-role key), `CHROME_PATH` (local dev
   only), `RENDER_BASE_URL` (optional origin override for the renderer).
 - **Verify**: `scripts/render-page.ts` (any page / `--template` / `--report`
-  to PDF, no session, snapshot deleted after), `scripts/export-smoke.ts`,
-  `scripts/export-ui-smoke.ts`, `scripts/studio-smoke.ts`,
-  `scripts/share-smoke.ts` (real browser, demo account).
+  to PDF, no session, snapshot deleted after; `--no-render` prints the cover
+  and the delta), `scripts/send-report.ts` (a schedule's email: preview by
+  default → `email-preview.html/.txt`; `--test <email>`; `--commit`),
+  `scripts/export-smoke.ts`, `scripts/studio-smoke.ts` (the Studio, schedules,
+  Reports, no export chrome — real browser, demo account),
+  `scripts/share-smoke.ts`.
 
 ## Operator scripts
 
@@ -181,7 +209,7 @@ All run as `node --env-file=.env.local --import tsx scripts/<name>.ts`.
 | `run-relevance.ts` | Relevance gate dry-run over stored videos (no spend) |
 | `run-tagging.ts` | Entity-tagging strategy comparison |
 | `run-owned-events.ts` | Owned-account event detection |
-| `send-report.ts` | Weekly report preview/send |
+| `send-report.ts` | A schedule's digest: preview / test send / real send |
 | `seed-demo.ts` | Idempotent demo-tenant seeder (careful: doesn't recreate account_events/weekly_reports; after a re-seed, re-run the backfill block of `supabase/migrations/20260818090000_incremental_pass_a.sql` so the demo videos' `analyzed_run_id` points at W6 — the `*_current` views are empty until it does) |
 | `regate-corpus.ts` | Re-apply the relevance gate post-hoc (`--apply` deletes) |
 | `backfill-transcripts.ts` | Transcript backfill for stored corpus |

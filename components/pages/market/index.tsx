@@ -5,7 +5,6 @@ import { glossaryRule, priorityWord } from '@/lib/calibration'
 import { fmtInt, weekdayDate, shortDate, platformLabel } from '@/lib/format'
 import { claimVerdict, claimCountsLine, newsRingChip, type ClaimTone } from '@/lib/market-tiles'
 import { HowToRead } from '@/components/how-to-read'
-import { ExportMenu, ExportScope } from '@/components/export-menu'
 import { PageFrame, PageBar, BarPill } from '@/components/shell/page-grid'
 import { Tile, TileBlock, TileEmpty } from '@/components/shell/tile'
 import { MasterDetail } from '@/components/shell/master-detail'
@@ -594,7 +593,7 @@ export const marketPage: PageModule<D> = {
 }
 
 /** The app page: page bar, the short read, the master-detail, the news feed. */
-export function MarketPage({ data: d, detail: detailParam, params }: { data: MarketData | MarketEmpty; detail?: string; params: Record<string, string | undefined> }) {
+export function MarketPage({ data: d, detail: detailParam }: { data: MarketData | MarketEmpty; detail?: string; params: Record<string, string | undefined> }) {
   const showLegend = detailParam === 'legend'
   if (isMarketEmpty(d)) {
     return (
@@ -609,10 +608,8 @@ export function MarketPage({ data: d, detail: detailParam, params }: { data: Mar
     )
   }
   return (
-    <ExportScope page="market" params={params} tiles={Object.values(renderables).map((r) => ({ key: r.key, title: r.title }))}>
     <PageFrame className="min-h-0 flex-1">
       <PageBar title="Market Intelligence" context={d.context}>
-        <ExportMenu />
         <BarPill active>This update</BarPill>
         <HowToRead items={d.legendItems} open={showLegend} basePath="/dashboard/market" />
       </PageBar>
@@ -620,6 +617,5 @@ export function MarketPage({ data: d, detail: detailParam, params }: { data: Mar
       <MasterDetail id="market" className="md:h-[640px]" rail={rail(d, 'app')} list={list(d, 'app')} detail={detail(d, 'app')} />
       {news(d, 'app')}
     </PageFrame>
-    </ExportScope>
   )
 }

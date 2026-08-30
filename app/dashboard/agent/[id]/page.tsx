@@ -6,7 +6,6 @@ import { Card, CardContent } from '@/components/ui/card'
 import { AgentComposer } from '@/components/agent-composer'
 import { AgentAnswerView } from '@/components/agent-answer'
 import { AgentDocumentSplit } from '@/components/agent-document-split'
-import { ExportMenu, ExportScope } from '@/components/export-menu'
 import { isPlatformAdmin } from '@/lib/agent/access'
 import { loadAgentThread } from '@/lib/pages/agent-thread'
 
@@ -25,9 +24,6 @@ export default async function AgentThreadPage({ params }: { params: Promise<{ id
   ])
   if (!data) notFound()
 
-  const exportTiles = data.kind === 'question'
-    ? data.turns.filter((t) => t.answer).map((t, i) => ({ key: `agent.answer:${i}`, title: data.turns.length > 1 ? `Answer ${i + 1} as an image` : 'The answer as an image' }))
-    : []
   const head = (
     <div className="flex items-start justify-between gap-4">
       <div>
@@ -40,7 +36,6 @@ export default async function AgentThreadPage({ params }: { params: Promise<{ id
         </Link>
         <h1 className="mt-2 text-xl font-semibold">{data.title}</h1>
       </div>
-      <div className="mt-1 shrink-0"><ExportMenu /></div>
     </div>
   )
 
@@ -51,7 +46,6 @@ export default async function AgentThreadPage({ params }: { params: Promise<{ id
   if (data.document) {
     const doc = data.document
     return (
-      <ExportScope page="agent" params={{ thread: id }} tiles={[]}>
         <div className="agent-fixed relative flex min-h-0 flex-1 flex-col gap-4">
           {head}
           <AgentDocumentSplit
@@ -64,13 +58,11 @@ export default async function AgentThreadPage({ params }: { params: Promise<{ id
             notice={null}
           />
         </div>
-      </ExportScope>
     )
   }
 
   const last = data.turns[data.turns.length - 1]
   return (
-    <ExportScope page="agent" params={{ thread: id }} tiles={exportTiles}>
       <div className="space-y-6">
         {head}
 
@@ -103,6 +95,5 @@ export default async function AgentThreadPage({ params }: { params: Promise<{ id
 
         <AgentComposer canSend={canSend} threadId={id} placeholder="Push back, or narrow it down" />
       </div>
-    </ExportScope>
   )
 }

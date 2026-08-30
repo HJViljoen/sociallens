@@ -1,6 +1,7 @@
 'use client'
 
 import { useActionState } from 'react'
+import Link from 'next/link'
 import { updateTrackingConfig, type SettingsFormState } from './actions'
 import { PERIODS, DAYS } from './constants'
 import { Input } from '@/components/ui/input'
@@ -14,7 +15,6 @@ import { SettingsCard } from '@/components/settings-frame'
 
 export interface TrackingConfig {
   competitor_names: string[] | null
-  report_emails: string[] | null
   report_period: string | null
   report_day: string | null
 }
@@ -50,7 +50,7 @@ export function SettingsForm({ cfg, canEdit }: { cfg: TrackingConfig; canEdit: b
             </Labeled>
           </SettingsCard>
 
-          <SettingsCard title={<span id="reports">Reports</span>} description="How often the update runs and who receives it.">
+          <SettingsCard title={<span id="reports">Update cadence</span>} description="How often the update runs — every schedule sends after it.">
             <div className="space-y-4">
               <Labeled label="Report period">
                 {cfg.report_period === 'paused' ? (
@@ -72,9 +72,13 @@ export function SettingsForm({ cfg, canEdit }: { cfg: TrackingConfig; canEdit: b
                   {DAYS.map((d) => <option key={d} value={d}>{cap(d)}</option>)}
                 </select>
               </Labeled>
-              <Labeled label="Report emails" hint="Comma-separated.">
-                <Input name="report_emails" defaultValue={join(cfg.report_emails)} placeholder="team@brand.com" />
-              </Labeled>
+              <p className="text-[11px] text-muted-foreground">
+                Who receives what is set per schedule in{' '}
+                <Link href="/dashboard/studio?group=schedules" className="underline underline-offset-2">
+                  Studio › Schedules
+                </Link>
+                .
+              </p>
             </div>
           </SettingsCard>
         </div>

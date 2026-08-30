@@ -1,6 +1,5 @@
 import type { ReactNode } from 'react'
 import { cn } from '@/lib/utils'
-import { TileExportButton } from '@/components/export-menu'
 
 // The grid's unit. Every tile has the same anatomy — eyebrow + meta on top,
 // content, a footer that links deeper — so the pages read as one system even
@@ -50,7 +49,8 @@ export interface TileProps {
   /** The whole tile is a link target: lifts on hover (only clickable tiles lift). */
   hoverable?: boolean
   /** The tile's renderable key ('dashboard.strip'): shows the export control
-   *  when an ExportScope is around it (the app pages); nothing on paper. */
+   *  when export-in-place is on (removed 2026-08-30 for the Studio; the key
+   *  stays on every tile for its return). */
   exportKey?: string
   className?: string
   bodyClassName?: string
@@ -95,13 +95,12 @@ export function Tile({
             </h2>
           ) : <span />}
           {meta && (
-            <span className={cn('shrink-0 whitespace-nowrap font-mono text-[11px] text-muted-foreground', exportKey && 'group-hover/tile:mr-6 group-focus-within/tile:mr-6')}>
+            <span className={cn('shrink-0 whitespace-nowrap font-mono text-[11px] text-muted-foreground')}>
               {meta}
             </span>
           )}
           {/* Export control: absolutely placed so the header keeps its height;
               the meta slides left only while the tile is hovered. */}
-          {exportKey && <TileExportButton tileKey={exportKey} />}
         </header>
       )}
       {isHero && lead && (

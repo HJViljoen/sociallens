@@ -3,7 +3,7 @@
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { LoaderCircle } from 'lucide-react'
-import { revokeShareLink } from '@/app/dashboard/reports/studio/actions'
+import { revokeShareLink } from '@/app/dashboard/studio/actions'
 
 export interface ShareLinkView {
   id: string

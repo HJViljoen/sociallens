@@ -51,3 +51,15 @@ The operator's framing lines are the operator's own words.
 so on the Reports page before a link is made. No per-viewer identity, by
 design. Deleting a snapshot cascades its links; deleting a report keeps its
 builds and links working.
+
+## Scheduled links (Stage 3, 2026-08-30)
+
+A schedule's email carries a share link minted by the runner
+(`lib/schedules/run.ts`): the same token, the schedule's own life
+(7 / 30 / 90 days or none — an owner/admin's choice per schedule), no
+password, `created_by` empty (the send, not a person, made it). It points at
+the snapshot the email was built from, so the reader sees the figures they
+were sent; an erased voice is gone at the next open, as for any link. The
+link is listed with the send under Reports › Sent and can be revoked there;
+revoking it does not recall the email or the attached PDF, and the reply to
+an erasure request says so.
