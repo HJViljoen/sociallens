@@ -33,8 +33,11 @@ export interface RunScheduleArgs {
   admin: SupabaseClient
   schedule: ScheduleRow
   runId: string
-  /** The app's origin — where the browser fetches /render and where links land. */
+  /** The app's origin — where the email's links land. */
   baseUrl: string
+  /** Where the browser fetches /render; the same origin on Vercel. A local
+   *  rehearsal renders here (the dev server) while links point at production. */
+  renderBaseUrl?: string
   mode: RunMode
   /** 'test': the only addresses the email goes to; nothing is recorded. */
   to?: string[]
@@ -139,7 +142,7 @@ export async function runSchedule(a: RunScheduleArgs): Promise<RunScheduleResult
       return snap.data.sections.some((s) => s.section.page === page && (s.section.keys ? s.section.keys.includes(k) : true))
     })
     const rendered = await renderMany({
-      baseUrl: a.baseUrl,
+      baseUrl: a.renderBaseUrl ?? a.baseUrl,
       snapshotId,
       jobs: [{ format: 'pdf' }, ...imageTiles.map((k) => ({ format: 'png' as const, tileKey: k }))],
     })

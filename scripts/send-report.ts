@@ -23,7 +23,10 @@ const has = (name: string) => args.includes(`--${name}`)
 
 const clientId = flag('client', 'e52cac94-30e1-426a-9a36-31b11e0b30b6')
 const out = flag('out', 'email-preview')
-const appUrl = (process.env.NEXT_PUBLIC_APP_URL || process.env.RENDER_BASE_URL || 'http://localhost:3000').replace(/\/$/, '')
+// Links in the email point at the app (production when NEXT_PUBLIC_APP_URL is
+// set); the browser renders against the dev server unless RENDER_BASE_URL says otherwise.
+const renderBaseUrl = (process.env.RENDER_BASE_URL || 'http://localhost:3000').replace(/\/$/, '')
+const appUrl = (process.env.NEXT_PUBLIC_APP_URL || renderBaseUrl).replace(/\/$/, '')
 
 async function main() {
   const admin = createAdminClient()
@@ -37,7 +40,7 @@ async function main() {
     const { runSchedule } = await import('../lib/schedules/run')
     const runId = flag('run') || (await latestRun(admin))
     if (!runId) throw new Error('no completed update to send')
-    const res = await runSchedule({ admin, schedule: s, runId, baseUrl: appUrl, mode: has('test') ? 'test' : 'send', to: has('test') ? [flag('test')] : undefined })
+    const res = await runSchedule({ admin, schedule: s, runId, baseUrl: appUrl, renderBaseUrl, mode: has('test') ? 'test' : 'send', to: has('test') ? [flag('test')] : undefined })
     console.log(`${res.status} · ${res.ms} ms${res.subject ? ` · "${res.subject}"` : ''}${res.shareUrl ? ` · ${res.shareUrl}` : ''}${res.error ? ` · ${res.error}` : ''}`)
     return
   }
