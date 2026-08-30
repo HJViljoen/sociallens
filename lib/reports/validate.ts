@@ -22,6 +22,8 @@ export const reportPatchSchema = z.object({
   title: z.string().trim().min(1, 'a report needs a title').max(REPORT_TITLE_MAX).optional(),
   audience: audienceSchema.optional(),
   coverTitle: z.string().trim().max(REPORT_TITLE_MAX).optional(),
+  /** Free-text "written for" (Stage 3). */
+  reader: z.string().trim().max(80).optional(),
   sections: sectionsSchema.optional(),
 })
 

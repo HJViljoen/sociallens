@@ -19,6 +19,8 @@ interface Props {
   reportId: string
   title: string
   audience: Audience
+  /** Free-text "written for"; empty = the register's own description. */
+  reader: string
   sections: ReportSection[]
   catalogue: CataloguePage[]
   skipped: { sectionId: string; reason: string }[]
@@ -32,7 +34,7 @@ export function Outline(p: Props) {
   const router = useRouter()
   const [pending, start] = useTransition()
   const [title, setTitle] = useState(p.title)
-  const [audience, setAudience] = useState<Audience>(p.audience)
+  const [reader, setReader] = useState(p.reader)
   const [sections, setSections] = useState<ReportSection[]>(p.sections)
   const [open, setOpen] = useState<string | null>(p.sections[0]?.id ?? null)
   const [status, setStatus] = useState<ActionState | null>(null)
@@ -83,11 +85,13 @@ export function Outline(p: Props) {
         </label>
         <label className="block">
           <span className="font-mono text-[10.5px] uppercase tracking-[0.08em] text-muted-foreground">Written for</span>
-          <select value={audience} onChange={(e) => { const a = e.target.value as Audience; setAudience(a); save({ audience: a }) }}
-            className="mt-1 h-8 w-full rounded-[4px] border border-input bg-tile px-2 text-[13px] outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50">
-            {AUDIENCES.map((a) => <option key={a.key} value={a.key}>{a.label} — {a.reader}</option>)}
-          </select>
-          <span className="mt-1 block text-[11px] text-muted-foreground/80">The cover is written in this register when the report is built; the preview shows the plain cover.</span>
+          <input value={reader} maxLength={80} list="written-for-suggestions" placeholder="Leadership, the sales team, the board…" onChange={(e) => setReader(e.target.value)}
+            onBlur={() => reader.trim() !== (p.reader ?? '').trim() && save({ reader: reader.trim() })}
+            className="mt-1 h-8 w-full rounded-[4px] border border-input bg-tile px-2.5 text-[13px] outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50" />
+          <datalist id="written-for-suggestions">
+            {AUDIENCES.map((a) => <option key={a.key} value={a.label} />)}
+          </datalist>
+          <span className="mt-1 block text-[11px] text-muted-foreground/80">Anyone you like. The cover is written for them when the report is built.</span>
         </label>
       </div>
 
@@ -143,7 +147,7 @@ export function Outline(p: Props) {
                     </label>
                   )}
                   <label className="block">
-                    <span className="font-mono text-[10.5px] uppercase tracking-[0.08em] text-muted-foreground">Framing — one line, in your words</span>
+                    <span className="font-mono text-[10.5px] uppercase tracking-[0.08em] text-muted-foreground">Framing, one line, in your words</span>
                     <input defaultValue={s.framing ?? ''} maxLength={REPORT_FRAMING_MAX} placeholder="Why this section is here (optional)"
                       onBlur={(e) => { const v = e.target.value.trim(); if (v !== (s.framing ?? '')) patchSection(s.id, (x) => ({ ...x, framing: v || undefined })) }}
                       className="mt-1 h-8 w-full rounded-[4px] border border-input bg-tile px-2.5 font-serif text-[13px] italic outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50" />
@@ -171,7 +175,7 @@ export function Outline(p: Props) {
 
       <p className="flex items-center gap-2 font-mono text-[10.5px] text-muted-foreground" aria-live="polite">
         {pending ? <><LoaderCircle className="size-3 animate-spin" aria-hidden /> Saving…</> : status ? <span className={status.ok ? '' : 'text-negative'}>{status.message}</span> : <span>{p.slideCount} slide{p.slideCount === 1 ? '' : 's'}</span>}
-        {!pending && p.slideCount > p.slidesWarn && <span className="text-warning">· long deck — readers read less</span>}
+        {!pending && p.slideCount > p.slidesWarn && <span className="text-warning">· long deck, readers read less</span>}
       </p>
     </div>
   )

@@ -14,5 +14,5 @@ export function digestSubject(company: string, delta: RunDelta | null | undefine
     const s = delta.sentiment.verdict.change
     bits.push(`sentiment ${s > 0 ? 'up' : 'down'} ${Math.abs(Math.round(s * 10) / 10)} pts`)
   }
-  return bits.length ? `${company}: what changed — ${bits.join(', ')}` : `${company}: your ${cadenceWord} update`
+  return bits.length ? `${company}: what changed. ${bits.join(', ')}` : `${company}: your ${cadenceWord} update`
 }

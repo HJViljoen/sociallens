@@ -151,7 +151,7 @@ export default async function ReportsPage({ searchParams }: { searchParams?: Pro
               ))}
             </ListRows>
           ) : (
-            <PaneEmpty>Nothing sent yet. Each schedule in the Studio sends after the next update — the first lands then.</PaneEmpty>
+            <PaneEmpty>Nothing sent yet. Each report in the Studio sends after the next update; the first lands then.</PaneEmpty>
           )}
         </div>
       </PaneBody>
@@ -227,7 +227,7 @@ export default async function ReportsPage({ searchParams }: { searchParams?: Pro
           {selectedBuild.artifacts.map((a) => (
             <a key={a.id} href={`/api/artifacts/${a.id}`} className="text-[12px] font-medium underline underline-offset-2">Download {a.format.toUpperCase()} · {fmtBytes(a.bytes)}{a.stale ? ' · re-renders' : ''}</a>
           ))}
-          {selectedBuild.report_id && <Link href={`/dashboard/studio?group=templates&item=${selectedBuild.report_id}`} className="text-[12px] font-medium underline underline-offset-2">Its template in the Studio</Link>}
+          {selectedBuild.report_id && <Link href={`/dashboard/studio?item=${selectedBuild.report_id}`} className="text-[12px] font-medium underline underline-offset-2">Open in the Studio</Link>}
         </div>
       </DetailSection>
       <DetailSection label="Share">

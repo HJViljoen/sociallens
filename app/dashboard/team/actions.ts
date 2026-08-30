@@ -146,7 +146,7 @@ export async function changeMemberRole(_prev: ActionState, formData: FormData): 
     return { ok: false, message: 'That person isn’t on your team.' }
   }
   if (target.role === newRole) {
-    return { ok: true, message: 'No change — they already have that role.' }
+    return { ok: true, message: 'No change, they already have that role.' }
   }
 
   // Don't demote the last remaining owner.
@@ -155,7 +155,7 @@ export async function changeMemberRole(_prev: ActionState, formData: FormData): 
       .from('users').select('id', { count: 'exact', head: true })
       .eq('client_id', clientId).eq('role', 'owner')
     if ((count ?? 0) <= 1) {
-      return { ok: false, message: 'Promote another owner first — a workspace needs at least one owner.' }
+      return { ok: false, message: 'Promote another owner first, a workspace needs at least one owner.' }
     }
   }
 

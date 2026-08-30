@@ -31,7 +31,7 @@ const hygiene = (html: string) => {
 describe('digestSubject', () => {
   it('names the movement when there is any, else it is the update', () => {
     expect(digestSubject('Ossur', null)).toBe('Ossur: your consumer intelligence baseline')
-    expect(digestSubject('Ossur', delta)).toBe('Ossur: what changed — 3 new themes, sentiment up 3.4 pts')
+    expect(digestSubject('Ossur', delta)).toBe('Ossur: what changed. 3 new themes, sentiment up 3.4 pts')
     expect(digestSubject('Ossur', { ...delta, newThemes: null, sentiment: { ...delta.sentiment!, verdict: { state: 'no_clear_change', change: 1.1, band: 2 } } })).toBe('Ossur: your weekly update')
     expect(digestSubject('Ossur', { ...delta, newThemes: null, sentiment: null }, 'monthly')).toBe('Ossur: your monthly update')
   })

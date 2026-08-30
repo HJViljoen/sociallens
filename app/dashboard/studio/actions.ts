@@ -7,7 +7,7 @@ import { canManageTenant, getSessionContext } from '@/lib/auth'
 import { createAdminClient } from '@/lib/supabase-admin'
 import { instantiate, starterTemplate } from '@/lib/reports/templates'
 import { reportPatchSchema, tidySections } from '@/lib/reports/validate'
-import { isAudience, type CoverSpec, type ReportRow, type ReportSection } from '@/lib/reports/types'
+import { AUDIENCES, isAudience, type CoverSpec, type ReportRow, type ReportSection } from '@/lib/reports/types'
 import { scheduleInputSchema, type ScheduleInput } from '@/lib/schedules/validate'
 
 // The Studio's writes (Stage 2, moved here in Stage 3). Server actions are
@@ -65,6 +65,12 @@ export async function updateReport(args: { id: string; patch: z.infer<typeof rep
   const cover = { ...((current.cover as CoverSpec) ?? {}) } as CoverSpec
   if (p.audience) cover.register = p.audience
   if (p.coverTitle !== undefined) { if (p.coverTitle) cover.title = p.coverTitle; else delete cover.title }
+  // "Written for" is free text; a known register keeps its prompt, anything else is written plainly for that reader.
+  if (p.reader !== undefined) {
+    if (p.reader) cover.reader = p.reader; else delete cover.reader
+    const known = AUDIENCES.find((a) => a.label.toLowerCase() === (p.reader ?? '').toLowerCase())
+    p.audience = known ? known.key : 'general'
+  }
   if (!cover.register) cover.register = isAudience(current.audience) ? current.audience : 'general'
   const row: Record<string, unknown> = { cover, updated_at: new Date().toISOString() }
   if (p.title !== undefined) row.title = p.title
@@ -72,9 +78,9 @@ export async function updateReport(args: { id: string; patch: z.infer<typeof rep
   if (p.sections !== undefined) row.sections = tidySections(p.sections)
   // An edit after a build makes the template a draft again: the latest build
   // no longer shows what the outline says.
-  if (p.sections !== undefined || p.audience !== undefined || p.coverTitle !== undefined || p.title !== undefined) row.status = 'draft'
+  if (p.sections !== undefined || p.audience !== undefined || p.coverTitle !== undefined || p.title !== undefined || p.reader !== undefined) row.status = 'draft'
   const { error } = await admin.from('reports').update(row).eq('id', parsed.data.id).eq('client_id', clientId)
-  if (error) return { ok: false, message: 'Could not save that — try again.' }
+  if (error) return { ok: false, message: 'Could not save that. Try again.' }
   revalidatePath(`${STUDIO}/edit/${parsed.data.id}`)
   revalidatePath(STUDIO)
   return { ok: true, message: 'Saved' }
@@ -89,7 +95,7 @@ export async function deleteReport(formData: FormData): Promise<void> {
   const { error } = await admin.from('reports').delete().eq('id', id).eq('client_id', clientId)
   if (error) throw new Error(`delete report: ${error.message}`)
   revalidatePath(STUDIO)
-  redirect(`${STUDIO}?group=templates`)
+  redirect(STUDIO)
 }
 
 /** Revoke a share link: the address stops working at the next open. */
@@ -134,12 +140,12 @@ export async function saveSchedule(args: { id?: string | null; input: ScheduleIn
   const id = args.id ? z.uuid().safeParse(args.id).data ?? null : null
   if (id) {
     const { error } = await admin.from('report_schedules').update(row).eq('id', id).eq('client_id', clientId)
-    if (error) return { ok: false, message: 'Could not save that — try again.' }
+    if (error) return { ok: false, message: 'Could not save that. Try again.' }
     revalidatePath(STUDIO)
     return { ok: true, message: 'Saved', id }
   }
   const { data, error } = await admin.from('report_schedules').insert({ ...row, client_id: clientId, created_by: userId, is_default: false }).select('id').single()
-  if (error || !data) return { ok: false, message: 'Could not create the schedule — try again.' }
+  if (error || !data) return { ok: false, message: 'Could not create the schedule. Try again.' }
   revalidatePath(STUDIO)
   return { ok: true, message: 'Saved', id: data.id as string }
 }
@@ -157,5 +163,5 @@ export async function deleteSchedule(formData: FormData): Promise<void> {
   const { error } = await admin.from('report_schedules').delete().eq('id', id).eq('client_id', clientId)
   if (error) throw new Error(`delete schedule: ${error.message}`)
   revalidatePath(STUDIO)
-  redirect(`${STUDIO}?group=schedules`)
+  redirect(STUDIO)
 }

@@ -56,6 +56,8 @@ export interface CoverSpec {
   register: Audience
   /** Overrides the generated title when set. */
   title?: string
+  /** Who it is written for, in the operator's words (Stage 3): free text; overrides the register's reader in the cover prompt. */
+  reader?: string
 }
 
 export interface ReportRow {

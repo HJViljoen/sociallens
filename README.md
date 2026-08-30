@@ -147,18 +147,23 @@ Every dashboard page is a **loader** (`lib/pages/<page>.ts`) plus **renderers**
   The page-bar Export menu and the tile controls were removed from the
   dashboard pages in Stage 3 (to be redone after the Studio); the routes and
   `scripts/export-smoke.ts` remain.
-- **The Studio** (Stage 2, its own page since Stage 3): `/dashboard/studio` —
-  **Templates**: the five starters (`lib/reports/templates.ts` — templates only
-  arrange existing pages) and the workspace's own (a `reports` row); "Use as
-  my own" copies a starter into the editor `/dashboard/studio/edit/<id>`:
-  ordered sections (page + its selection + tiles + one framing line) beside
-  the deck preview. **Build** (`POST /api/reports/<id>/build`) runs every
+- **The Studio** (Stage 2; its own page since Stage 3, reshaped 2026-08-30):
+  `/dashboard/studio` lists your reports down the left; the picked one on the
+  right shows its reader, pages, builds, share links and its **sending**.
+  A report is a `reports` row: pages + tiles + one framing line per section
+  + "written for" (free text, `cover.reader`; a known register keeps its
+  prompt). **New report** (`/dashboard/studio/new`) starts from one of the
+  five templates (`lib/reports/templates.ts`, arrange existing pages only) or
+  custom; **Edit** opens `/dashboard/studio/edit/<id>` (outline beside the
+  deck preview). **Build** (`POST /api/reports/<id>/build`) runs every
   section's loader, writes the cover in the reader's register (`COVER_MODEL`,
-  figures substituted by code — the model never sees a number or a quote),
-  freezes it all into ONE snapshot of kind `report` (now with `delta`, what
-  moved since the previous update), prints the PDF.
-- **Schedules** (Stage 3): `/dashboard/studio?group=schedules` —
-  `report_schedules`: a template (starter key or own), a cadence (every
+  figures substituted by code, the model never sees a number or a quote),
+  freezes it all into ONE snapshot of kind `report` (with `delta`, what moved
+  since the previous update), prints the PDF. On paper the cover is the title
+  and the page count; every page carries its page name and "Created by
+  {company} with Verbatim · date" with the page number.
+- **Sending** (Stage 3): a report's schedule, edited on the report itself:
+  `report_schedules` (one per report; `report_id`, a cadence (every
   update / first update of the month, SAST), its own recipient list (≤ 25),
   attach the PDF, the share link's life; owners/admins edit, every member may
   look and preview. Every workspace has a default **Weekly digest** (an

@@ -31,7 +31,7 @@ export default async function ConnectionsPage() {
   return (
     <SettingsFrame active="connections" title="Settings" context={client?.company_name ?? undefined} contentTitle="Connections" contentMeta="what we read · where reports go">
       <div className="flex flex-col gap-3">
-        <SettingsCard title="Sources we read" description="The public conversation we track for you. Set up with you at onboarding — tell us to change them.">
+        <SettingsCard title="Sources we read" description="The public conversation we track for you. Set up with you at onboarding, tell us to change them.">
           {SOURCES.map((p) => (
             <ConnectionRow
               key={p}
@@ -40,15 +40,15 @@ export default async function ConnectionsPage() {
               status={platforms.has(p) ? 'connected' : 'not-connected'}
             />
           ))}
-          <ConnectionRow name="Reddit" what={platforms.has('reddit') ? 'Threads and comments' : 'Threads and comments — on request'} status={platforms.has('reddit') ? 'connected' : 'in-development'} />
+          <ConnectionRow name="Reddit" what={platforms.has('reddit') ? 'Threads and comments' : 'Threads and comments, on request'} status={platforms.has('reddit') ? 'connected' : 'in-development'} />
         </SettingsCard>
 
-        <SettingsCard title="Where reports go" description="Scheduled updates go out by email — each schedule to its own list. Chat destinations are next.">
+        <SettingsCard title="Where reports go" description="Scheduled updates go out by email, each schedule to its own list. Chat destinations are next.">
           <ConnectionRow
             name="Email"
-            what={paused ? 'Updates are paused for this workspace — nothing is being sent' : hasRecipients ? `${scheduleCount} schedule${scheduleCount === 1 ? '' : 's'} · ${addressCount} address${addressCount === 1 ? '' : 'es'}` : 'no addresses yet'}
+            what={paused ? 'Updates are paused for this workspace, nothing is being sent' : hasRecipients ? `${scheduleCount} schedule${scheduleCount === 1 ? '' : 's'} · ${addressCount} address${addressCount === 1 ? '' : 'es'}` : 'no addresses yet'}
             status={paused ? 'paused' : hasRecipients ? 'connected' : 'not-connected'}
-            action={<Link href="/dashboard/studio?group=schedules" className="text-[12px] font-medium hover:underline">Edit →</Link>}
+            action={<Link href="/dashboard/studio" className="text-[12px] font-medium hover:underline">Edit →</Link>}
           />
           <ConnectionRow name="Slack" what="The weekly report and movement alerts in a channel" status="coming-soon" />
           <ConnectionRow name="Microsoft Teams" what="The weekly report and movement alerts in a channel" status="coming-soon" />
@@ -61,7 +61,7 @@ export default async function ConnectionsPage() {
         </SettingsCard>
 
         <SettingsCard title="API" description="Programmatic access to your insights.">
-          <ConnectionRow name="API keys" what="No API yet — ask if you need one" status="coming-soon" />
+          <ConnectionRow name="API keys" what="No API yet, ask if you need one" status="coming-soon" />
         </SettingsCard>
       </div>
     </SettingsFrame>

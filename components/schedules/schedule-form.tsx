@@ -8,19 +8,17 @@ import { CADENCES, type ScheduleRow } from '@/lib/schedules/types'
 import { splitRecipients } from '@/lib/schedules/validate'
 import { SCHEDULE_RECIPIENTS_MAX } from '@/lib/config'
 
-// One schedule's form (Stage 3): what to send, when, to whom, with the PDF
-// and a share link. Saves through a server action (owner/admin); "Send me a
-// test" and "Send now" go through the send route, which is the same path
-// the update takes on Sunday. No browser dialogs — a destructive click asks
-// again inline.
-
-export interface TemplateChoice { value: string; label: string; group: 'Starters' | 'Your templates' }
+// A report's sending (Stage 3, reshaped 2026-08-30): who gets it, after which
+// updates, with the PDF and a share link. One schedule per report; saved
+// through a server action (owner/admin). "Send me a test" and "Send now" go
+// through the send route, the same path the update takes on Sunday. No
+// browser dialogs: a destructive click asks again inline.
 
 interface Props {
+  reportId: string
+  reportTitle: string
+  /** The report's schedule, or null when it is not sent to anyone yet. */
   schedule: ScheduleRow | null
-  templates: TemplateChoice[]
-  /** Preselected template for a new schedule ("Send on a schedule" from a template). */
-  initialSource?: string | null
   canManage: boolean
   userEmail: string | null
   /** Whether the workspace has a completed update to send. */
@@ -33,11 +31,9 @@ const btn = 'inline-flex h-8 items-center rounded-full px-3 text-[12px] font-med
 const btnPrimary = `${btn} bg-primary text-primary-foreground hover:bg-accent-foreground`
 const btnQuiet = `${btn} bg-tile text-secondary-foreground ring-1 ring-border hover:bg-inner`
 
-export function ScheduleForm({ schedule, templates, initialSource, canManage, userEmail, sendable }: Props) {
+export function ScheduleForm({ reportId, reportTitle, schedule, canManage, userEmail, sendable }: Props) {
   const router = useRouter()
   const [pending, start] = useTransition()
-  const [name, setName] = useState(schedule?.name ?? '')
-  const [source, setSource] = useState(schedule ? (schedule.starter_key ? `starter:${schedule.starter_key}` : `report:${schedule.report_id}`) : (initialSource ?? templates[0]?.value ?? ''))
   const [cadence, setCadence] = useState<ScheduleRow['cadence']>(schedule?.cadence ?? 'every_update')
   const [recipients, setRecipients] = useState(schedule?.recipients.join(', ') ?? '')
   const [attachPdf, setAttachPdf] = useState(schedule?.attach_pdf ?? true)
@@ -53,13 +49,12 @@ export function ScheduleForm({ schedule, templates, initialSource, canManage, us
   const readOnly = !canManage
 
   const save = () => start(async () => {
-    const [kind, key] = source.split(':')
     const r = await saveSchedule({
       id: schedule?.id ?? null,
       input: {
-        name,
-        starterKey: kind === 'starter' ? key : null,
-        reportId: kind === 'report' ? key : null,
+        name: reportTitle,
+        starterKey: null,
+        reportId,
         cadence,
         recipients: parsedRecipients,
         attachPdf,
@@ -68,8 +63,7 @@ export function ScheduleForm({ schedule, templates, initialSource, canManage, us
       },
     })
     setStatus(r)
-    if (r.ok && r.id && r.id !== schedule?.id) router.push(`/dashboard/studio?group=schedules&item=${r.id}`)
-    else if (r.ok) router.refresh()
+    if (r.ok) router.refresh()
   })
 
   const send = async (mode: 'test' | 'now') => {
@@ -78,14 +72,14 @@ export function ScheduleForm({ schedule, templates, initialSource, canManage, us
     try {
       const r = await fetch(`/api/schedules/${schedule.id}/send`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ mode }) })
       const j = (await r.json().catch(() => ({}))) as { status?: string; error?: string; to?: string | string[]; subject?: string }
-      if (!r.ok) setStatus({ ok: false, message: j.error ?? 'Could not send — try again.' })
-      else if (j.status === 'sent') setStatus({ ok: true, message: mode === 'test' ? `Sent to ${j.to} — "${j.subject}".` : `Sent to ${Array.isArray(j.to) ? j.to.length : 0} people — "${j.subject}".` })
+      if (!r.ok) setStatus({ ok: false, message: j.error ?? 'Could not send. Try again.' })
+      else if (j.status === 'sent') setStatus({ ok: true, message: mode === 'test' ? `Sent to ${j.to}: "${j.subject}".` : `Sent to ${Array.isArray(j.to) ? j.to.length : 0} people: "${j.subject}".` })
       else if (j.status === 'already_sent') setStatus({ ok: true, message: 'This update already went out to this list.' })
       else if (j.status === 'skipped') setStatus({ ok: false, message: j.error ?? 'Nothing was sent.' })
       else setStatus({ ok: false, message: j.error ?? 'Could not send.' })
       router.refresh()
     } catch {
-      setStatus({ ok: false, message: 'Could not send — try again.' })
+      setStatus({ ok: false, message: 'Could not send. Try again.' })
     } finally {
       setBusy(null)
     }
@@ -93,24 +87,18 @@ export function ScheduleForm({ schedule, templates, initialSource, canManage, us
 
   return (
     <div className="flex flex-col gap-4">
+      <label className="flex flex-col gap-1">
+        <span className={labelCls}>To</span>
+        <textarea value={recipients} disabled={readOnly} rows={2} onChange={(e) => setRecipients(e.target.value)} className={`${inputCls} h-auto py-1.5 leading-relaxed`} placeholder="one@company.com, two@company.com" />
+        <span className={`text-[11px] ${tooMany ? 'text-negative' : 'text-muted-foreground'}`}>
+          {parsedRecipients.length} address{parsedRecipients.length === 1 ? '' : 'es'} · commas, spaces or new lines between them · at most {SCHEDULE_RECIPIENTS_MAX}
+        </span>
+      </label>
       <div className="grid gap-4 md:grid-cols-2">
-        <label className="flex flex-col gap-1">
-          <span className={labelCls}>Name</span>
-          <input value={name} maxLength={80} disabled={readOnly} onChange={(e) => setName(e.target.value)} className={inputCls} placeholder="Weekly digest" />
-        </label>
-        <label className="flex flex-col gap-1">
-          <span className={labelCls}>What to send</span>
-          <select value={source} disabled={readOnly} onChange={(e) => setSource(e.target.value)} className={inputCls}>
-            {(['Starters', 'Your templates'] as const).map((g) => {
-              const items = templates.filter((t) => t.group === g)
-              return items.length ? <optgroup key={g} label={g}>{items.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}</optgroup> : null
-            })}
-          </select>
-        </label>
         <label className="flex flex-col gap-1">
           <span className={labelCls}>When</span>
           <select value={cadence} disabled={readOnly} onChange={(e) => setCadence(e.target.value as ScheduleRow['cadence'])} className={inputCls}>
-            {CADENCES.map((c) => <option key={c.key} value={c.key}>{c.label} — {c.help}</option>)}
+            {CADENCES.map((c) => <option key={c.key} value={c.key}>{c.label}: {c.help}</option>)}
           </select>
         </label>
         <label className="flex flex-col gap-1">
@@ -123,22 +111,15 @@ export function ScheduleForm({ schedule, templates, initialSource, canManage, us
           </select>
         </label>
       </div>
-      <label className="flex flex-col gap-1">
-        <span className={labelCls}>To</span>
-        <textarea value={recipients} disabled={readOnly} rows={3} onChange={(e) => setRecipients(e.target.value)} className={`${inputCls} h-auto py-1.5 leading-relaxed`} placeholder="one@company.com, two@company.com" />
-        <span className={`text-[11px] ${tooMany ? 'text-negative' : 'text-muted-foreground'}`}>
-          {parsedRecipients.length} address{parsedRecipients.length === 1 ? '' : 'es'} · commas, spaces or new lines between them · at most {SCHEDULE_RECIPIENTS_MAX}
-        </span>
-      </label>
       <div className="flex flex-wrap items-center gap-5 text-[13px]">
         <label className="flex items-center gap-2"><input type="checkbox" checked={attachPdf} disabled={readOnly} onChange={(e) => setAttachPdf(e.target.checked)} className="size-3.5 accent-primary" /> Attach the PDF</label>
-        <label className="flex items-center gap-2"><input type="checkbox" checked={active} disabled={readOnly} onChange={(e) => setActive(e.target.checked)} className="size-3.5 accent-primary" /> Active</label>
+        <label className="flex items-center gap-2"><input type="checkbox" checked={active} disabled={readOnly} onChange={(e) => setActive(e.target.checked)} className="size-3.5 accent-primary" /> Sending is on</label>
       </div>
 
       {canManage && (
         <div className="flex flex-wrap items-center gap-2 border-t border-border/60 pt-4">
-          <button type="button" onClick={save} disabled={pending || !name.trim() || tooMany || !source} className={btnPrimary}>
-            {pending ? <><LoaderCircle className="mr-1.5 size-3 animate-spin" aria-hidden /> Saving…</> : schedule ? 'Save' : 'Create schedule'}
+          <button type="button" onClick={save} disabled={pending || tooMany} className={btnPrimary}>
+            {pending ? <><LoaderCircle className="mr-1.5 size-3 animate-spin" aria-hidden /> Saving…</> : schedule ? 'Save' : 'Start sending'}
           </button>
           {schedule && (
             <>
@@ -158,16 +139,16 @@ export function ScheduleForm({ schedule, templates, initialSource, canManage, us
               )}
               <button type="button" onClick={() => setPreview((v) => !v)} className={btnQuiet}>{preview ? 'Hide the email' : 'Preview the email'}</button>
               {schedule.is_default ? (
-                <span className="ml-auto text-[11px] text-muted-foreground">The default schedule can be paused, not deleted.</span>
+                <span className="ml-auto text-[11px] text-muted-foreground">The workspace digest can be switched off, not removed.</span>
               ) : confirm === 'delete' ? (
                 <form action={deleteSchedule} className="ml-auto inline-flex items-center gap-2 text-[12px]">
                   <input type="hidden" name="id" value={schedule.id} />
-                  Delete this schedule?
-                  <button type="submit" className={`${btn} bg-negative text-white hover:opacity-90`}>Yes, delete</button>
+                  Stop sending this report and forget its list?
+                  <button type="submit" className={`${btn} bg-negative text-white hover:opacity-90`}>Yes</button>
                   <button type="button" onClick={() => setConfirm(null)} className="text-muted-foreground hover:text-foreground">Cancel</button>
                 </form>
               ) : (
-                <button type="button" onClick={() => setConfirm('delete')} className="ml-auto text-[12px] text-muted-foreground hover:text-negative">Delete</button>
+                <button type="button" onClick={() => setConfirm('delete')} className="ml-auto text-[12px] text-muted-foreground hover:text-negative">Remove the sending</button>
               )}
             </>
           )}
@@ -176,7 +157,7 @@ export function ScheduleForm({ schedule, templates, initialSource, canManage, us
       {!canManage && schedule && (
         <div className="flex flex-wrap items-center gap-2 border-t border-border/60 pt-4">
           <button type="button" onClick={() => setPreview((v) => !v)} className={btnQuiet}>{preview ? 'Hide the email' : 'Preview the email'}</button>
-          <span className="text-[12px] text-muted-foreground">An owner or admin changes schedules.</span>
+          <span className="text-[12px] text-muted-foreground">An owner or admin changes who gets this.</span>
         </div>
       )}
       {status && <p className={`font-mono text-[11px] ${status.ok ? 'text-positive' : 'text-negative'}`} aria-live="polite">{status.message}</p>}

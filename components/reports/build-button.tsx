@@ -32,14 +32,14 @@ export function BuildButton({ reportId, primary = true, className = '' }: { repo
       const r = await fetch(`/api/reports/${reportId}/build`, { method: 'POST' })
       const j = (await r.json().catch(() => ({}))) as { url?: string; artifactId?: string; error?: string; skipped?: { section: { page: string }; reason: string }[] }
       if (!r.ok || !j.url || !j.artifactId) {
-        setState({ phase: 'error', message: j.error ?? 'Couldn’t build this report — try again.' })
+        setState({ phase: 'error', message: j.error ?? 'Couldn’t build this report. Try again.' })
         return
       }
       setState({ phase: 'done', url: j.url, artifactId: j.artifactId, skipped: (j.skipped ?? []).map((s) => ({ page: s.section.page, reason: s.reason })) })
       window.location.assign(j.url)
       router.refresh()
     } catch {
-      setState({ phase: 'error', message: 'Couldn’t build this report — try again.' })
+      setState({ phase: 'error', message: 'Couldn’t build this report. Try again.' })
     }
   }
 
@@ -57,7 +57,7 @@ export function BuildButton({ reportId, primary = true, className = '' }: { repo
       {state.phase === 'done' && (
         <p className="text-right text-[11.5px] text-muted-foreground" aria-live="polite">
           Your PDF is downloading. <a href={`/api/artifacts/${state.artifactId}`} className="font-medium text-foreground underline underline-offset-2">Download again</a>
-          {state.skipped.length > 0 && <span className="block">{state.skipped.length} section{state.skipped.length === 1 ? '' : 's'} left out — {state.skipped[0].reason}</span>}
+          {state.skipped.length > 0 && <span className="block">{state.skipped.length} section{state.skipped.length === 1 ? '' : 's'} left out, {state.skipped[0].reason}</span>}
         </p>
       )}
       {state.phase === 'error' && <p className="text-right text-[11.5px] text-negative" aria-live="polite">{state.message}</p>}

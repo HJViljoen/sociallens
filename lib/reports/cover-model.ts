@@ -35,6 +35,8 @@ export interface CoverArgs {
   sectionTitles: string[]
   brief: { headline: string; beats: string[] } | null
   figures: FigureTable
+  /** A reader typed by the operator ("the board", "the Nordic sales team"); overrides the register's description. */
+  reader?: string | null
 }
 
 // v2 (Stage 3): a share figure gets a sentence template like a count does —
@@ -50,25 +52,26 @@ const REGISTER: Record<Audience, string> = {
   leadership: 'Leadership: they decide and carry the exposure. Lead with what changed and what it means for the company; one sentence on what is being asked of them. No process, no method.',
   marketing: 'Marketing: they act on this. Say what the market is saying and what that suggests doing next; name the theme and the competitor where the figures allow.',
   sales: 'Sales: they talk to customers every day. Say what customers push back on and how competitors are talked about, so they know what they will hear and what to say.',
-  content: 'Content: they make the next video. Say what is working, what people respond to, and how customers phrase things — the material, not the strategy.',
+  content: 'Content: they make the next video. Say what is working, what people respond to, and how customers phrase things: the material, not the strategy.',
   general: 'Anyone in the company: plain and short; what this is, where it comes from, what stood out.',
 }
 
 export function buildCoverPrompts(a: Omit<CoverArgs, 'admin' | 'clientId' | 'runId'>): { system: string; user: string } {
   const figureLines = Object.entries(a.figures).map(([k, f]) =>
-    f.kind === 'count' ? `- [[${k}]] — a count of ${f.label}; write it as "[[${k}]] ${f.label}"`
-    : f.kind === 'pct' ? `- [[${k}]] — a share, already written with its % sign: ${f.label}; put it after a verb, as in "${f.label} stood at [[${k}]]" or "reached [[${k}]]"; the placeholder ends the clause — never "is [[${k}]]", never "[[${k}]] of the …"`
-    : `- [[${k}]] — a name: ${f.label}; the placeholder stands where the name is read`)
+    f.kind === 'count' ? `- [[${k}]]: a count of ${f.label}; write it as "[[${k}]] ${f.label}"`
+    : f.kind === 'pct' ? `- [[${k}]]: a share, already written with its % sign: ${f.label}; put it after a verb, as in "${f.label} stood at [[${k}]]" or "reached [[${k}]]"; the placeholder ends the clause. Never "is [[${k}]]", never "[[${k}]] of the …"`
+    : `- [[${k}]]: a name: ${f.label}; the placeholder stands where the name is read`)
   const system = [
     'You write the cover paragraph of a research report built from what a brand\'s audience says in public comments. The report is prepared BY the client company for people inside it; you write as the company, never as a vendor.',
-    `Reader: ${REGISTER[a.register]}`,
+    a.reader?.trim() ? `Reader: ${a.reader.trim()}. Write for them, in plain English, about what matters to them.` : `Reader: ${REGISTER[a.register]}`,
     'Rules:',
     '- Three to five sentences, one paragraph, plain English, no headings, no bullet points, no exclamation marks, no greeting.',
-    '- You have NO numbers. Where a number belongs, write the figure\'s placeholder exactly as given, e.g. "[[videos]] conversations" — the product substitutes the real value. Never type a digit. Never invent a figure that is not in the list.',
+    '- You have NO numbers. Where a number belongs, write the figure\'s placeholder exactly as given, e.g. "[[videos]] conversations". The product substitutes the real value. Never type a digit. Never invent a figure that is not in the list.',
     '- Cite at most four figures; at least one. A placeholder is read aloud as its value: a count is followed by what it counts ("[[comments]] comments read"), never used as a noun ("the findings in [[competitive_findings]]" is wrong).',
     '- A figure means exactly what its label says. Do not attach it to a narrower claim: "[[videos]] conversations analysed" is true; "the theme appears in [[videos]] conversations" is not.',
     CALIBRATED_PROSE_RULE,
     '- Do not name the tool, the model or "AI". Do not say "this report"; say what was found.',
+    '- No dashes between clauses (no em dash, no en dash, no spaced hyphen); use a comma, a colon or a full stop.',
     '- Do not promise, recommend beyond the brief\'s own recommendation, or address the reader as "you" more than once.',
   ].join('\n')
   const user = [
@@ -78,7 +81,7 @@ export function buildCoverPrompts(a: Omit<CoverArgs, 'admin' | 'clientId' | 'run
     `Pages in the report, in order: ${dedupeTitles(a.sectionTitles).join(' · ') || '(none)'}`,
     a.brief ? `Executive brief headline: ${a.brief.headline}` : 'Executive brief: not included in this report.',
     a.brief?.beats.length ? `Executive brief beats:\n${a.brief.beats.map((b) => `- ${b}`).join('\n')}` : '',
-    figureLines.length ? `Figures available (cite by placeholder; you do not know their values):\n${figureLines.join('\n')}` : 'Figures available: none — write without numbers.',
+    figureLines.length ? `Figures available (cite by placeholder; you do not know their values):\n${figureLines.join('\n')}` : 'Figures available: none, write without numbers.',
   ].filter(Boolean).join('\n\n')
   return { system, user }
 }

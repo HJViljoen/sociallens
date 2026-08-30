@@ -107,6 +107,7 @@ export async function snapshotReport(args: {
     clientId: args.clientId,
     runId,
     register: args.report.cover.register ?? args.report.audience,
+    reader: args.report.cover.reader ?? null,
     title,
     company,
     period,

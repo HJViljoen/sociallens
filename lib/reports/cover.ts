@@ -60,6 +60,7 @@ export const audienceLabel = (register: Audience): string => AUDIENCES.find((a) 
 export function composeFallbackCover(args: {
   title: string
   register: Audience
+  reader?: string | null
   company: string
   period: string
   sectionTitles: string[]
@@ -67,7 +68,7 @@ export function composeFallbackCover(args: {
 }): CoverText {
   const f = args.figures
   const s: string[] = []
-  s.push(`${args.title} — prepared by ${args.company} for ${readerOf(args.register)}, from the ${args.period.replace(/^Update of /, 'update of ')}.`)
+  s.push(`${args.title}, prepared by ${args.company} for ${args.reader?.trim() || readerOf(args.register)}, from the ${args.period.replace(/^Update of /, 'update of ')}.`)
   if (f.videos && f.comments) s.push('It rests on [[videos]] conversations and [[comments]] comments, every one read in full.')
   else if (f.videos) s.push('It rests on [[videos]] conversations, every one read in full.')
   if (f.sentiment_positive_pct) s.push('Across the conversations rated for sentiment, [[sentiment_positive_pct]] were positive.')

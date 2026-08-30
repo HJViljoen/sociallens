@@ -50,7 +50,7 @@ export function SettingsForm({ cfg, canEdit }: { cfg: TrackingConfig; canEdit: b
             </Labeled>
           </SettingsCard>
 
-          <SettingsCard title={<span id="reports">Update cadence</span>} description="How often the update runs — every schedule sends after it.">
+          <SettingsCard title={<span id="reports">Update cadence</span>} description="How often the update runs, every schedule sends after it.">
             <div className="space-y-4">
               <Labeled label="Report period">
                 {cfg.report_period === 'paused' ? (
@@ -74,8 +74,8 @@ export function SettingsForm({ cfg, canEdit }: { cfg: TrackingConfig; canEdit: b
               </Labeled>
               <p className="text-[11px] text-muted-foreground">
                 Who receives what is set per schedule in{' '}
-                <Link href="/dashboard/studio?group=schedules" className="underline underline-offset-2">
-                  Studio › Schedules
+                <Link href="/dashboard/studio" className="underline underline-offset-2">
+                  the Studio
                 </Link>
                 .
               </p>

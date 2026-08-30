@@ -15,7 +15,7 @@ export const STARTER_TEMPLATES: ReportTemplate[] = [
     key: 'weekly_digest',
     name: 'Weekly digest',
     audience: 'general',
-    description: 'What changed since the last update, where you stand, what the market is talking about, comments worth a reply and where you stand against competitors — the update that goes out after every scheduled update, on paper and by email.',
+    description: 'What changed since the last update, where you stand, what the market is talking about, comments worth a reply and where you stand against competitors: the update that goes out after every scheduled update, on paper and by email.',
     sections: [
       { page: 'dashboard', params: {}, keys: ['dashboard.strip', 'dashboard.hero', 'dashboard.sentiment', 'dashboard.share', 'dashboard.themes', 'dashboard.movement', 'dashboard.recommendation', 'dashboard.accounts'] },
       { page: 'content', params: {}, keys: ['content.inbox'], framing: 'Comments worth a reply this update.' },
@@ -26,7 +26,7 @@ export const STARTER_TEMPLATES: ReportTemplate[] = [
     key: 'monthly_marketing_review',
     name: 'Monthly marketing review',
     audience: 'marketing',
-    description: 'Where you stand, what the market is saying, the competitive picture and what is working in content — the round-up a marketing lead takes into the monthly meeting.',
+    description: 'Where you stand, what the market is saying, the competitive picture and what is working in content: the round-up a marketing lead takes into the monthly meeting.',
     sections: [
       { page: 'dashboard', params: {}, keys: ['dashboard.strip', 'dashboard.hero', 'dashboard.sentiment', 'dashboard.share', 'dashboard.themes', 'dashboard.movement', 'dashboard.recommendation', 'dashboard.accounts'] },
       { page: 'voice', params: {}, keys: ['voice.map', 'voice.theme', 'voice.movers', 'voice.phrases', 'voice.mood', 'voice.ribbon'] },
@@ -39,7 +39,7 @@ export const STARTER_TEMPLATES: ReportTemplate[] = [
     key: 'leadership_one_pager',
     name: 'Leadership one-pager',
     audience: 'leadership',
-    description: 'The executive brief, the four numbers that moved and the one recommendation — two slides after the cover, for someone who will read the cover.',
+    description: 'The executive brief, the four numbers that moved and the one recommendation: two slides after the cover, for someone who will read the cover.',
     sections: [
       { page: 'dashboard', params: {}, keys: ['dashboard.strip', 'dashboard.hero', 'dashboard.sentiment', 'dashboard.share', 'dashboard.movement', 'dashboard.recommendation'] },
     ],
@@ -48,7 +48,7 @@ export const STARTER_TEMPLATES: ReportTemplate[] = [
     key: 'sales_objections_competitors',
     name: 'Sales: objections & competitors',
     audience: 'sales',
-    description: 'What customers push back on, in their words, and how each competitor is talked about — for the people who hear the objections first.',
+    description: 'What customers push back on, in their words, and how each competitor is talked about, for the people who hear the objections first.',
     sections: [
       { page: 'voice', params: { type: 'pain_point' }, keys: ['voice.map', 'voice.theme', 'voice.phrases', 'voice.mood', 'voice.ribbon'], framing: 'The pain points customers raise, in their own words.' },
       { page: 'voice', params: { type: 'objection' }, keys: ['voice.map', 'voice.theme'], framing: 'The objections heard before a purchase.' },
@@ -60,10 +60,10 @@ export const STARTER_TEMPLATES: ReportTemplate[] = [
     key: 'content_what_to_make_next',
     name: 'Content: what to make next',
     audience: 'content',
-    description: 'What is working right now, the playbooks side by side, how customers actually talk, and the recommendations — for the people making the next video.',
+    description: 'What is working right now, the playbooks side by side, how customers actually talk, and the recommendations, for the people making the next video.',
     sections: [
       { page: 'content', params: {}, keys: ['content.works', 'content.inbox', 'content.field', 'content.voices', 'content.accounts', 'content.playbooks'] },
-      { page: 'voice', params: {}, keys: ['voice.phrases', 'voice.mood', 'voice.ribbon'], framing: 'How customers say it — the words to borrow.' },
+      { page: 'voice', params: {}, keys: ['voice.phrases', 'voice.mood', 'voice.ribbon'], framing: 'How customers say it: the words to borrow.' },
       { page: 'market', params: { group: 'recs' }, keys: ['market.shortRead', 'market.detail'] },
     ],
   },

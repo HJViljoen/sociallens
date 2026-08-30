@@ -53,8 +53,8 @@ export default async function StudioPage({ params }: { params: Promise<{ reportI
 
   return (
     <PageFrame className="min-h-0 flex-1">
-      <PageBar title={report.title} context={`Template · ${sections.length} section${sections.length === 1 ? '' : 's'} · ${slideCount} slide${slideCount === 1 ? '' : 's'}`}>
-        <Link href={`/dashboard/studio?group=templates&item=${report.id}`}><BarPill>Back to the Studio</BarPill></Link>
+      <PageBar title={report.title} context={`Report · ${sections.length} section${sections.length === 1 ? '' : 's'} · ${slideCount} slide${slideCount === 1 ? '' : 's'}`}>
+        <Link href={`/dashboard/studio?item=${report.id}`}><BarPill>Back to the Studio</BarPill></Link>
         <BuildButton reportId={report.id} />
       </PageBar>
       <div className="flex min-h-0 flex-1 flex-col gap-3 md:h-[calc(100dvh_-_6.75rem)] md:flex-row">
@@ -66,6 +66,7 @@ export default async function StudioPage({ params }: { params: Promise<{ reportI
               reportId={report.id}
               title={report.title}
               audience={report.audience}
+              reader={report.cover.reader ?? ''}
               sections={report.sections}
               catalogue={studioCatalogue()}
               skipped={skipped.map((s) => ({ sectionId: s.section.id, reason: s.reason }))}
@@ -75,10 +76,10 @@ export default async function StudioPage({ params }: { params: Promise<{ reportI
           </PaneBody>
         </section>
         <section className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg bg-tile shadow-tile">
-          <PaneHeader title="Preview" meta="as it prints — the cover is written at build" />
+          <PaneHeader title="Preview" />
           <PaneBody className="bg-inner p-4">
             {sections.length ? <ReportPreview data={data} /> : (
-              <p className="px-2 py-6 text-[12.5px] text-muted-foreground">Nothing to show yet — add a page on the left.</p>
+              <p className="px-2 py-6 text-[12.5px] text-muted-foreground">Nothing to show yet. Add a page on the left.</p>
             )}
           </PaneBody>
         </section>

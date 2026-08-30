@@ -29,7 +29,7 @@ export default async function SettingsPage() {
   return (
     <SettingsFrame active="tracking" title="Settings" context={`${client?.company_name ?? 'Client'}${client?.plan ? ` · ${client.plan} plan` : ''}${!canEdit ? ' · read-only' : ''}`} contentTitle="Tracking & reports" contentMeta={c ? `${brandTerms.length} brand · ${(c.competitor_names ?? []).length} competitor · ${categoryTerms.length} category terms` : undefined}>
       {!c ? (
-        <p className="text-[12px] text-muted-foreground">No tracking config for this client — nothing is tracked until this is set up with you.</p>
+        <p className="text-[12px] text-muted-foreground">No tracking config for this client, nothing is tracked until this is set up with you.</p>
       ) : (
         <div className="flex flex-col gap-3">
           <SettingsCard title="What we track" description="The facts your updates are built on. Set up with you at onboarding; competitor names are yours to change below.">

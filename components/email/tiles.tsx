@@ -134,7 +134,7 @@ const MOVE: Record<string, { unit: string; good: 'up' | 'down' | 'neutral'; fmt:
 }
 
 const movement: E<DashboardData> = ({ movement: mv, updatesCount }, ctx) => {
-  if (!mv) return empty('Your first comparison lands with the next update — two updates are needed to show movement.')
+  if (!mv) return empty('Your first comparison lands with the next update; two updates are needed to show movement.')
   return (
     <div>
       <Img src={ctx.image('dashboard.movement')} alt={`Movement since your first update, ${updatesCount} updates`} width={544} />

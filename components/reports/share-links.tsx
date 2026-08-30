@@ -38,12 +38,12 @@ export function ShareLinks({ snapshotId, links }: { snapshotId: string | null; l
       const r = await fetch('/api/share', { method: 'POST', headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ snapshotId, expiresDays: days === 'none' ? null : Number(days), password: password || undefined }) })
       const j = (await r.json().catch(() => ({}))) as { url?: string; protected?: boolean; error?: string }
-      if (!r.ok || !j.url) { setError(j.error ?? 'Could not create the link — try again.'); return }
+      if (!r.ok || !j.url) { setError(j.error ?? 'Could not create the link. Try again.'); return }
       setMade({ url: j.url, protected: Boolean(j.protected) })
       setPassword('')
       router.refresh()
     } catch {
-      setError('Could not create the link — try again.')
+      setError('Could not create the link. Try again.')
     } finally {
       setBusy(false)
     }
@@ -75,11 +75,11 @@ export function ShareLinks({ snapshotId, links }: { snapshotId: string | null; l
             <p className="flex flex-wrap items-center gap-2" aria-live="polite">
               <a href={made.url} target="_blank" rel="noopener" className="font-mono text-[11.5px] underline underline-offset-2">{made.url}</a>
               <button type="button" onClick={() => copy(made.url, 'new')} className="text-muted-foreground hover:text-foreground">{copied === 'new' ? 'Copied' : 'Copy'}</button>
-              {made.protected && <span className="text-muted-foreground">· password set — send it separately</span>}
+              {made.protected && <span className="text-muted-foreground">· password set, send it separately</span>}
             </p>
           )}
           {error && <p className="text-negative" aria-live="polite">{error}</p>}
-          <p className="text-[11px] text-muted-foreground/80">Anyone with the link can read this build — no account. Figures are frozen; quoted voices are read live. Revoke any time.</p>
+          <p className="text-[11px] text-muted-foreground/80">Anyone with the link can read this build, no account needed. Figures are frozen; quoted voices are read live. Revoke any time.</p>
         </div>
       ) : (
         <p className="text-muted-foreground">Build the report first; a link points at a build.</p>

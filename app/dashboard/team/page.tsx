@@ -136,8 +136,8 @@ export default async function TeamPage() {
           {totalRecipients === 0 ? (
             <p className="text-sm text-muted-foreground">
               Nobody yet. Add addresses to a schedule in{' '}
-              <Link href="/dashboard/studio?group=schedules" className="underline underline-offset-2">Studio › Schedules</Link>,
-              or invite a teammate — they join the Weekly digest when they accept.
+              <Link href="/dashboard/studio" className="underline underline-offset-2">the Studio</Link>,
+              or invite a teammate, they join the Weekly digest when they accept.
             </p>
           ) : (
             schedules.map((s) => (
@@ -162,7 +162,7 @@ export default async function TeamPage() {
               {canManage ? (
                 <>
                   {' '}Add them in{' '}
-                  <Link href="/dashboard/studio?group=schedules" className="underline underline-offset-2">Studio › Schedules</Link>.
+                  <Link href="/dashboard/studio" className="underline underline-offset-2">the Studio</Link>.
                 </>
               ) : null}
             </p>

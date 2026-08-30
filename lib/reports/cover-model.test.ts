@@ -26,7 +26,7 @@ describe('buildCoverPrompts', () => {
     // the value already carries its % sign; the model is told so and shown how it reads
     expect(line).toContain('already written with its % sign')
     expect(line).toContain('"positive sentiment stood at [[sentiment_positive_pct]]"')
-    expect(line).toContain('never "is [[sentiment_positive_pct]]"')
+    expect(line).toContain('Never "is [[sentiment_positive_pct]]"')
     // the count template is unchanged
     expect(user).toContain('write it as "[[videos]] conversations analysed"')
   })

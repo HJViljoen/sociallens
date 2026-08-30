@@ -199,7 +199,7 @@ export async function runSchedule(a: RunScheduleArgs): Promise<RunScheduleResult
     if (!recording) {
       // A rehearsal leaves nothing behind: no build in the archive without a file.
       await admin.from('report_snapshots').delete().eq('id', snapshotId)
-      return { status: sent ? 'sent' : 'failed', subject: email.subject, ms: ms(), ...(sent ? {} : { error: 'email not sent — provider not configured or the send failed' }) }
+      return { status: sent ? 'sent' : 'failed', subject: email.subject, ms: ms(), ...(sent ? {} : { error: 'email not sent, provider not configured or the send failed' }) }
     }
 
     // 6. Record.
@@ -209,7 +209,7 @@ export async function runSchedule(a: RunScheduleArgs): Promise<RunScheduleResult
         .from('report_sends')
         .update({
           status: sent ? 'sent' : 'failed',
-          error: sent ? null : 'email not sent — provider not configured or the send failed',
+          error: sent ? null : 'email not sent, provider not configured or the send failed',
           sent_at: sent ? now : null,
           subject: email.subject,
           recipients: to,
@@ -221,7 +221,7 @@ export async function runSchedule(a: RunScheduleArgs): Promise<RunScheduleResult
       if (sent) await admin.from('report_schedules').update({ last_sent_at: now }).eq('id', schedule.id)
       if (schedule.report_id) await admin.from('reports').update({ status: 'built', latest_snapshot_id: snapshotId, updated_at: now }).eq('id', schedule.report_id)
     }
-    return { status: sent ? 'sent' : 'failed', sendId, snapshotId, artifactId, shareUrl: shareUrl ?? undefined, subject: email.subject, ms: ms(), ...(sent ? {} : { error: 'email not sent — provider not configured or the send failed' }) }
+    return { status: sent ? 'sent' : 'failed', sendId, snapshotId, artifactId, shareUrl: shareUrl ?? undefined, subject: email.subject, ms: ms(), ...(sent ? {} : { error: 'email not sent, provider not configured or the send failed' }) }
   } catch (e) {
     const error = e instanceof Error ? e.message : String(e)
     console.error(`[schedule ${schedule.id}] ${error}`)

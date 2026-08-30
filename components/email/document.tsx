@@ -107,7 +107,7 @@ export function DigestEmail({ data, shareUrl, appUrl, attached, ctx, preheader }
                           </div>
                         ) : null}
                         <div style={{ ...text.small, fontSize: 11, marginTop: 10, color: EMAIL.faint }}>
-                          Prepared by {data.company} · with Verbatim. You are receiving this because you are on {data.company}’s update list; an owner or admin changes it in Verbatim under Studio › Schedules.
+                          Prepared by {data.company} · with Verbatim. You are receiving this because you are on {data.company}’s update list; an owner or admin changes it in Verbatim in the Studio.
                         </div>
                       </td>
                     </tr>
