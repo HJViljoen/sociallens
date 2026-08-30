@@ -9,6 +9,8 @@ import { instantiate, starterTemplate } from '@/lib/reports/templates'
 import { reportPatchSchema, tidySections } from '@/lib/reports/validate'
 import { AUDIENCES, isAudience, type CoverSpec, type ReportRow, type ReportSection } from '@/lib/reports/types'
 import { scheduleInputSchema, type ScheduleInput } from '@/lib/schedules/validate'
+import { markSnapshotsStale } from '@/lib/artifacts'
+import { DOCUMENT_EDIT_MAX } from '@/lib/config'
 
 // The Studio's writes (Stage 2, moved here in Stage 3). Server actions are
 // directly POST-reachable, so every one re-resolves the tenant from the
@@ -164,4 +166,44 @@ export async function deleteSchedule(formData: FormData): Promise<void> {
   if (error) throw new Error(`delete schedule: ${error.message}`)
   revalidatePath(STUDIO)
   redirect(STUDIO)
+}
+
+// ── document edits (2026-08-31) ───────────────────────────────────────────
+// An operator's edit of one block of a BUILT document: an overlay row in
+// report_edits, never a change to the snapshot (lib/reports/documents/
+// edits.ts). Any member, like the template itself. The edit stales the
+// snapshot's artifacts so the next download prints the new words.
+
+const blockEditArgs = z.object({ snapshotId: z.uuid(), blockId: z.string().min(1).max(80), text: z.string().max(DOCUMENT_EDIT_MAX) })
+
+export async function saveBlockEdit(args: { snapshotId: string; blockId: string; text: string }): Promise<ActionState> {
+  const parsed = blockEditArgs.safeParse(args)
+  if (!parsed.success) return { ok: false, message: parsed.error.issues[0]?.message ?? 'That edit could not be saved.' }
+  const { clientId, userId } = await getSessionContext()
+  const admin = createAdminClient()
+  const { data: snap } = await admin.from('report_snapshots').select('id, report_id').eq('id', parsed.data.snapshotId).eq('client_id', clientId).maybeSingle()
+  if (!snap) return { ok: false, message: 'No such build.' }
+  const { error } = await admin
+    .from('report_edits')
+    .upsert({ client_id: clientId, snapshot_id: snap.id, block_id: parsed.data.blockId, text: parsed.data.text, edited_by: userId, edited_at: new Date().toISOString() }, { onConflict: 'snapshot_id,block_id' })
+  if (error) return { ok: false, message: 'Could not save that. Try again.' }
+  await markSnapshotsStale(admin, [snap.id as string], { apply: true }).catch((e) => console.error('[studio] stale after edit failed:', e))
+  if (snap.report_id) revalidatePath(`${STUDIO}/edit/${snap.report_id}`)
+  revalidatePath(STUDIO)
+  return { ok: true, message: 'Saved' }
+}
+
+export async function restoreBlock(args: { snapshotId: string; blockId: string }): Promise<ActionState> {
+  const parsed = blockEditArgs.pick({ snapshotId: true, blockId: true }).safeParse(args)
+  if (!parsed.success) return { ok: false, message: 'That block could not be restored.' }
+  const { clientId } = await getSessionContext()
+  const admin = createAdminClient()
+  const { data: snap } = await admin.from('report_snapshots').select('id, report_id').eq('id', parsed.data.snapshotId).eq('client_id', clientId).maybeSingle()
+  if (!snap) return { ok: false, message: 'No such build.' }
+  const { error } = await admin.from('report_edits').delete().eq('snapshot_id', snap.id).eq('block_id', parsed.data.blockId).eq('client_id', clientId)
+  if (error) return { ok: false, message: 'Could not restore that. Try again.' }
+  await markSnapshotsStale(admin, [snap.id as string], { apply: true }).catch((e) => console.error('[studio] stale after restore failed:', e))
+  if (snap.report_id) revalidatePath(`${STUDIO}/edit/${snap.report_id}`)
+  revalidatePath(STUDIO)
+  return { ok: true, message: 'Restored' }
 }

@@ -6,6 +6,9 @@ import { ShareShell } from '@/components/share/share-shell'
 import { PasswordForm } from '@/components/share/password-form'
 import { hydratedShare, recordShareView } from '@/lib/reports/share-view'
 import type { ReportSnapshotData } from '@/lib/reports/types'
+import { isDocumentData } from '@/lib/reports/documents/types'
+import { applyEdits, loadEdits } from '@/lib/reports/documents/edits'
+import { DocumentShareShell } from '@/components/share/document-share-shell'
 
 // /r/<token> — a shared report (Stage 2, D5/D6). Public prefix in proxy.ts;
 // everything else is checked here: the token, expiry, revocation, the
@@ -57,6 +60,17 @@ export default async function SharePage({ params }: { params: Promise<{ token: s
   // per snapshot: a reload, or a crawler ignoring noindex, is not a DB
   // multiplier. A withdrawn voice is gone within that minute.
   const data = await hydratedShare<ReportSnapshotData>(admin, snapshot)
+  // A written document (2026-08-31): its pages as printed, with the
+  // operator's edits laid over the frozen text (never cached: an edit made a
+  // minute ago must show on the next open).
+  if (isDocumentData(data)) {
+    const edits = await loadEdits(admin, snapshot.id)
+    return (
+      <main>
+        <DocumentShareShell data={applyEdits(data, edits)} appUrl={APP_URL} />
+      </main>
+    )
+  }
   return (
     <main>
       <ShareShell data={data} appUrl={APP_URL} />

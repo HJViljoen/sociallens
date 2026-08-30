@@ -863,6 +863,8 @@ export const DOCUMENT_RESEARCH_PARALLEL = 3
  *  it (the Studio answers 409 with its id); older, it is taken as dead
  *  (function killed, deploy mid-run) and marked failed so a new one may start. */
 export const DOCUMENT_BUILD_STALE_MS = 30 * 60_000
+/** Characters an operator's edit of one block may hold (a long paragraph is ~1,200). */
+export const DOCUMENT_EDIT_MAX = 4000
 /** Characters per block field: pages look alike every week because the
  *  writer cannot run long. Enforced in the schema description and by scrub. */
 export const DOCUMENT_BLOCK_MAX: Record<string, number> = {

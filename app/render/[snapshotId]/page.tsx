@@ -10,6 +10,7 @@ import { PrintTile } from '@/components/print/print-tile'
 import { ReportDeck } from '@/components/print/report-deck'
 import { DocumentDeck } from '@/components/print/document-deck'
 import { isDocumentData } from '@/lib/reports/documents/types'
+import { applyEdits, loadEdits } from '@/lib/reports/documents/edits'
 import type { ReportSnapshotData } from '@/lib/reports/types'
 import { MethodNote, type MethodNoteData } from '@/components/print/method-note'
 
@@ -46,9 +47,11 @@ export default async function RenderPage({
     // workings were never selected, so nothing here can print them.
     if (isDocumentData(data)) {
       if (token.tileKey) notFound()
+      // The operator's edits lie over the frozen pages (lib/reports/documents/edits.ts).
+      const edits = await loadEdits(admin, snapshotId)
       return (
         <PrintRoot style={style}>
-          <DocumentDeck data={data} />
+          <DocumentDeck data={applyEdits(data, edits)} />
         </PrintRoot>
       )
     }
