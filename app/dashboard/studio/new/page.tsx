@@ -20,9 +20,9 @@ export default function NewReportPage() {
       <PageBar title="New report" context="pick a starting point">
         <Link href="/dashboard/studio"><BarPill>Back to the Studio</BarPill></Link>
       </PageBar>
-      <section className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg bg-inner">
+      <section className="flex min-h-0 flex-1 flex-col overflow-hidden">
         <PaneHeader title="Templates" meta="arrange existing pages, never new analysis" />
-        <PaneBody className="px-5 py-5">
+        <PaneBody className="px-1 py-4">
           <form action={createReport} className="flex flex-col gap-6">
             <ul className="grid gap-3 md:grid-cols-2">
               {STARTER_TEMPLATES.map((t) => (
