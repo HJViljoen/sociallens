@@ -100,6 +100,11 @@ functions (defined in the baseline).
 - **Deploy** = push `main` (Vercel auto-deploys) or `npx vercel --prod`.
 - **After any Inngest function change**, re-register:
   `curl -X PUT https://app.verbatimintel.com/api/inngest`
+- **Inngest locally** (first used for `build-document`, 2026-08-31): run the
+  app with `INNGEST_DEV=1 npm run dev` and, beside it,
+  `npx inngest-cli@latest dev -u http://localhost:3000/api/inngest --no-discovery`;
+  `inngest.send` then lands on the dev server at :8288 and functions run
+  against localhost. `scripts/document-smoke.ts` needs both.
 - **Manual run**: `POST /api/admin/trigger-run` with header `X-Admin-Key:
   <ADMIN_API_KEY>` and body `{"clientId": "..."}`. (The service-role key is
   still accepted during the changeover; stop using it — the ops bearer is a
@@ -199,6 +204,22 @@ Every dashboard page is a **loader** (`lib/pages/<page>.ts`) plus **renderers**
   `scripts/export-smoke.ts`, `scripts/studio-smoke.ts` (the Studio, schedules,
   Reports, no export chrome — real browser, demo account),
   `scripts/share-smoke.ts`.
+
+**Written reports** (`reports.kind = 'document'`, 2026-08-31; the Sales
+brief first): the agent writes the document from the update in a role,
+inside a fixed skeleton (`lib/reports/documents/`). A build is asynchronous:
+`POST /api/reports/[id]/build` inserts a `report_builds` row and sends
+`report/build.requested`; Inngest `build-document` runs research → write →
+check → freeze as steps (model calls only; signals reload per step) and
+`fetch`es `POST /api/admin/documents/render` for the PDF; the Studio polls
+`GET /api/reports/[id]/builds/[buildId]`. The self-check judges each
+finding's headline against the data (`check.ts`) and drops a contradicted
+one, flagging the build. The Studio edits blocks in place as an overlay
+(`report_edits`, `lib/reports/documents/edits.ts`; the snapshot never
+changes, artifacts go stale) and shows the workings beside the page
+(`report_snapshots.workings`, never selected by render or share).
+`scripts/build-document.ts --report <id>` runs the same steps in process;
+`scripts/eval-document.ts <snapshotId>` is the structural eval.
 
 ## Operator scripts
 
