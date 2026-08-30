@@ -3,7 +3,6 @@ import { createAdminClient, selectAll } from '../lib/supabase-admin'
 import { computeMetrics } from '../lib/pipeline/metrics'
 import type { VideoRow, CommentRow, Step2aMetrics } from '../lib/pipeline/types'
 import { runStep2c } from '../lib/pipeline/owned-events'
-import { generateWeeklyReport } from '../lib/report'
 
 // Idempotent demo-tenant seeder (DATA ONLY — no UI). Creates "Össur — Demo":
 // a comped tenant with a login, six weekly pipeline_runs, the latest run (W6)
@@ -997,13 +996,14 @@ async function runOwnedEvents(weeks: WeekSpec[]): Promise<void> {
   }
 }
 
-/** Store the six weekly reports (no email) so the Reports page has its archive.
- *  Runs AFTER Step 2c so the "on your account" block lands in the reports. */
+/** The demo's Sent archive. The hand-written weekly email is gone (Stage 3):
+ *  a sent update is a report_sends row made by the schedule runner, which
+ *  needs a browser and Storage — not a seed's business. The demo's default
+ *  "Weekly digest" schedule is created with its tracking config; its first
+ *  send lands the first time the runner fires for it (scripts/send-report.ts
+ *  --client <demo> --commit). */
 async function storeReports(weeks: WeekSpec[]): Promise<void> {
-  for (const w of weeks) {
-    const res = await generateWeeklyReport({ clientId: DEMO_CLIENT_ID, runId: w.runId, send: false })
-    console.log(`  ${w.week}: ${res.reportId ? `stored — "${res.subject}"` : `NOT stored (${res.reason ?? 'unknown'})`}`)
-  }
+  console.log(`  ${weeks.length} updates seeded; sends come from the schedule runner, not the seed`)
 }
 
 // ---- 9. verification --------------------------------------------------------

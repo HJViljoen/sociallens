@@ -157,9 +157,11 @@ async function main() {
     }
   }
 
-  // 7. Stored report copies. Best-effort: the renderer HTML-escapes text, so
-  //    both the raw and the escaped forms are replaced. Reports already emailed
-  //    cannot be recalled — the reply says so.
+  // 7. Stored report copies — the LEGACY weekly_reports rows only (nothing has
+  //    written there since Stage 3; a scheduled send stores ids, and its
+  //    snapshot is caught by step 6 like any other). Best-effort: the renderer
+  //    HTML-escaped text, so both the raw and the escaped forms are replaced.
+  //    Reports already emailed cannot be recalled — the reply says so.
   let reportsScrubbed = 0
   if (clientIds.length && texts.length) {
     const esc = (t: string) => t.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;')

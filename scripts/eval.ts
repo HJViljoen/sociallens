@@ -140,8 +140,8 @@ async function main() {
           .eq('client_id', client.id).order('id', { ascending: true }),
       ),
       selectAll<{ run_id: string | null; sent_at: string | null }>(() =>
-        admin.from('weekly_reports').select('run_id, sent_at')
-          .eq('client_id', client.id).order('id', { ascending: true }),
+        admin.from('report_sends').select('run_id, sent_at')
+          .eq('client_id', client.id).eq('status', 'sent').order('sent_at', { ascending: true }),
       ),
     ])
     const cadence = cadenceReliability(

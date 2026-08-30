@@ -7,8 +7,9 @@ import { headers } from 'next/headers'
  *  configured URL, else the render base (dev), never a request header. */
 export function appBaseUrl(): string {
   const configured = process.env.NEXT_PUBLIC_APP_URL || process.env.RENDER_BASE_URL
-  if (!configured) throw new Error('NEXT_PUBLIC_APP_URL (or RENDER_BASE_URL) is not set')
-  return configured.replace(/\/$/, '')
+  if (configured) return configured.replace(/\/$/, '')
+  if (process.env.NODE_ENV !== 'production') return 'http://localhost:3000'
+  throw new Error('NEXT_PUBLIC_APP_URL (or RENDER_BASE_URL) is not set')
 }
 
 export async function getBaseUrl(): Promise<string> {

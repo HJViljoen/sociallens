@@ -17,6 +17,10 @@ const nextConfig: NextConfig = {
     '/api/artifacts/\\[id\\]': ['./node_modules/@sparticuz/chromium/bin/**/*'],
     // Stage 2: building a report prints it too.
     '/api/reports/\\[id\\]/build': ['./node_modules/@sparticuz/chromium/bin/**/*'],
+    // Stage 3: a schedule prints its PDF and the email's PNGs; the ops hook can too.
+    // react-dom/server is loaded at runtime for the email body (lib/email/render-html.ts).
+    '/api/admin/schedules/run': ['./node_modules/@sparticuz/chromium/bin/**/*', './node_modules/react-dom/**/*'],
+    '/api/admin/send-report': ['./node_modules/@sparticuz/chromium/bin/**/*', './node_modules/react-dom/**/*'],
   },
   // Share links (Stage 2): a public, read-only page nobody should index. The
   // page sets metadata.robots as well; this is the header form for crawlers

@@ -1,5 +1,5 @@
-import { renderToStaticMarkup } from 'react-dom/server'
 import { DigestEmail } from '../../components/email/document'
+import { renderStaticHtml } from './render-html'
 import type { ReportSnapshotData } from '../reports/types'
 import type { EmailContext } from '../renderables/types'
 import { EMAIL } from './theme'
@@ -35,6 +35,6 @@ export function renderDigestEmail(a: RenderDigestArgs): { subject: string; html:
     image: (key) => a.images?.[key] ?? null,
     theme: EMAIL,
   }
-  const html = `<!doctype html>\n${renderToStaticMarkup(<DigestEmail data={a.data} shareUrl={a.shareUrl} appUrl={a.appUrl} attached={a.attached} ctx={ctx} preheader={subject} />)}`
+  const html = `<!doctype html>\n${renderStaticHtml(<DigestEmail data={a.data} shareUrl={a.shareUrl} appUrl={a.appUrl} attached={a.attached} ctx={ctx} preheader={subject} />)}`
   return { subject, html, text: htmlToText(html) }
 }
