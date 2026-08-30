@@ -6,6 +6,8 @@ import { z } from 'zod'
 import { canManageTenant, getSessionContext } from '@/lib/auth'
 import { createAdminClient } from '@/lib/supabase-admin'
 import { instantiate, starterTemplate } from '@/lib/reports/templates'
+import { documentTemplate } from '@/lib/reports/documents/templates'
+import { DEFAULT_DOCUMENT_SETTINGS } from '@/lib/reports/documents/types'
 import { reportPatchSchema, tidySections } from '@/lib/reports/validate'
 import { AUDIENCES, isAudience, type CoverSpec, type ReportRow, type ReportSection } from '@/lib/reports/types'
 import { scheduleInputSchema, type ScheduleInput } from '@/lib/schedules/validate'
@@ -33,6 +35,20 @@ const REPORTS = '/dashboard/reports'
 export async function createReport(formData: FormData): Promise<void> {
   const { clientId, userId } = await getSessionContext()
   const admin = createAdminClient()
+  // A written report (2026-08-31): kind 'document', the template's name and
+  // reader, no sections, the settings at their defaults.
+  const documentKey = String(formData.get('document') ?? '')
+  if (documentKey) {
+    const t = documentTemplate(documentKey)
+    if (!t) throw new Error('unknown document template')
+    const { data, error } = await admin
+      .from('reports')
+      .insert({ client_id: clientId, kind: 'document', template_key: t.key, title: t.name, audience: t.audience, sections: [], cover: { register: t.audience }, settings: DEFAULT_DOCUMENT_SETTINGS, created_by: userId })
+      .select('id')
+      .single()
+    if (error || !data) throw new Error(`create report: ${error?.message ?? 'no row'}`)
+    redirect(`${STUDIO}/edit/${data.id as string}`)
+  }
   const templateKey = String(formData.get('template') ?? '')
   let title = 'Untitled template'
   let audience: ReportRow['audience'] = 'general'

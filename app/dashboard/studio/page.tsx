@@ -3,6 +3,10 @@ import { canManageTenant, getSessionContext } from '@/lib/auth'
 import { PageFrame, PageBar, BarPill } from '@/components/shell/page-grid'
 import { PaneHeader, PaneBody, PaneEmpty, DetailHeader, DetailSection } from '@/components/shell/master-list'
 import { BuildButton } from '@/components/reports/build-button'
+import { DocumentBuildControl } from '@/components/documents/build-control'
+import { BUILD_ACTIVE, type ReportBuildRow, type ReportKind } from '@/lib/reports/types'
+import { BUILD_COLS, BUILD_PHASE_WORDS } from '@/lib/reports/documents/builds'
+import { documentTemplate } from '@/lib/reports/documents/templates'
 import { DeleteReport } from '@/components/reports/delete-report'
 import { ShareLinks, type ShareLinkView } from '@/components/reports/share-links'
 import { ScheduleForm } from '@/components/schedules/schedule-form'
@@ -27,7 +31,7 @@ const BASE = '/dashboard/studio'
 const fmtWhen = (iso: string) => new Date(iso).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })
 const fmtBytes = (n: number) => (n >= 1_000_000 ? `${(n / 1_000_000).toFixed(1)} MB` : `${Math.max(1, Math.round(n / 1000))} KB`)
 
-interface Report { id: string; title: string; audience: string; cover: CoverSpec; status: 'draft' | 'built'; sections: ReportSection[]; latest_snapshot_id: string | null; updated_at: string }
+interface Report { id: string; kind: ReportKind; template_key: string | null; title: string; audience: string; cover: CoverSpec; status: 'draft' | 'built'; sections: ReportSection[]; latest_snapshot_id: string | null; updated_at: string }
 interface BuildRow { id: string; title: string; created_at: string; cover: CoverText | null; figures: FigureTable | null; artifacts: { id: string; format: string; bytes: number; stale: boolean; rendered_at: string; version: number }[] }
 interface SendRow { id: string; schedule_id: string | null; status: string; subject: string | null; recipients: string[]; sent_at: string | null; claimed_at: string; error: string | null }
 
@@ -40,7 +44,7 @@ export default async function StudioPage({ searchParams }: { searchParams?: Prom
   const canManage = canManageTenant(role)
 
   const [{ data: reportData }, { data: scheduleData }, { data: sendData }, { data: runData }] = await Promise.all([
-    supabase.from('reports').select('id, title, audience, cover, status, sections, latest_snapshot_id, updated_at').eq('client_id', clientId).order('created_at'),
+    supabase.from('reports').select('id, kind, template_key, title, audience, cover, status, sections, latest_snapshot_id, updated_at').eq('client_id', clientId).order('created_at'),
     supabase.from('report_schedules').select('*').eq('client_id', clientId),
     supabase.from('report_sends').select('id, schedule_id, status, subject, recipients, sent_at, claimed_at, error').eq('client_id', clientId).order('claimed_at', { ascending: false }).limit(100),
     supabase.from('pipeline_runs').select('id').eq('client_id', clientId).in('status', ['completed', 'partial']).limit(1),
@@ -58,6 +62,21 @@ export default async function StudioPage({ searchParams }: { searchParams?: Prom
 
   let builds: BuildRow[] = []
   let shareLinks: ShareLinkView[] = []
+  // A written report's builds are its report_builds rows (phase, cost, the
+  // PDF); an edit on a build's snapshot marks it. The share section takes
+  // the latest finished build's snapshot.
+  let docBuilds: ReportBuildRow[] = []
+  let editedSnapshots = new Set<string>()
+  const isDocument = selected?.kind === 'document'
+  if (selected && isDocument) {
+    const { data: db } = await supabase.from('report_builds').select(BUILD_COLS).eq('client_id', clientId).eq('report_id', selected.id).order('started_at', { ascending: false }).limit(12)
+    docBuilds = (db ?? []) as ReportBuildRow[]
+    const snapIds = docBuilds.map((b) => b.snapshot_id).filter((x): x is string => Boolean(x))
+    if (snapIds.length) {
+      const { data: ed } = await supabase.from('report_edits').select('snapshot_id').in('snapshot_id', snapIds)
+      editedSnapshots = new Set(((ed ?? []) as { snapshot_id: string }[]).map((e) => e.snapshot_id))
+    }
+  }
   if (selected) {
     const { data: b } = await supabase.from('report_snapshots')
       .select('id, title, created_at, cover:data->cover, figures:data->figures, artifacts(id, format, bytes, stale, rendered_at, version)')
@@ -113,12 +132,16 @@ export default async function StudioPage({ searchParams }: { searchParams?: Prom
         <section className="flex min-h-0 flex-1 flex-col overflow-y-auto rounded-lg bg-tile shadow-tile">
           {selected ? (
             <>
-              <DetailHeader eyebrow={`Report · written for ${readerOf(selected)}`} title={selected.title}
-                meta={`${selected.sections.length} section${selected.sections.length === 1 ? '' : 's'} · ${pagesOf(selected.sections).join(' · ') || 'empty'} · ${selected.status === 'built' ? 'built' : 'draft'} · edited ${fmtWhen(selected.updated_at)} · ${sendingLine(schedule)}`} />
+              <DetailHeader eyebrow={`${isDocument ? 'Written report' : 'Report'} · written for ${readerOf(selected)}`} title={selected.title}
+                meta={isDocument
+                  ? `${documentTemplate(selected.template_key)?.name ?? 'written'} · written by Verbatim from the update · ${selected.status === 'built' ? 'built' : 'not built yet'} · edited ${fmtWhen(selected.updated_at)} · ${sendingLine(schedule)}`
+                  : `${selected.sections.length} section${selected.sections.length === 1 ? '' : 's'} · ${pagesOf(selected.sections).join(' · ') || 'empty'} · ${selected.status === 'built' ? 'built' : 'draft'} · edited ${fmtWhen(selected.updated_at)} · ${sendingLine(schedule)}`} />
               <DetailSection>
                 <div className="flex flex-wrap items-center gap-2">
                   <Link href={`${BASE}/edit/${selected.id}`} className="inline-flex h-8 items-center rounded-full bg-tile px-3 text-[12px] font-medium text-secondary-foreground ring-1 ring-border hover:bg-inner">Edit</Link>
-                  <BuildButton reportId={selected.id} />
+                  {isDocument
+                    ? <DocumentBuildControl reportId={selected.id} inFlight={docBuilds[0] && BUILD_ACTIVE.includes(docBuilds[0].status) ? { id: docBuilds[0].id, status: docBuilds[0].status, startedAt: docBuilds[0].started_at } : null} />
+                    : <BuildButton reportId={selected.id} />}
                   <DeleteReport id={selected.id} />
                 </div>
               </DetailSection>
@@ -138,7 +161,27 @@ export default async function StudioPage({ searchParams }: { searchParams?: Prom
                 )}
               </DetailSection>
               <DetailSection label="Builds">
-                {builds.length > 0 ? (
+                {isDocument ? (
+                  docBuilds.length > 0 ? (
+                    <ul className="flex flex-col gap-2">
+                      {docBuilds.map((b) => {
+                        const art = builds.find((x) => x.id === b.snapshot_id)?.artifacts.find((a) => a.format === 'pdf') ?? null
+                        return (
+                          <li key={b.id} className="flex flex-wrap items-baseline gap-x-3 gap-y-1 rounded-[4px] bg-inner px-4 py-2.5 text-[12.5px]">
+                            <span className="font-mono text-[10.5px] text-muted-foreground">{fmtWhen(b.started_at)}</span>
+                            <span className={b.status === 'failed' ? 'text-negative' : b.status === 'done' ? '' : 'text-secondary-foreground'}>{b.status === 'done' ? 'Built' : BUILD_PHASE_WORDS[b.status]}{b.status === 'failed' && b.error ? `: ${b.error}` : ''}</span>
+                            {b.needs_review && <span className="text-warning">a finding was dropped after a check, read before sending</span>}
+                            {b.snapshot_id && editedSnapshots.has(b.snapshot_id) && <span className="font-mono text-[10.5px] text-muted-foreground">edited</span>}
+                            {Number(b.cost_usd) > 0 && <span className="font-mono text-[10.5px] text-muted-foreground">${Number(b.cost_usd).toFixed(2)}</span>}
+                            {art && <a href={`/api/artifacts/${art.id}`} className="font-medium underline underline-offset-2">PDF · {fmtBytes(art.bytes)}{art.stale ? ' · re-renders' : ''}</a>}
+                          </li>
+                        )
+                      })}
+                    </ul>
+                  ) : (
+                    <p className="text-[12px] text-muted-foreground">Not built yet. Building reads the update, asks the data, writes the brief for its reader and prints the PDF. Three to five minutes.</p>
+                  )
+                ) : builds.length > 0 ? (
                   <ul className="flex flex-col gap-3">
                     {builds.map((b) => (
                       <li key={b.id} className="rounded-[4px] bg-inner px-4 py-3">
