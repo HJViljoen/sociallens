@@ -56,8 +56,9 @@ async function main() {
       await page.setViewport({ width: 1440, height: 900, deviceScaleFactor: 1 })
       const shot = async (name: string) => writeFileSync(join(out, `${name}.png`), await page.screenshot({ type: 'png' }))
       const goto = (path: string) => page.goto(`${base}${path}`, { waitUntil: 'networkidle0', timeout: 120_000 })
-      // The demo tenant is named "Össur — Demo": its own name is data, not our copy.
-      const noDash = (label: string, raw: string) => { const t = raw.replace(/Össur — Demo/gi, '').replace(/ÖSSUR — DEMO/g, ''); check(`no em dash: ${label}`, !t.includes('—'), t.includes('—') ? t.split('\n').find((l) => l.includes('—'))?.slice(0, 80) : undefined) }
+      // The demo tenant is named "Össur — Demo", and its seeded pre-Stage-3 subjects carry the old
+      // dash: both are data, not our copy.
+      const noDash = (label: string, raw: string) => { const t = raw.replace(/Össur — Demo/gi, '').replace(/ÖSSUR — DEMO/g, '').replace(/^\s*— .*$/gm, ''); check(`no em dash: ${label}`, !t.includes('—'), t.includes('—') ? t.split('\n').find((l) => l.includes('—'))?.slice(0, 80) : undefined) }
       await goto('/login')
       await page.type('input[type="email"]', email)
       await page.type('input[type="password"]', password)
@@ -125,7 +126,8 @@ async function main() {
       if (!startBtn) throw new Error('no Start sending button')
       await startBtn.click()
       await page.waitForFunction(() => /Saved|Could not|not an email/.test(document.body.innerText), { timeout: 60_000 })
-      await settle(1500)
+      // Saved, then the route refreshes: the header's "2 people" lands a moment later.
+      await page.waitForFunction(() => /2 people|Could not|not an email/.test(document.body.innerText), { timeout: 30_000 }).catch(() => null)
       const t4 = await text(page)
       check('sending saved with two addresses', t4.includes('2 people') && !/Could not|not an email/.test(t4), t4.match(/Saved|Could not[^\n]*/)?.[0])
       await shot('4-sending')
