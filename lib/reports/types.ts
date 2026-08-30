@@ -1,5 +1,6 @@
 import type { PageKey, PrintVariant, Slide } from '../renderables/types'
 import type { MethodNoteData } from '../../components/print/method-note'
+import type { RunDelta } from '../report-delta'
 
 /**
  * The Report Studio's model (Reports & Exports Stage 2, 2026-08-30).
@@ -126,6 +127,9 @@ export interface ReportSnapshotData {
   cover: CoverText
   figures: FigureTable
   sections: SectionData[]
+  /** What moved since the previous update — numbers and banded verdicts,
+   *  frozen at build (Stage 3); null on a first update or when unknown. */
+  delta?: RunDelta | null
 }
 
 export type DeckSlide =

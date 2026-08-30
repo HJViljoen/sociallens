@@ -125,11 +125,22 @@ export async function sendLeadEmail(lead: LeadEmail): Promise<{ sent: boolean }>
   }
 }
 
+export interface EmailAttachment {
+  filename: string
+  content: Buffer
+  contentType?: string
+  /** Set for an image referenced inline as `cid:<contentId>` in the HTML. */
+  contentId?: string
+}
+
 export interface ReportEmail {
   to: string[]
   subject: string
   html: string
   text: string
+  /** The PDF and any inline images (Stage 3). Resend caps a message at 40 MB. */
+  attachments?: EmailAttachment[]
+  replyTo?: string
 }
 
 // Sends a periodic (weekly/monthly) report to the configured recipients. Like
@@ -138,8 +149,9 @@ export interface ReportEmail {
 // email provider, and the report is simply stored for in-app viewing instead.
 export async function sendReportEmail(report: ReportEmail): Promise<{ sent: boolean }> {
   if (!resend || !from || report.to.length === 0) {
+    const att = (report.attachments ?? []).map((a) => `${a.filename} (${Math.round(a.content.length / 1024)} KB${a.contentId ? `, cid:${a.contentId}` : ''})`)
     console.log(
-      `[email:stub] report "${report.subject}" -> ${report.to.join(', ') || '(no recipients)'}`,
+      `[email:stub] report "${report.subject}" -> ${report.to.join(', ') || '(no recipients)'}${att.length ? ` · attachments: ${att.join(', ')}` : ''}`,
     )
     return { sent: false }
   }
@@ -151,6 +163,10 @@ export async function sendReportEmail(report: ReportEmail): Promise<{ sent: bool
       subject: report.subject,
       text: report.text,
       html: report.html,
+      ...(report.replyTo ? { replyTo: report.replyTo } : {}),
+      ...(report.attachments?.length
+        ? { attachments: report.attachments.map((a) => ({ filename: a.filename, content: a.content, ...(a.contentType ? { contentType: a.contentType } : {}), ...(a.contentId ? { contentId: a.contentId } : {}) })) }
+        : {}),
     })
     if (error) {
       console.error('[email] report send failed:', error)

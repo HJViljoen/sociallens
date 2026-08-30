@@ -4,8 +4,8 @@ import { isStaticKey } from './compose'
 import { SECTION_PAGES } from './types'
 
 describe('starter templates', () => {
-  it('are four, name only static keys of their own page, and every audience is real', () => {
-    expect(STARTER_TEMPLATES.map((t) => t.key)).toEqual(['monthly_marketing_review', 'leadership_one_pager', 'sales_objections_competitors', 'content_what_to_make_next'])
+  it('are five, name only static keys of their own page, and every audience is real', () => {
+    expect(STARTER_TEMPLATES.map((t) => t.key)).toEqual(['weekly_digest', 'monthly_marketing_review', 'leadership_one_pager', 'sales_objections_competitors', 'content_what_to_make_next'])
     for (const t of STARTER_TEMPLATES) {
       for (const s of t.sections) {
         expect(SECTION_PAGES).toContain(s.page)

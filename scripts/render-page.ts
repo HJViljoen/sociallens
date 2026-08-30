@@ -63,6 +63,8 @@ async function renderReport() {
     if (has('no-render')) {
       console.log(`${report.title}: load+cover ${t1 - t0} ms · sections ${snap.data.sections.length} · figures ${Object.keys(snap.data.figures).length}`)
       console.log(`  cover${snap.data.cover.fallback ? ' (code)' : ` (${snap.data.cover.model})`}: ${snap.data.cover.body}`)
+      const d = snap.data.delta
+      console.log(`  delta: ${d ? `since ${d.prevRunDate} · sentiment ${d.sentiment ? `${d.sentiment.verdict.state} (${d.sentiment.verdict.change > 0 ? '+' : ''}${d.sentiment.verdict.change} pts)` : '—'} · share ${d.share ? d.share.verdict.state : '—'} · new themes ${d.newThemes ? d.newThemes.count : '—'} · conversations ${d.conversations ? `${d.conversations.prev} → ${d.conversations.now}` : '—'}` : 'none (first update)'}`)
       return
     }
     const { buffer, ms } = await renderArtifact({ baseUrl: base, snapshotId: snap.snapshotId, format: 'pdf', style })

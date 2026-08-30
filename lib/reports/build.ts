@@ -7,6 +7,7 @@ import { figuresFor, mergeFigures } from './figures'
 import { deckSlides } from './compose'
 import { REPORT_MAX_SLIDES } from '../config'
 import { generateCover } from './cover-model'
+import { computeRunDelta, loadRunSummary } from '../report-delta'
 import { methodOf, type ReportRow, type ReportSection, type ReportSnapshotData, type SectionData } from './types'
 
 /**
@@ -96,6 +97,10 @@ export async function snapshotReport(args: {
   const period = first?.period || 'This update'
   const runId = (sections.map((s) => (s.data as { runId?: unknown }).runId).find((r) => typeof r === 'string') as string | undefined) ?? null
   const title = args.report.cover.title?.trim() || args.report.title
+  // What moved since the previous update — the same banded numbers the weekly
+  // email led with; frozen so the cover slide and the digest email can say it.
+  const summary = runId ? await loadRunSummary(args.admin, args.clientId, runId) : null
+  const delta = summary ? await computeRunDelta(args.admin, args.clientId, summary) : null
 
   const cover = await generateCover({
     admin: args.admin,
@@ -120,6 +125,7 @@ export async function snapshotReport(args: {
     cover,
     figures,
     sections,
+    delta,
   }
   const snap = await createSnapshot(args.admin, {
     clientId: args.clientId,

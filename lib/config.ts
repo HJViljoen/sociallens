@@ -823,3 +823,10 @@ export const REPORT_MAX_SLIDES = 120
 /** A share link's default life, in days; the UI offers 7 / 30 / 90 / none. */
 export const SHARE_DEFAULT_EXPIRY_DAYS = 30
 export const SHARE_EXPIRY_CHOICES = [7, 30, 90, null] as const
+
+// Schedules (Stage 3, 2026-08-30).
+export const SCHEDULE_NAME_MAX = 80
+/** Recipients per schedule — the cap tracking_configs.report_emails had. */
+export const SCHEDULE_RECIPIENTS_MAX = 25
+/** A send claimed this long ago that never finished may be tried again. */
+export const SCHEDULE_CLAIM_STALE_MS = 10 * 60_000

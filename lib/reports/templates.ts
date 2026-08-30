@@ -12,6 +12,17 @@ import type { ReportSection, ReportTemplate } from './types'
  */
 export const STARTER_TEMPLATES: ReportTemplate[] = [
   {
+    key: 'weekly_digest',
+    name: 'Weekly digest',
+    audience: 'general',
+    description: 'What changed since the last update, where you stand, what the market is talking about, comments worth a reply and where you stand against competitors — the update that goes out after every scheduled update, on paper and by email.',
+    sections: [
+      { page: 'dashboard', params: {}, keys: ['dashboard.strip', 'dashboard.hero', 'dashboard.sentiment', 'dashboard.share', 'dashboard.themes', 'dashboard.movement', 'dashboard.recommendation', 'dashboard.accounts'] },
+      { page: 'content', params: {}, keys: ['content.inbox'], framing: 'Comments worth a reply this update.' },
+      { page: 'competitive', params: {}, keys: ['competitive.standings'] },
+    ],
+  },
+  {
     key: 'monthly_marketing_review',
     name: 'Monthly marketing review',
     audience: 'marketing',
