@@ -95,7 +95,7 @@ export function Tile({
             </h2>
           ) : <span />}
           {meta && (
-            <span className={cn('shrink-0 whitespace-nowrap font-mono text-[11px] text-muted-foreground')}>
+            <span className="shrink-0 whitespace-nowrap font-mono text-[11px] text-muted-foreground">
               {meta}
             </span>
           )}

@@ -1,5 +1,4 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
-import { SCHEDULE_CLAIM_STALE_MS } from '../config'
 import { artifactFilename, logExport, storeArtifact } from '../artifacts'
 import { sendReportEmail, type EmailAttachment } from '../email'
 import { EMAIL_IMAGE_TILES, renderDigestEmail } from '../email/digest'
@@ -7,6 +6,7 @@ import { renderMany } from '../render/render'
 import { BuildEmptyError, snapshotReport } from '../reports/build'
 import { expiryFromDays, mintShareToken } from '../reports/share'
 import { resolveScheduleReport } from './resolve'
+import { claimDecision, pruneInlineImages, type ExistingSend } from './claim'
 import type { ScheduleRow } from './types'
 
 /**
@@ -21,6 +21,11 @@ import type { ScheduleRow } from './types'
  *   4  a share link (open with the link, the schedule's expiry, no password)
  *   5  the email from the same snapshot data → Resend, PDF attached if asked
  *   6  record: the send row, last_sent_at, a Studio template's build state
+ *
+ * Modes: 'send' does all of it. 'test' renders and emails the caller only —
+ * no claim, no stored artifact, no share link, no export event, nothing
+ * recorded, and its snapshot is removed once the email is out. 'preview'
+ * returns the HTML and leaves no row behind.
  *
  * A failure after the snapshot exists but before an artifact is stored
  * deletes the snapshot (the Stage-1 orphan rule); a failure later keeps what
@@ -39,7 +44,7 @@ export interface RunScheduleArgs {
    *  rehearsal renders here (the dev server) while links point at production. */
   renderBaseUrl?: string
   mode: RunMode
-  /** 'test': the only addresses the email goes to; nothing is recorded. */
+  /** 'test': the only addresses the email goes to. */
   to?: string[]
 }
 
@@ -59,20 +64,28 @@ export interface RunScheduleResult {
 type Claim = { status: 'claimed'; id: string } | { status: 'already_sent' | 'skipped'; id: string }
 
 /** The row for (schedule, run): new → claimed; sent → already_sent; a young
- *  claim → skipped (someone else is on it); failed / skipped / stale → taken over. */
-export async function claimSend(admin: SupabaseClient, schedule: Pick<ScheduleRow, 'id' | 'client_id' | 'recipients'>, runId: string, now = Date.now()): Promise<Claim> {
+ *  claim → skipped; failed / skipped / stale → taken over. The takeover is a
+ *  compare-and-set on claimed_at, so two workers reading the same failed row
+ *  cannot both take it. */
+export async function claimSend(admin: SupabaseClient, schedule: Pick<ScheduleRow, 'id' | 'client_id' | 'name' | 'recipients'>, runId: string, now = Date.now()): Promise<Claim> {
   const { data: existing } = await admin.from('report_sends').select('id, status, claimed_at').eq('schedule_id', schedule.id).eq('run_id', runId).maybeSingle()
-  const row = existing as { id: string; status: string; claimed_at: string } | null
+  const row = existing as ExistingSend | null
   if (row) {
-    if (row.status === 'sent') return { status: 'already_sent', id: row.id }
-    if (row.status === 'claimed' && now - new Date(row.claimed_at).getTime() < SCHEDULE_CLAIM_STALE_MS) return { status: 'skipped', id: row.id }
-    const { error } = await admin.from('report_sends').update({ status: 'claimed', claimed_at: new Date(now).toISOString(), error: null, recipients: schedule.recipients }).eq('id', row.id)
+    const decision = claimDecision(row, now)
+    if (decision !== 'takeover') return { status: decision, id: row.id }
+    const { data: taken, error } = await admin
+      .from('report_sends')
+      .update({ status: 'claimed', claimed_at: new Date(now).toISOString(), error: null, recipients: schedule.recipients, schedule_name: schedule.name })
+      .eq('id', row.id)
+      .eq('claimed_at', row.claimed_at)
+      .select('id')
+      .maybeSingle()
     if (error) throw new Error(`send: reclaim failed: ${error.message}`)
-    return { status: 'claimed', id: row.id }
+    return taken ? { status: 'claimed', id: row.id } : { status: 'skipped', id: row.id }
   }
   const { data, error } = await admin
     .from('report_sends')
-    .insert({ client_id: schedule.client_id, schedule_id: schedule.id, run_id: runId, status: 'claimed', recipients: schedule.recipients })
+    .insert({ client_id: schedule.client_id, schedule_id: schedule.id, schedule_name: schedule.name, run_id: runId, status: 'claimed', recipients: schedule.recipients })
     .select('id')
     .maybeSingle()
   if (error || !data) {
@@ -136,7 +149,7 @@ export async function runSchedule(a: RunScheduleArgs): Promise<RunScheduleResult
       return { status: 'preview', subject: email.subject, html: email.html, text: email.text, ms: ms() }
     }
 
-    // 3. The PDF, then the PNGs the email carries inline, one browser session.
+    // 3. The PDF, then the PNGs the email may carry inline, one browser session.
     const imageTiles = EMAIL_IMAGE_TILES.filter((k) => {
       const page = k.split('.')[0]
       return snap.data.sections.some((s) => s.section.page === page && (s.section.keys ? s.section.keys.includes(k) : true))
@@ -146,32 +159,48 @@ export async function runSchedule(a: RunScheduleArgs): Promise<RunScheduleResult
       snapshotId,
       jobs: [{ format: 'pdf' }, ...imageTiles.map((k) => ({ format: 'png' as const, tileKey: k }))],
     })
-    const artifact = await storeArtifact(admin, { clientId: schedule.client_id, snapshotId, format: 'pdf', tileKey: null, buffer: rendered[0].buffer, renderMs: rendered[0].ms })
-    artifactStored = true
-    await logExport(admin, { clientId: schedule.client_id, userId: null, snapshotId, artifactId: artifact.id, action: 'export', kind: 'report', format: 'pdf' })
+    // A test send leaves no artifact, no export event and no public link: it is
+    // a rehearsal for the person who clicked, not a build for the workspace.
+    let artifactId: string | undefined
+    let pdfFilename = `${snap.title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 80) || 'update'}.pdf`
+    let shareUrl: string | null = null
+    let shareLinkId: string | null = null
+    if (recording) {
+      const artifact = await storeArtifact(admin, { clientId: schedule.client_id, snapshotId, format: 'pdf', tileKey: null, buffer: rendered[0].buffer, renderMs: rendered[0].ms })
+      artifactStored = true
+      artifactId = artifact.id
+      pdfFilename = artifactFilename(snap.title, artifact)
+      await logExport(admin, { clientId: schedule.client_id, userId: null, snapshotId, artifactId: artifact.id, action: 'export', kind: 'report', format: 'pdf' })
 
-    // 4. The link the email carries. Open with the link; the schedule's life; no password.
-    const token = mintShareToken()
-    const { data: link, error: linkError } = await admin
-      .from('share_links')
-      .insert({ client_id: schedule.client_id, snapshot_id: snapshotId, token, title: snap.title, expires_at: expiryFromDays(schedule.share_days), password_hash: null, created_by: null })
-      .select('id')
-      .single()
-    if (linkError || !link) throw new Error(`send: share link failed: ${linkError?.message ?? 'no row'}`)
-    const shareLinkId = (link as { id: string }).id
-    const shareUrl = `${a.baseUrl}/r/${token}`
+      // 4. The link the email carries. Open with the link; the schedule's life; no password.
+      const token = mintShareToken()
+      const { data: link, error: linkError } = await admin
+        .from('share_links')
+        .insert({ client_id: schedule.client_id, snapshot_id: snapshotId, token, title: snap.title, expires_at: expiryFromDays(schedule.share_days), password_hash: null, created_by: null })
+        .select('id')
+        .single()
+      if (linkError || !link) throw new Error(`send: share link failed: ${linkError?.message ?? 'no row'}`)
+      shareLinkId = (link as { id: string }).id
+      shareUrl = `${a.baseUrl}/r/${token}`
+    }
 
     // 5. The email, from the same data the paper was printed from.
     const images: Record<string, string> = {}
-    const attachments: EmailAttachment[] = []
+    const inline: EmailAttachment[] = []
     imageTiles.forEach((k, i) => {
       const cid = `${k.replace(/\./g, '-')}@verbatim`
       images[k] = `cid:${cid}`
-      attachments.push({ filename: `${k}.png`, content: rendered[i + 1].buffer, contentType: 'image/png', contentId: cid })
+      inline.push({ filename: `${k}.png`, content: rendered[i + 1].buffer, contentType: 'image/png', contentId: cid })
     })
-    if (schedule.attach_pdf) attachments.push({ filename: artifactFilename(snap.title, artifact), content: rendered[0].buffer, contentType: 'application/pdf' })
     const email = renderDigestEmail({ data: snap.data, shareUrl, appUrl: a.baseUrl, attached: schedule.attach_pdf, images, cadenceWord })
+    const attachments = pruneInlineImages(email.html, inline)
+    if (schedule.attach_pdf) attachments.push({ filename: pdfFilename, content: rendered[0].buffer, contentType: 'application/pdf' })
     const { sent } = await sendReportEmail({ to, subject: email.subject, html: email.html, text: email.text, attachments })
+    if (!recording) {
+      // A rehearsal leaves nothing behind: no build in the archive without a file.
+      await admin.from('report_snapshots').delete().eq('id', snapshotId)
+      return { status: sent ? 'sent' : 'failed', subject: email.subject, ms: ms(), ...(sent ? {} : { error: 'email not sent — provider not configured or the send failed' }) }
+    }
 
     // 6. Record.
     const now = new Date().toISOString()
@@ -185,14 +214,14 @@ export async function runSchedule(a: RunScheduleArgs): Promise<RunScheduleResult
           subject: email.subject,
           recipients: to,
           snapshot_id: snapshotId,
-          artifact_id: artifact.id,
+          artifact_id: artifactId ?? null,
           share_link_id: shareLinkId,
         })
         .eq('id', sendId)
       if (sent) await admin.from('report_schedules').update({ last_sent_at: now }).eq('id', schedule.id)
       if (schedule.report_id) await admin.from('reports').update({ status: 'built', latest_snapshot_id: snapshotId, updated_at: now }).eq('id', schedule.report_id)
     }
-    return { status: sent ? 'sent' : 'failed', sendId, snapshotId, artifactId: artifact.id, shareUrl, subject: email.subject, ms: ms(), ...(sent ? {} : { error: 'email not sent — provider not configured or the send failed' }) }
+    return { status: sent ? 'sent' : 'failed', sendId, snapshotId, artifactId, shareUrl: shareUrl ?? undefined, subject: email.subject, ms: ms(), ...(sent ? {} : { error: 'email not sent — provider not configured or the send failed' }) }
   } catch (e) {
     const error = e instanceof Error ? e.message : String(e)
     console.error(`[schedule ${schedule.id}] ${error}`)

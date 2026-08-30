@@ -9,6 +9,7 @@ import { createAdminClient } from '@/lib/supabase-admin'
 import { getBaseUrl } from '@/lib/site'
 import { coverPlainText } from '@/lib/reports/cover'
 import type { CoverText, FigureTable } from '@/lib/reports/types'
+import { sendDidNotFinish, sendFailureSentence } from '@/lib/schedules/copy'
 
 // Reports — the archive of what went out and what was built (Stage 3):
 //   Sent  — every scheduled send (subject, who, when, the PDF, the share link,
@@ -19,7 +20,8 @@ import type { CoverText, FigureTable } from '@/lib/reports/types'
 
 interface SendRow {
   id: string
-  schedule_id: string
+  schedule_id: string | null
+  schedule_name: string | null
   run_id: string | null
   snapshot_id: string | null
   artifact_id: string | null
@@ -55,10 +57,12 @@ const href = (group: Group, item?: string | null) => {
   const qs = q.toString()
   return qs ? `${BASE}?${qs}` : BASE
 }
+const scheduleName = (s: SendRow) => s.report_schedules?.name ?? s.schedule_name ?? 'a schedule since deleted'
 const sendLine = (s: SendRow) =>
   s.status === 'sent' && s.sent_at ? `sent ${fmtWhen(s.sent_at)} to ${s.recipients.length} ${s.recipients.length === 1 ? 'person' : 'people'}`
   : s.status === 'failed' ? `did not send · ${fmtWhen(s.claimed_at)}`
-  : `${s.status} · ${fmtWhen(s.claimed_at)}`
+  : sendDidNotFinish(s.status, s.claimed_at) ? `did not finish · ${fmtWhen(s.claimed_at)}`
+  : `sending · ${fmtWhen(s.claimed_at)}`
 
 export default async function ReportsPage({ searchParams }: { searchParams?: Promise<{ group?: string; item?: string }> }) {
   const sp = (await searchParams) ?? {}
@@ -66,8 +70,8 @@ export default async function ReportsPage({ searchParams }: { searchParams?: Pro
   const group: Group = sp.group === 'built' ? 'built' : 'sent'
 
   const [{ data: sendData }, { data: legacyData }, { data: buildData }] = await Promise.all([
-    supabase.from('report_sends').select('id, schedule_id, run_id, snapshot_id, artifact_id, share_link_id, subject, recipients, status, error, claimed_at, sent_at, report_schedules(name, attach_pdf)')
-      .eq('client_id', clientId).in('status', ['sent', 'failed']).order('claimed_at', { ascending: false }).limit(200),
+    supabase.from('report_sends').select('id, schedule_id, schedule_name, run_id, snapshot_id, artifact_id, share_link_id, subject, recipients, status, error, claimed_at, sent_at, report_schedules(name, attach_pdf)')
+      .eq('client_id', clientId).in('status', ['sent', 'failed', 'claimed']).order('claimed_at', { ascending: false }).limit(200),
     supabase.from('weekly_reports').select('id, subject, week_start, week_end, sent_to, sent_at').eq('client_id', clientId).order('week_end', { ascending: false }),
     supabase.from('report_snapshots')
       .select('id, title, created_at, report_id, cover:data->cover, figures:data->figures, artifacts(id, format, bytes, stale, rendered_at, version)')
@@ -134,9 +138,9 @@ export default async function ReportsPage({ searchParams }: { searchParams?: Pro
           {sends.length + legacy.length > 0 ? (
             <ListRows>
               {sends.map((s) => (
-                <ListRow key={s.id} href={href('sent', s.id)} active={s.id === sentId} search={`${s.subject ?? ''} ${s.report_schedules?.name ?? ''}`}>
+                <ListRow key={s.id} href={href('sent', s.id)} active={s.id === sentId} search={`${s.subject ?? ''} ${scheduleName(s)}`}>
                   <p className="line-clamp-2 text-[13px] font-semibold leading-[1.3]">{s.subject ?? 'Update'}</p>
-                  <p className={`mt-0.5 font-mono text-[10.5px] ${s.status === 'failed' ? 'text-negative' : 'text-muted-foreground'}`}>{s.report_schedules?.name ?? 'Schedule'} · {sendLine(s)}</p>
+                  <p className={`mt-0.5 font-mono text-[10.5px] ${s.status === 'failed' || sendDidNotFinish(s.status, s.claimed_at) ? 'text-negative' : 'text-muted-foreground'}`}>{scheduleName(s)} · {sendLine(s)}</p>
                 </ListRow>
               ))}
               {legacy.map((l) => (
@@ -179,9 +183,9 @@ export default async function ReportsPage({ searchParams }: { searchParams?: Pro
   const detail = group === 'sent' ? (
     selectedSend ? (
       <>
-        <DetailHeader eyebrow={selectedSend.report_schedules?.name ?? 'Schedule'} title={selectedSend.subject ?? 'Update'} meta={sendLine(selectedSend)} />
-        {selectedSend.status === 'failed' && (
-          <DetailSection><p className="text-[12.5px] text-negative">This update did not reach anyone{selectedSend.error ? `: ${selectedSend.error}` : '.'} An owner or admin can send it again from the Studio.</p></DetailSection>
+        <DetailHeader eyebrow={scheduleName(selectedSend)} title={selectedSend.subject ?? 'Update'} meta={sendLine(selectedSend)} />
+        {(selectedSend.status === 'failed' || sendDidNotFinish(selectedSend.status, selectedSend.claimed_at)) && (
+          <DetailSection><p className="text-[12.5px] text-negative">This update did not reach anyone. {selectedSend.status === 'failed' ? sendFailureSentence(selectedSend.error) : 'The send started and never finished.'} An owner or admin can send it again from the Studio.</p></DetailSection>
         )}
         <DetailSection label="To">
           <p className="text-[12.5px] text-secondary-foreground">{selectedSend.recipients.join(' · ') || 'nobody'}</p>
@@ -194,7 +198,7 @@ export default async function ReportsPage({ searchParams }: { searchParams?: Pro
           </div>
           <div className="mt-3"><ShareLinks snapshotId={selectedSend.snapshot_id} links={shareLinks} /></div>
         </DetailSection>
-        {selectedSend.snapshot_id && (
+        {selectedSend.snapshot_id && selectedSend.schedule_id && (
           <DetailSection label="The email as sent">
             <iframe src={`/api/schedules/${selectedSend.schedule_id}/preview?send=${selectedSend.id}`} sandbox="allow-popups allow-popups-to-escape-sandbox" title={selectedSend.subject ?? 'Update'} className="h-[720px] w-full rounded-[4px] bg-tile ring-1 ring-border" />
             <p className="mt-1 text-[11px] text-muted-foreground">Re-rendered from the figures it was sent with; the quoted voices are read live, so a withdrawn comment never shows.</p>

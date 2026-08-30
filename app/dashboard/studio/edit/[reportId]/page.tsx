@@ -78,7 +78,7 @@ export default async function StudioPage({ params }: { params: Promise<{ reportI
           <PaneHeader title="Preview" meta="as it prints — the cover is written at build" />
           <PaneBody className="bg-inner p-4">
             {sections.length ? <ReportPreview data={data} /> : (
-              <p className="px-2 py-6 text-[12.5px] text-muted-foreground">Nothing to show yet — add a page on the left, or add a selection from any page’s Export menu.</p>
+              <p className="px-2 py-6 text-[12.5px] text-muted-foreground">Nothing to show yet — add a page on the left.</p>
             )}
           </PaneBody>
         </section>

@@ -19,7 +19,7 @@ import type { ReportSnapshotData } from '@/lib/reports/types'
 // Any member may look; sending is owner/admin (the send route).
 
 export const runtime = 'nodejs'
-export const maxDuration = 120
+export const maxDuration = 300
 
 const page = (html: string, status = 200) => new Response(html.replace(/<head>/i, '<head><base target="_blank">'), { status, headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store', 'x-robots-tag': 'noindex' } })
 const note = (text: string, status: number) => page(`<!doctype html><html><body style="font-family:-apple-system,Segoe UI,Roboto,sans-serif;color:#6E7378;font-size:13px;padding:24px">${text}</body></html>`, status)
@@ -35,7 +35,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
   const sendId = new URL(request.url).searchParams.get('send')
 
   if (sendId) {
-    const { data: send } = await admin.from('report_sends').select('snapshot_id, share_link_id').eq('id', sendId).eq('client_id', session.clientId).maybeSingle()
+    const { data: send } = await admin.from('report_sends').select('snapshot_id, share_link_id').eq('id', sendId).eq('schedule_id', id).eq('client_id', session.clientId).maybeSingle()
     const sid = (send as { snapshot_id: string | null } | null)?.snapshot_id
     const row = sid ? await loadSnapshot(admin, sid) : null
     if (!row || row.kind !== 'report') return note('This send has no stored build to show.', 404)
@@ -53,6 +53,10 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
   const { data: run } = await admin.from('pipeline_runs').select('id').eq('client_id', session.clientId).in('status', ['completed', 'partial']).order('completed_at', { ascending: false, nullsFirst: false }).limit(1).maybeSingle()
   const runId = (run as { id: string } | null)?.id
   if (!runId) return note('Nothing to show yet — your first update has not landed.', 409)
+  // Already sent for this update? Show that — free, and exactly what went out.
+  const { data: latest } = await admin.from('report_sends').select('id').eq('schedule_id', id).eq('run_id', runId).eq('status', 'sent').not('snapshot_id', 'is', null).maybeSingle()
+  const latestId = (latest as { id: string } | null)?.id
+  if (latestId) return Response.redirect(new URL(`/api/schedules/${id}/preview?send=${latestId}`, request.url), 307)
   const r = await runSchedule({ admin, schedule: s, runId, baseUrl: appBaseUrl(), mode: 'preview' })
   if (r.status !== 'preview' || !r.html) return note(r.error ?? 'Could not build the preview.', 500)
   return page(r.html)

@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { canManageTenant, getRouteSession } from '@/lib/auth'
 import { createAdminClient } from '@/lib/supabase-admin'
 import { appBaseUrl } from '@/lib/site'
+import { renderBaseUrl } from '@/lib/render/render'
 import { runSchedule } from '@/lib/schedules/run'
 import type { ScheduleRow } from '@/lib/schedules/types'
 
@@ -34,7 +35,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   const runId = (run as { id: string } | null)?.id
   if (!runId) return NextResponse.json({ error: 'Nothing to send yet — your first update has not landed.' }, { status: 409 })
 
-  const r = await runSchedule({ admin, schedule: schedule as ScheduleRow, runId, baseUrl: appBaseUrl(), mode, to: mode === 'test' ? [session.email!] : undefined })
+  const r = await runSchedule({ admin, schedule: schedule as ScheduleRow, runId, baseUrl: appBaseUrl(), renderBaseUrl: renderBaseUrl(appBaseUrl()), mode, to: mode === 'test' ? [session.email!] : undefined })
   return NextResponse.json(
     { status: r.status, subject: r.subject, shareUrl: r.shareUrl, ms: r.ms, error: r.error, to: mode === 'test' ? session.email : (schedule as ScheduleRow).recipients },
     { status: r.status === 'failed' ? 500 : 200 },

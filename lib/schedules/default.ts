@@ -1,4 +1,5 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
+import { SCHEDULE_RECIPIENTS_MAX } from '../config'
 import { normaliseRecipients } from './validate'
 import type { ScheduleRow } from './types'
 
@@ -41,14 +42,14 @@ export async function ensureDefaultSchedule(admin: SupabaseClient, clientId: str
 export async function joinDefaultSchedule(admin: SupabaseClient, clientId: string, email: string): Promise<boolean> {
   const s = await ensureDefaultSchedule(admin, clientId)
   const next = normaliseRecipients([...s.recipients, email])
-  if (next.length === s.recipients.length || next.length > 25) return false
+  if (next.length === s.recipients.length || next.length > SCHEDULE_RECIPIENTS_MAX) return false
   const { error } = await admin.from('report_schedules').update({ recipients: next, updated_at: new Date().toISOString() }).eq('id', s.id)
   if (error) throw new Error(`default schedule: ${error.message}`)
   return true
 }
 
 /** Every active schedule's list, for "who gets the update" surfaces. */
-export async function recipientsByschedule(admin: SupabaseClient, clientId: string): Promise<{ id: string; name: string; recipients: string[]; active: boolean; is_default: boolean }[]> {
+export async function recipientsBySchedule(admin: SupabaseClient, clientId: string): Promise<{ id: string; name: string; recipients: string[]; active: boolean; is_default: boolean }[]> {
   const { data } = await admin.from('report_schedules').select('id, name, recipients, active, is_default').eq('client_id', clientId).order('is_default', { ascending: false }).order('created_at')
   return (data ?? []) as { id: string; name: string; recipients: string[]; active: boolean; is_default: boolean }[]
 }

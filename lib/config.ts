@@ -828,5 +828,7 @@ export const SHARE_EXPIRY_CHOICES = [7, 30, 90, null] as const
 export const SCHEDULE_NAME_MAX = 80
 /** Recipients per schedule — the cap tracking_configs.report_emails had. */
 export const SCHEDULE_RECIPIENTS_MAX = 25
-/** A send claimed this long ago that never finished may be tried again. */
-export const SCHEDULE_CLAIM_STALE_MS = 10 * 60_000
+/** A send claimed this long ago that never finished may be tried again —
+ *  wider than the route's 300 s cap plus Inngest's retry backoff, so a late
+ *  retry finds a claim, not a second email. */
+export const SCHEDULE_CLAIM_STALE_MS = 30 * 60_000

@@ -1007,8 +1007,8 @@ async function runOwnedEvents(weeks: WeekSpec[]): Promise<void> {
  *  "Weekly digest" schedule is created with its tracking config; its first
  *  send lands the first time the runner fires for it (scripts/send-report.ts
  *  --client <demo> --commit). */
-async function storeReports(weeks: WeekSpec[]): Promise<void> {
-  console.log(`  ${weeks.length} updates seeded; sends come from the schedule runner, not the seed`)
+async function storeReports(): Promise<void> {
+  console.log('  sends come from the schedule runner, not the seed')
 }
 
 // ---- 9. verification --------------------------------------------------------
@@ -1142,7 +1142,7 @@ async function main() {
   await runOwnedEvents(weeks)
 
   console.log('› Storing the six weekly reports…')
-  await storeReports(weeks)
+  await storeReports()
 
   await verify(maps, password, weeks)
   console.log('✓ Demo seed complete.')

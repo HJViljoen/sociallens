@@ -3,7 +3,7 @@ import { UserPlus, Users, Clock, Mail } from 'lucide-react'
 import { SettingsFrame } from '@/components/settings-frame'
 import { getSessionContext, canManageTenant } from '@/lib/auth'
 import { createAdminClient } from '@/lib/supabase-admin'
-import { recipientsByschedule } from '@/lib/schedules/default'
+import { recipientsBySchedule } from '@/lib/schedules/default'
 import { getBaseUrl } from '@/lib/site'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { InviteForm, RevokeButton, MemberControls, CopyLinkButton } from './team-ui'
@@ -37,7 +37,7 @@ export default async function TeamPage() {
     // Who actually receives the update. Accepting an invite adds you to the
     // default schedule (T0-10); showing it here is what makes "your team gets
     // the update" checkable instead of a claim.
-    recipientsByschedule(createAdminClient(), clientId),
+    recipientsBySchedule(createAdminClient(), clientId),
     // Pending invites (managers only — see below) ride the same wave: round
     // trips, not rows, are the cost, and this read depends on nothing above.
     // The list comes through RLS (session client) and deliberately does NOT

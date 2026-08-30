@@ -1,6 +1,7 @@
 import { adminKeyValid } from '@/lib/admin-auth'
 import { createAdminClient } from '@/lib/supabase-admin'
 import { appBaseUrl } from '@/lib/site'
+import { renderBaseUrl } from '@/lib/render/render'
 import { runSchedule } from '@/lib/schedules/run'
 import type { ScheduleRow } from '@/lib/schedules/types'
 
@@ -41,6 +42,6 @@ export async function POST(req: Request): Promise<Response> {
 
   const mode = body?.mode === 'preview' ? 'preview' : body?.mode === 'test' ? 'test' : 'send'
   const to = Array.isArray(body?.to) ? (body!.to as unknown[]).filter((x): x is string => typeof x === 'string') : undefined
-  const result = await runSchedule({ admin, schedule: schedule as ScheduleRow, runId, baseUrl: appBaseUrl(), mode, to })
+  const result = await runSchedule({ admin, schedule: schedule as ScheduleRow, runId, baseUrl: appBaseUrl(), renderBaseUrl: renderBaseUrl(appBaseUrl()), mode, to })
   return Response.json(result, { status: result.status === 'failed' ? 500 : 200 })
 }

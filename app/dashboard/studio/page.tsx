@@ -16,6 +16,7 @@ import { catalogueTitle, studioCatalogue } from '@/lib/reports/catalogue'
 import { STARTER_TEMPLATES } from '@/lib/reports/templates'
 import { AUDIENCES, type CoverText, type FigureTable, type ReportSection } from '@/lib/reports/types'
 import { CADENCES, type ScheduleRow } from '@/lib/schedules/types'
+import { sendFailureSentence } from '@/lib/schedules/copy'
 
 // The Studio (Reports & Exports Stage 3, Heinrich 2026-08-30): its own page.
 // Templates — the starters and the workspace's own — each buildable into a
@@ -261,7 +262,7 @@ export default async function StudioPage({ searchParams }: { searchParams?: Prom
               <li key={s.id} className="flex flex-wrap items-baseline gap-x-3 text-[12.5px]">
                 <Link href={`/dashboard/reports?group=sent&item=${s.id}`} className="font-medium underline-offset-2 hover:underline">{s.subject ?? 'Update'}</Link>
                 <span className="font-mono text-[10.5px] text-muted-foreground">
-                  {s.status === 'sent' && s.sent_at ? `sent ${fmtWhen(s.sent_at)} to ${s.recipients.length}` : s.status === 'failed' ? `failed ${fmtWhen(s.claimed_at)}${s.error ? ` · ${s.error.length > 90 ? `${s.error.slice(0, 90)}…` : s.error}` : ''}` : `${s.status} ${fmtWhen(s.claimed_at)}`}
+                  {s.status === 'sent' && s.sent_at ? `sent ${fmtWhen(s.sent_at)} to ${s.recipients.length}` : s.status === 'failed' ? `did not send ${fmtWhen(s.claimed_at)} · ${sendFailureSentence(s.error)}` : `${s.status} ${fmtWhen(s.claimed_at)}`}
                 </span>
               </li>
             ))}

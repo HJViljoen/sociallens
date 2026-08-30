@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { adminKeyValid } from '@/lib/admin-auth'
 import { createAdminClient } from '@/lib/supabase-admin'
 import { appBaseUrl } from '@/lib/site'
+import { renderBaseUrl } from '@/lib/render/render'
 import { runSchedule } from '@/lib/schedules/run'
 import type { ScheduleRow } from '@/lib/schedules/types'
 
@@ -31,7 +32,7 @@ export async function POST(request: Request) {
   const { data } = await admin.from('report_schedules').select('*').eq('id', scheduleId).maybeSingle()
   if (!data) return NextResponse.json({ error: 'no such schedule' }, { status: 404 })
 
-  const r = await runSchedule({ admin, schedule: data as ScheduleRow, runId, baseUrl: appBaseUrl(), mode: 'send' })
+  const r = await runSchedule({ admin, schedule: data as ScheduleRow, runId, baseUrl: appBaseUrl(), renderBaseUrl: renderBaseUrl(appBaseUrl()), mode: 'send' })
   // The HTML never leaves the runner here; the row and the snapshot are the record.
   return NextResponse.json(
     { status: r.status, sendId: r.sendId, snapshotId: r.snapshotId, artifactId: r.artifactId, shareUrl: r.shareUrl, subject: r.subject, ms: r.ms, error: r.error },

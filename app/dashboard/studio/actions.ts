@@ -149,7 +149,11 @@ export async function deleteSchedule(formData: FormData): Promise<void> {
   const { clientId, role } = await getSessionContext()
   if (!canManageTenant(role)) throw new Error(NOT_ALLOWED.message)
   const admin = createAdminClient()
-  // Its sends go with it (cascade); the builds and links they point at stay.
+  // The workspace's default schedule is paused, never deleted: an accepted
+  // invite lands on it. Its sends stay in the archive (schedule_id nulls).
+  const { data: row } = await admin.from('report_schedules').select('is_default').eq('id', id).eq('client_id', clientId).maybeSingle()
+  if (!row) throw new Error('no such schedule')
+  if ((row as { is_default: boolean }).is_default) throw new Error('The default schedule can be paused, not deleted.')
   const { error } = await admin.from('report_schedules').delete().eq('id', id).eq('client_id', clientId)
   if (error) throw new Error(`delete schedule: ${error.message}`)
   revalidatePath(STUDIO)

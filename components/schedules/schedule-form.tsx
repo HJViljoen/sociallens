@@ -157,7 +157,9 @@ export function ScheduleForm({ schedule, templates, initialSource, canManage, us
                 </button>
               )}
               <button type="button" onClick={() => setPreview((v) => !v)} className={btnQuiet}>{preview ? 'Hide the email' : 'Preview the email'}</button>
-              {confirm === 'delete' ? (
+              {schedule.is_default ? (
+                <span className="ml-auto text-[11px] text-muted-foreground">The default schedule can be paused, not deleted.</span>
+              ) : confirm === 'delete' ? (
                 <form action={deleteSchedule} className="ml-auto inline-flex items-center gap-2 text-[12px]">
                   <input type="hidden" name="id" value={schedule.id} />
                   Delete this schedule?

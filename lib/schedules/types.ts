@@ -43,7 +43,9 @@ export type SendStatus = 'claimed' | 'sent' | 'failed' | 'skipped'
 export interface SendRow {
   id: string
   client_id: string
-  schedule_id: string
+  /** Null once the schedule is deleted; schedule_name keeps the archive readable. */
+  schedule_id: string | null
+  schedule_name: string | null
   run_id: string | null
   snapshot_id: string | null
   artifact_id: string | null

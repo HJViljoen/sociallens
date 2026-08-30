@@ -8,7 +8,7 @@ import type { ReportSection, ReportTemplate } from './types'
  * renamed tile degrades a template rather than breaking it.
  *
  * Kept in code, not rows: versioned with the pages they name. A tenant's own
- * arrangement is saved to report_templates from the Studio.
+ * arrangement is the workspace's own template — a reports row (Stage 3).
  */
 export const STARTER_TEMPLATES: ReportTemplate[] = [
   {

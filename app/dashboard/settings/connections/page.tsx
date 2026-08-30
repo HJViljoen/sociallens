@@ -3,7 +3,7 @@ import { getSessionContext } from '@/lib/auth'
 import { platformLabel } from '@/lib/format'
 import { SettingsFrame, SettingsCard, ConnectionRow } from '@/components/settings-frame'
 import { createAdminClient } from '@/lib/supabase-admin'
-import { recipientsByschedule } from '@/lib/schedules/default'
+import { recipientsBySchedule } from '@/lib/schedules/default'
 
 // Connections (component-map §3): where Verbatim reads from and where its
 // reports go, as status rows. Every status is a fact about this workspace —
@@ -18,7 +18,7 @@ export default async function ConnectionsPage() {
   const [{ data: client }, { data: tc }, schedules] = await Promise.all([
     supabase.from('clients').select('company_name').eq('id', clientId).maybeSingle(),
     supabase.from('tracking_configs').select('platforms, own_handles, report_period').eq('client_id', clientId).maybeSingle(),
-    recipientsByschedule(createAdminClient(), clientId),
+    recipientsBySchedule(createAdminClient(), clientId),
   ])
   const platforms = new Set<string>((tc?.platforms as string[] | null) ?? [])
   const handles = (tc?.own_handles as Record<string, string> | null) ?? {}
