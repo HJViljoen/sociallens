@@ -1,4 +1,5 @@
 import { Fragment, type ReactNode } from 'react'
+import { BlockSlot } from './block-slot'
 import { DeckFooter } from '@/components/print/report-deck'
 import { Slide } from '@/components/print/slide'
 import { substituteFigures } from '@/lib/reports/cover'
@@ -108,7 +109,8 @@ function OverviewPage({ page, data }: { page: DocPage; data: DocumentSnapshotDat
   const f = data.figures
   const summary = page.blocks.find((b) => b.field === 'summary')
   const findings = page.blocks.find((b) => b.field === 'findings')?.items ?? []
-  const notSure = page.blocks.find((b) => b.field === 'not_sure')?.items ?? []
+  const notSureBlock = page.blocks.find((b) => b.field === 'not_sure')
+  const notSure = notSureBlock?.items ?? []
   const competitor = data.pages.find((p) => p.kind === 'competitor')?.meta?.name
   const compKey = competitor ? `${slugOf(competitor)}_share_pct` : null
   const tiles = [
@@ -121,7 +123,7 @@ function OverviewPage({ page, data }: { page: DocPage; data: DocumentSnapshotDat
       <div className="flex min-h-0 flex-col gap-6">
         <div className="flex flex-col gap-3">
           <Eyebrow>In short</Eyebrow>
-          {summary?.text && <Paragraphs text={summary.text} figures={f} className="max-w-[66ch] text-[17px] leading-[1.55] text-foreground" />}
+          {summary?.text && <BlockSlot block={summary} textClass="max-w-[66ch] text-[17px] leading-[1.55] text-foreground"><Paragraphs text={summary.text} figures={f} className="max-w-[66ch] text-[17px] leading-[1.55] text-foreground" /></BlockSlot>}
         </div>
         {findings.length > 0 && (
           <div className="flex flex-col gap-2.5">
@@ -142,9 +144,11 @@ function OverviewPage({ page, data }: { page: DocPage; data: DocumentSnapshotDat
         {notSure.length > 0 && (
           <div className="rounded-lg bg-inner px-5 py-4">
             <Eyebrow className="mb-2">Not settled this update</Eyebrow>
-            <ul className="flex flex-col gap-1.5">
-              {notSure.slice(0, 3).map((x, i) => <li key={i} className="text-[13px] leading-[1.45] text-secondary-foreground">{x}</li>)}
-            </ul>
+            <BlockSlot block={notSureBlock!} textClass="text-[13px] leading-[1.45] text-secondary-foreground">
+              <ul className="flex flex-col gap-1.5">
+                {notSure.slice(0, 3).map((x, i) => <li key={i} className="text-[13px] leading-[1.45] text-secondary-foreground">{x}</li>)}
+              </ul>
+            </BlockSlot>
           </div>
         )}
       </div>
@@ -168,7 +172,8 @@ function FindingPage({ page, figures, company }: { page: DocPage; figures: Figur
   const headline = b('headline')
   const saw = b('saw')
   const means = b('means')
-  const practice = b('practice')?.items ?? []
+  const practiceBlock = b('practice')
+  const practice = practiceBlock?.items ?? []
   const sureWord = page.meta?.sure ?? 'thin'
   const sureNote = (b('sure')?.text ?? '').replace(/^(Solid|Reasonable|Thin):[^.]*\.\s*(Treat it as a lead, not a rule\.\s*)?/, '')
   const history = page.meta?.history ?? ''
@@ -177,7 +182,7 @@ function FindingPage({ page, figures, company }: { page: DocPage; figures: Figur
   return (
     <div className="flex h-full min-h-0 flex-col gap-5">
       <div className="flex items-end justify-between gap-8">
-        {headline && <h2 className="max-w-[30ch] text-[32px] font-semibold leading-[1.12] tracking-[-0.02em] text-foreground [text-wrap:balance]">{headline.text}</h2>}
+        {headline && <BlockSlot block={headline} textClass="max-w-[30ch] text-[32px] font-semibold leading-[1.12] tracking-[-0.02em] text-foreground"><h2 className="max-w-[30ch] text-[32px] font-semibold leading-[1.12] tracking-[-0.02em] text-foreground [text-wrap:balance]">{headline.text}</h2></BlockSlot>}
         <div className="flex shrink-0 flex-wrap justify-end gap-1.5 pb-1">
           {audiencePills(page.meta?.audiences ?? '', company)}
           {history && <Pill tone={history.startsWith('new') ? 'new' : 'plain'}>{history}</Pill>}
@@ -186,7 +191,7 @@ function FindingPage({ page, figures, company }: { page: DocPage; figures: Figur
       <div className="grid min-h-0 flex-1 grid-cols-[7fr_5fr] gap-x-12">
         <div className="flex min-h-0 flex-col gap-3">
           <Eyebrow>What the conversation shows</Eyebrow>
-          {saw?.text && <Paragraphs text={saw.text} figures={figures} className={`max-w-[70ch] ${BODY}`} />}
+          {saw?.text && <BlockSlot block={saw} textClass={`max-w-[70ch] ${BODY}`}><Paragraphs text={saw.text} figures={figures} className={`max-w-[70ch] ${BODY}`} /></BlockSlot>}
           {saw?.quote?.text && (
             <blockquote className="mt-1 max-w-[66ch] rounded-lg bg-inner px-5 py-3.5 font-serif text-[15px] italic leading-[1.5] text-secondary-foreground">“{saw.quote.text}”</blockquote>
           )}
@@ -198,20 +203,22 @@ function FindingPage({ page, figures, company }: { page: DocPage; figures: Figur
           {means?.text && (
             <div className="flex flex-col gap-2">
               <Eyebrow>What it means for a sale</Eyebrow>
-              <Paragraphs text={means.text} figures={figures} className={BODY_SM} />
+              <BlockSlot block={means} textClass={BODY_SM}><Paragraphs text={means.text} figures={figures} className={BODY_SM} /></BlockSlot>
             </div>
           )}
           {practice.length > 0 && (
             <div className="flex flex-col gap-2">
               <Eyebrow>In practice</Eyebrow>
-              <ul className="flex flex-col gap-1.5">
-                {practice.map((x, i) => (
-                  <li key={i} className={`flex gap-3 ${BODY_SM}`}>
-                    <span className="mt-[9px] inline-block h-[6px] w-[6px] shrink-0 rounded-full bg-primary" aria-hidden />
-                    <span><Figured text={x} figures={figures} /></span>
-                  </li>
-                ))}
-              </ul>
+              <BlockSlot block={practiceBlock!} textClass={BODY_SM}>
+                <ul className="flex flex-col gap-1.5">
+                  {practice.map((x, i) => (
+                    <li key={i} className={`flex gap-3 ${BODY_SM}`}>
+                      <span className="mt-[9px] inline-block h-[6px] w-[6px] shrink-0 rounded-full bg-primary" aria-hidden />
+                      <span><Figured text={x} figures={figures} /></span>
+                    </li>
+                  ))}
+                </ul>
+              </BlockSlot>
             </div>
           )}
           <div className="mt-auto flex flex-col gap-1.5 border-t border-border pt-3">
@@ -271,14 +278,14 @@ function CompetitorPage({ page, figures, data }: { page: DocPage; figures: Figur
         {cols.map(([label, block]) => (
           <div key={label} className={`${CARD} flex flex-col gap-2.5 px-5 py-4`}>
             <Eyebrow>{label}</Eyebrow>
-            {block?.text && <Paragraphs text={block.text} figures={figures} className={BODY_SM} />}
+            {block?.text && <BlockSlot block={block} textClass={BODY_SM}><Paragraphs text={block.text} figures={figures} className={BODY_SM} /></BlockSlot>}
           </div>
         ))}
       </div>
       {read?.text && (
         <div className="rounded-lg bg-inner px-6 py-4">
           <Eyebrow className="mb-1.5">When {name} comes up</Eyebrow>
-          <Paragraphs text={read.text} figures={figures} className={`max-w-[100ch] ${BODY}`} />
+          <BlockSlot block={read} textClass={`max-w-[100ch] ${BODY}`}><Paragraphs text={read.text} figures={figures} className={`max-w-[100ch] ${BODY}`} /></BlockSlot>
         </div>
       )}
     </div>
@@ -307,7 +314,7 @@ function PersonaCard({ block, figures }: { block: DocBlock; figures: FigureTable
         {block.text && (
           <div className="flex gap-4 border-t border-border pt-3">
             <p className="w-[104px] shrink-0 pt-[3px] font-mono text-[11px] uppercase tracking-[0.08em] text-primary">For a sale</p>
-            <p className="text-[13.5px] font-medium leading-[1.45] text-foreground"><Figured text={block.text} figures={figures} /></p>
+            <BlockSlot block={block} textClass="text-[13.5px] font-medium leading-[1.45] text-foreground"><p className="text-[13.5px] font-medium leading-[1.45] text-foreground"><Figured text={block.text} figures={figures} /></p></BlockSlot>
           </div>
         )}
       </div>
@@ -326,10 +333,12 @@ function PersonasPage({ page, figures }: { page: DocPage; figures: FigureTable }
 // ── language ───────────────────────────────────────────────────────────────
 
 function LanguagePage({ page }: { page: DocPage }) {
-  const items = page.blocks.find((b) => b.field === 'care')?.items ?? []
+  const careBlock = page.blocks.find((b) => b.field === 'care')
+  const items = careBlock?.items ?? []
   return (
     <div className="flex h-full min-h-0 flex-col gap-5">
       <p className="max-w-[80ch] text-[16px] leading-[1.5] text-secondary-foreground">Words and claims the conversation pushes back on or contradicts. Each is a phrase a buyer will hear as a promise; the note says what the audience already knows about it.</p>
+      <BlockSlot block={careBlock!} textClass={BODY_SM}>
       <ul className="grid grid-cols-2 gap-5">
         {items.map((x, i) => {
           const m = /^["“]?([^:"”]+)["”]?:\s*(.+)$/.exec(x)
@@ -344,6 +353,7 @@ function LanguagePage({ page }: { page: DocPage }) {
           )
         })}
       </ul>
+      </BlockSlot>
     </div>
   )
 }

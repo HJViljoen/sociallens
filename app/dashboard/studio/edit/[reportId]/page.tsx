@@ -14,6 +14,7 @@ import { composeFallbackCover } from '@/lib/reports/cover'
 import { figuresFor, mergeFigures } from '@/lib/reports/figures'
 import { methodOf, type ReportRow, type ReportSnapshotData } from '@/lib/reports/types'
 import { REPORT_SLIDES_WARN } from '@/lib/config'
+import { DocumentStudioPage } from './document'
 
 // The Report Studio (Stage 2, spec §4): outline left, the print deck right.
 // The preview is server-rendered from the saved definition at the tenant's
@@ -32,6 +33,8 @@ export default async function StudioPage({ params }: { params: Promise<{ reportI
   if (!row) notFound()
   const report = row as ReportRow
   const company = (client?.company_name as string | undefined) ?? ''
+  // A written report has its own editor (2026-08-31).
+  if (report.kind === 'document') return <DocumentStudioPage report={report} clientId={clientId} />
 
   const { sections, skipped } = await loadReportSections(supabase, clientId, report)
   const figures = mergeFigures(sections.map((s) => figuresFor(s.section.page, s.data)))

@@ -614,3 +614,8 @@ main:has(> .agent-fixed) {
 }
 
 
+
+/* The Studio's document editor (2026-08-31): a sheet that overflowed after an
+   edit is outlined; a textarea standing in for a block keeps the block's type. */
+.vb-editing .vb-slide[data-overflow] { outline: 2px solid var(--warning); outline-offset: 2px; }
+.vb-editing .vb-edit { font: inherit; letter-spacing: inherit; color: inherit; }

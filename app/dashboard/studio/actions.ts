@@ -7,8 +7,8 @@ import { canManageTenant, getSessionContext } from '@/lib/auth'
 import { createAdminClient } from '@/lib/supabase-admin'
 import { instantiate, starterTemplate } from '@/lib/reports/templates'
 import { documentTemplate } from '@/lib/reports/documents/templates'
-import { DEFAULT_DOCUMENT_SETTINGS } from '@/lib/reports/documents/types'
-import { reportPatchSchema, tidySections } from '@/lib/reports/validate'
+import { DEFAULT_DOCUMENT_SETTINGS, documentSettings } from '@/lib/reports/documents/types'
+import { documentSettingsPatch, reportPatchSchema, tidySections } from '@/lib/reports/validate'
 import { AUDIENCES, isAudience, type CoverSpec, type ReportRow, type ReportSection } from '@/lib/reports/types'
 import { scheduleInputSchema, type ScheduleInput } from '@/lib/schedules/validate'
 import { markSnapshotsStale } from '@/lib/artifacts'
@@ -222,4 +222,36 @@ export async function restoreBlock(args: { snapshotId: string; blockId: string }
   if (snap.report_id) revalidatePath(`${STUDIO}/edit/${snap.report_id}`)
   revalidatePath(STUDIO)
   return { ok: true, message: 'Restored' }
+}
+
+// ── document settings (2026-08-31) ────────────────────────────────────────
+// The few choices a written report has: its title, who it is written for,
+// who the reader sells to, which tracked competitors it covers, how many
+// findings. Any member. The built snapshot stands; the next build uses them.
+
+const settingsArgs = z.object({ id: z.uuid(), patch: documentSettingsPatch })
+
+export async function updateDocumentSettings(args: { id: string; patch: z.infer<typeof documentSettingsPatch> }): Promise<ActionState> {
+  const parsed = settingsArgs.safeParse(args)
+  if (!parsed.success) return { ok: false, message: parsed.error.issues[0]?.message ?? 'That could not be saved.' }
+  const { clientId } = await getSessionContext()
+  const admin = createAdminClient()
+  const { data: current } = await admin.from('reports').select('id, kind, cover, settings').eq('id', parsed.data.id).eq('client_id', clientId).maybeSingle()
+  if (!current || current.kind !== 'document') return { ok: false, message: 'No such report.' }
+  const p = parsed.data.patch
+  const cover = { ...((current.cover as CoverSpec) ?? {}) } as CoverSpec
+  if (p.reader !== undefined) { if (p.reader) cover.reader = p.reader; else delete cover.reader }
+  const settings = documentSettings({
+    ...(current.settings as Record<string, unknown>),
+    ...(p.sellsTo !== undefined ? { sellsTo: p.sellsTo } : {}),
+    ...(p.competitors !== undefined ? { competitors: p.competitors } : {}),
+    ...(p.findings !== undefined ? { findings: p.findings } : {}),
+  })
+  const row: Record<string, unknown> = { cover, settings, updated_at: new Date().toISOString() }
+  if (p.title !== undefined) row.title = p.title
+  const { error } = await admin.from('reports').update(row).eq('id', parsed.data.id).eq('client_id', clientId)
+  if (error) return { ok: false, message: 'Could not save that. Try again.' }
+  revalidatePath(`${STUDIO}/edit/${parsed.data.id}`)
+  revalidatePath(STUDIO)
+  return { ok: true, message: 'Saved' }
 }

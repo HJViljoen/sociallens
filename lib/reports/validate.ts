@@ -29,6 +29,17 @@ export const reportPatchSchema = z.object({
 
 export type ReportPatch = z.infer<typeof reportPatchSchema>
 
+/** A written report's settings, as the Studio may change them (2026-08-31). */
+export const documentSettingsPatch = z.object({
+  title: z.string().trim().min(1, 'a report needs a title').max(REPORT_TITLE_MAX).optional(),
+  reader: z.string().trim().max(80).optional(),
+  sellsTo: z.enum(['consumers', 'retail', 'professionals', 'businesses']).optional(),
+  /** null = every tracked competitor. */
+  competitors: z.array(z.string().trim().min(1).max(60)).max(15).nullable().optional(),
+  findings: z.union([z.literal(3), z.literal(4)]).optional(),
+})
+export type DocumentSettingsPatch = z.infer<typeof documentSettingsPatch>
+
 /** Sections as stored: drop empty framing, keep keys in catalogue order is the caller's job. */
 export function tidySections(sections: z.infer<typeof sectionsSchema>): ReportSection[] {
   return sections.map((s) => {
