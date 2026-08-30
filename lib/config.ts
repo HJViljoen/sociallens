@@ -839,11 +839,13 @@ export const SCHEDULE_CLAIM_STALE_MS = 30 * 60_000
  *  against a runaway, not a budget to spend. */
 export const DOCUMENT_BUILD_BUDGET_USD = 3
 /** Themes from different buckets (yours, a competitor's, the category's) that
- *  read as the same concern merge above this cosine on their stored
- *  embeddings. Tuned on Össur's 30 Aug run (T5); one notch under the theme
- *  registry's own match threshold, because a concern crosses buckets more
- *  loosely than an identity crosses runs. */
-export const DOCUMENT_MERGE_THRESHOLD = 0.82
+ *  read as the same concern merge above this cosine on their stored label +
+ *  description embeddings; between LEXICAL and this they merge only when the
+ *  labels share a content word. Measured on Össur's 30 Aug run (541 themes):
+ *  the same concern across buckets sits at 0.55–0.80, every pair above 0.70
+ *  was a true merge, and the shared word told the true pairs below it. */
+export const DOCUMENT_MERGE_THRESHOLD = 0.7
+export const DOCUMENT_MERGE_LEXICAL_THRESHOLD = 0.6
 /** Under this many conversations in the period the brief says the update was
  *  thin and writes fewer findings rather than padding. */
 export const DOCUMENT_THIN_CONVERSATIONS = 300
