@@ -11,6 +11,9 @@
  *   --research   ask them (agent calls, billed) and write answers.json
  *   (default)    the whole build: research, write, snapshot, PDF into --out
  *   --reuse      take answers.json from --out instead of paying for the research again; --reuse-write also written.json
+ *   --report <id>  T7: run the STEPS against a real report_builds row for that document report (research, write,
+ *                check, freeze, render through finishBuild), exactly as the Inngest function does, in process.
+ *                --no-check skips the self-check. The row is left for the Studio to show.
  *
  * Össur is the default client, as in the other per-client scripts.
  */
@@ -26,6 +29,9 @@ import { allowedTokens, composeDocument, documentFigures, thinWeek } from '../li
 import { generateDocument, DOCUMENT_WRITER_MODEL } from '../lib/reports/documents/write-model'
 import { DOCUMENT_PROMPT_VERSION } from '../lib/reports/documents/write'
 import { periodOf } from '../lib/reports/documents/build'
+import { buildContext, runBuildInProcess } from '../lib/reports/documents/steps'
+import { insertBuild, latestRunId, loadBuild } from '../lib/reports/documents/builds'
+import type { ReportRow } from '../lib/reports/types'
 import { createSnapshot } from '../lib/snapshots'
 import { renderArtifact, renderUrl } from '../lib/render/render'
 import { withBrowser } from '../lib/render/chromium'
@@ -40,10 +46,32 @@ const flag = (name: string): string | undefined => {
 const has = (name: string) => args.includes(`--${name}`)
 for (const a of args) {
   if (!a.startsWith('--')) continue
-  if (!['client', 'template', 'sells-to', 'signals', 'questions', 'research', 'out', 'run', 'keep', 'no-check', 'reader', 'reuse', 'reuse-write', 'png'].includes(a.slice(2))) throw new Error(`unknown flag: ${a}`)
+  if (!['client', 'template', 'sells-to', 'signals', 'questions', 'research', 'out', 'run', 'keep', 'no-check', 'reader', 'reuse', 'reuse-write', 'png', 'report'].includes(a.slice(2))) throw new Error(`unknown flag: ${a}`)
+}
+
+async function buildReportRow(reportId: string) {
+  const admin = createAdminClient()
+  const { data: report } = await admin.from('reports').select('*').eq('id', reportId).maybeSingle()
+  if (!report) throw new Error(`no such report: ${reportId}`)
+  const row = report as ReportRow
+  if (row.kind !== 'document') throw new Error('not a document report')
+  const runId = flag('run') ?? (await latestRunId(admin, row.client_id))
+  const build = await insertBuild(admin, { clientId: row.client_id, reportId: row.id, runId, requestedBy: null })
+  console.log(`build ${build.id} · report ${row.title} · run ${runId?.slice(0, 8) ?? 'none'}`)
+  const ctx = await buildContext(admin, build.id)
+  const base = process.env.RENDER_BASE_URL ?? 'http://localhost:3000'
+  const t0 = Date.now()
+  try {
+    const out = await runBuildInProcess(admin, ctx, { baseUrl: base, check: !has('no-check'), log: (l) => console.log(`  ${l}`) })
+    console.log(`done in ${Math.round((Date.now() - t0) / 1000)} s · pdf ${out.render.url}`)
+  } finally {
+    const row2 = await loadBuild(admin, build.id)
+    console.log(`row: ${row2?.status} · $${Number(row2?.cost_usd ?? 0).toFixed(3)} · snapshot ${row2?.snapshot_id?.slice(0, 8) ?? '-'} · artifact ${row2?.artifact_id?.slice(0, 8) ?? '-'} · needs_review ${row2?.needs_review}${row2?.error ? ` · ${row2.error}` : ''}`)
+  }
 }
 
 async function main() {
+  if (flag('report')) return buildReportRow(flag('report')!)
   const clientId = flag('client') ?? OSSUR
   const template = documentTemplate(flag('template') ?? 'sales_brief')
   if (!template) throw new Error(`unknown template: ${flag('template')}`)

@@ -1,7 +1,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { pageModule } from '../../components/pages/registry'
 import { createSnapshot } from '../snapshots'
-import { artifactFilename, logExport, signedArtifactUrl, storeArtifact } from '../artifacts'
+import { artifactFilename, logExport, signedArtifactUrl, storeArtifact, type ArtifactRow } from '../artifacts'
 import { renderArtifact } from '../render/render'
 import { figuresFor, mergeFigures } from './figures'
 import { deckSlides } from './compose'
@@ -162,6 +162,26 @@ export function seedFrom(id: string): number {
   return (h % 9) + 1
 }
 
+/** After a snapshot exists: print it, store the PDF, log the export, mark
+ *  the report built, and hand back a signed url. Shared by the arranged
+ *  build (in the route) and the document build (in the admin render route).
+ *  Chromium runs here, in a route, never in an Inngest step. */
+export async function finishBuild(
+  admin: SupabaseClient,
+  args: { clientId: string; userId: string | null; reportId: string; snapshotId: string; title: string; baseUrl: string },
+): Promise<{ artifact: ArtifactRow; ms: number; url: string }> {
+  const rendered = await renderArtifact({ baseUrl: args.baseUrl, snapshotId: args.snapshotId, format: 'pdf' })
+  const artifact = await storeArtifact(admin, { clientId: args.clientId, snapshotId: args.snapshotId, format: 'pdf', tileKey: null, buffer: rendered.buffer, renderMs: rendered.ms })
+  await logExport(admin, { clientId: args.clientId, userId: args.userId, snapshotId: args.snapshotId, artifactId: artifact.id, action: 'export', kind: 'report', format: 'pdf', page: null, tileKey: null })
+  await admin
+    .from('reports')
+    .update({ status: 'built', latest_snapshot_id: args.snapshotId, updated_at: new Date().toISOString() })
+    .eq('id', args.reportId)
+    .eq('client_id', args.clientId)
+  const url = await signedArtifactUrl(admin, artifact, artifactFilename(args.title, artifact))
+  return { artifact, ms: rendered.ms, url }
+}
+
 export async function buildReport(args: {
   admin: SupabaseClient
   supabase: unknown
@@ -172,22 +192,12 @@ export async function buildReport(args: {
   baseUrl: string
 }): Promise<{ snapshotId: string; artifactId: string; url: string; ms: number; bytes: number; skipped: LoadedSections['skipped'] }> {
   const snap = await snapshotReport(args)
-  let artifact
-  let ms = 0
+  let out
   try {
-    const rendered = await renderArtifact({ baseUrl: args.baseUrl, snapshotId: snap.snapshotId, format: 'pdf' })
-    ms = rendered.ms
-    artifact = await storeArtifact(args.admin, { clientId: args.clientId, snapshotId: snap.snapshotId, format: 'pdf', tileKey: null, buffer: rendered.buffer, renderMs: ms })
+    out = await finishBuild(args.admin, { clientId: args.clientId, userId: args.userId, reportId: args.report.id, snapshotId: snap.snapshotId, title: snap.title, baseUrl: args.baseUrl })
   } catch (e) {
     await args.admin.from('report_snapshots').delete().eq('id', snap.snapshotId)
     throw e
   }
-  await logExport(args.admin, { clientId: args.clientId, userId: args.userId, snapshotId: snap.snapshotId, artifactId: artifact.id, action: 'export', kind: 'report', format: 'pdf', page: null, tileKey: null })
-  await args.admin
-    .from('reports')
-    .update({ status: 'built', latest_snapshot_id: snap.snapshotId, updated_at: new Date().toISOString() })
-    .eq('id', args.report.id)
-    .eq('client_id', args.clientId)
-  const url = await signedArtifactUrl(args.admin, artifact, artifactFilename(snap.title, artifact))
-  return { snapshotId: snap.snapshotId, artifactId: artifact.id, url, ms, bytes: artifact.bytes, skipped: snap.skipped }
+  return { snapshotId: snap.snapshotId, artifactId: out.artifact.id, url: out.url, ms: out.ms, bytes: out.artifact.bytes, skipped: snap.skipped }
 }

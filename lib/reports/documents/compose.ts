@@ -121,6 +121,9 @@ export interface ComposeArgs {
   promptVersion: string
   costUsd: number
   timings: Record<string, number>
+  /** The self-check's outcome, when it ran: a verdict per surviving finding
+   *  headline and the findings it dropped (lib/reports/documents/check.ts). */
+  check?: { verdicts: Record<string, 'echoes' | 'silent'>; dropped: { headline: string; reason: string }[] } | null
 }
 
 export function composeDocument(a: ComposeArgs): { data: DocumentSnapshotData; workings: DocumentWorkings } {
@@ -135,7 +138,7 @@ export function composeDocument(a: ComposeArgs): { data: DocumentSnapshotData; w
   const thin = thinWeek(s)
   const pages: DocPage[] = []
   const blocksW: BlockWorkings[] = []
-  const dropped: DocumentWorkings['dropped'] = []
+  const dropped: DocumentWorkings['dropped'] = [...(a.check?.dropped ?? [])]
   const notSure: string[] = []
   const usedQuotes = new Set<string>()
 
@@ -172,7 +175,8 @@ export function composeDocument(a: ComposeArgs): { data: DocumentSnapshotData; w
       { id: `${id}.sure`, field: 'sure', text: `${SURE_WORDS[c.sure]}${sureNote ? ` ${sureNote}` : ''}` },
     ]
     const continued = c.f.continued_from?.trim() || null
-    for (const b of blocks) blocksW.push({ blockId: b.id, basedOn: c.ok, continuedFrom: continued })
+    const check = a.check ? (a.check.verdicts[c.f.headline] ?? 'silent') : null
+    for (const b of blocks) blocksW.push({ blockId: b.id, basedOn: c.ok, continuedFrom: continued, check })
     const heard = heardMeta({ points: c.gs, concerns: c.cs })
     return {
       id, kind: 'finding', title: PAGE_TITLE.finding, blocks,
