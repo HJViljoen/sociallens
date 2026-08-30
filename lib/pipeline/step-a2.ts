@@ -5,6 +5,9 @@ import { mergeClusterLabels } from './theme-merge'
 import type { InsightRow, AggregatedTheme } from './types'
 import { COMPETITIVE_MIN_VIDEOS } from '../config'
 
+/** Ids per `.in()` filter — keeps the request URL under the PostgREST/gateway cap. */
+const VIDEO_ID_CHUNK = 100
+
 // Step A2 — theme aggregation (Architecture/Analysis-Passes §Step A2). No new
 // GPT call (one cheap embeddings call inside the clustering seam). Buckets Pass A
 // insights by entity, clusters within the bucket, and rolls each cluster up into
@@ -185,18 +188,28 @@ export async function loadGroupedInsights(clientId: string, runId: string): Prom
   void runId
 
   // 2. Fetch the referenced videos for entity flags; join in code (avoids
-  //    PostgREST FK-name ambiguity on source_video_id).
+  //    PostgREST FK-name ambiguity on source_video_id). The id set is the WHOLE
+  //    corpus (incremental Pass A keeps every video's insights current), so it
+  //    grows week over week — one `.in()` of 705 uuids was a ~27 KB URL and the
+  //    gateway answered 400 (Össur run e0f3fcd0, 2026-08-30). Chunk at 100 like
+  //    every other id-set reader (engage/quotes/keyword-attribution precedent).
   const videoIds = [...new Set(insightsBase.map((i) => i.source_video_id).filter(Boolean))]
   const videoEntity = new Map<string, { is_client: boolean; is_competitor: boolean; competitor_name: string | null }>()
   if (videoIds.length) {
-    const videos = await selectAll<{ id: string; is_client: boolean; is_competitor: boolean; competitor_name: string | null }>(() =>
-      admin
-        .from('videos')
-        .select('id, is_client, is_competitor, competitor_name')
-        .in('id', videoIds)
-        .order('id', { ascending: true }),
+    const chunks: string[][] = []
+    for (let i = 0; i < videoIds.length; i += VIDEO_ID_CHUNK) chunks.push(videoIds.slice(i, i + VIDEO_ID_CHUNK))
+    const pages = await Promise.all(
+      chunks.map((chunk) =>
+        selectAll<{ id: string; is_client: boolean; is_competitor: boolean; competitor_name: string | null }>(() =>
+          admin
+            .from('videos')
+            .select('id, is_client, is_competitor, competitor_name')
+            .in('id', chunk)
+            .order('id', { ascending: true }),
+        ),
+      ),
     )
-    for (const v of videos) {
+    for (const v of pages.flat()) {
       videoEntity.set(v.id, { is_client: v.is_client, is_competitor: v.is_competitor, competitor_name: v.competitor_name })
     }
   }
