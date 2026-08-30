@@ -50,6 +50,6 @@ export async function GET(_request: Request, ctx: { params: Promise<{ id: string
     return NextResponse.redirect(url, 302)
   } catch (e) {
     console.error('[artifacts] failed:', e)
-    return NextResponse.json({ error: 'Couldn’t fetch this export — try again.' }, { status: 500 })
+    return NextResponse.json({ error: 'Couldn’t fetch this export. Try again.' }, { status: 500 })
   }
 }

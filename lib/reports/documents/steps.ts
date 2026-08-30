@@ -1,18 +1,20 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { DOCUMENT_BUILD_BUDGET_USD, DOCUMENT_QUESTIONS_MAX } from '../../config'
 import { createSnapshot } from '../../snapshots'
+import { collectQuoteRefs, freezeQuotes, resolveQuotes } from '../../renderables/quotes-freeze'
+import { fetchQuoteTextsByRefs } from '../../quotes'
 import type { ReportRow } from '../types'
 import { finishBuild } from '../build'
 import { documentTemplate, type DocumentTemplate } from './templates'
 import { documentSettings, isDocumentData, type DocumentSettings } from './types'
 import { loadSignals } from './signals'
 import { composeQuestions, type ResearchQuestion } from './questions'
-import { runResearch, type ResearchAnswer } from './research'
+import { BuildBlockedError, runResearch, type ResearchAnswer } from './research'
 import { allowedTokens, composeDocument, documentFigures, thinWeek } from './compose'
-import { generateDocument, DOCUMENT_WRITER_MODEL } from './write-model'
+import { generateDocument, DOCUMENT_WRITER_MODEL, WriteFailedError } from './write-model'
 import { DOCUMENT_PROMPT_VERSION, type PreviousBrief, type WriterOutput } from './write'
 import { checkDocument, type FindingVerdict } from './check'
-import { addBuildCost, completeBuild, failBuild, latestRunId, loadBuild, setBuildStatus } from './builds'
+import { completeBuild, failBuild, latestRunId, loadBuild, setBuildCost, setBuildStatus } from './builds'
 
 /**
  * A document build as STEPS (T7, 2026-08-31): research → write → check →
@@ -85,8 +87,10 @@ export async function buildContext(admin: SupabaseClient, buildId: string): Prom
 const mark = async (admin: SupabaseClient, ctx: BuildContext, status: 'researching' | 'writing' | 'checking' | 'rendering', patch?: Parameters<typeof setBuildStatus>[3]) => {
   if (ctx.buildId) await setBuildStatus(admin, ctx.buildId, status, patch)
 }
-const spend = async (admin: SupabaseClient, ctx: BuildContext, usd: number) => {
-  if (ctx.buildId) await addBuildCost(admin, ctx.buildId, usd)
+/** The build's spend so far, written as an absolute number so a retried
+ *  step cannot count itself twice. */
+const spend = async (admin: SupabaseClient, ctx: BuildContext, totalUsd: number) => {
+  if (ctx.buildId) await setBuildCost(admin, ctx.buildId, totalUsd)
 }
 const signalsOf = (admin: SupabaseClient, ctx: BuildContext) => loadSignals(admin, { clientId: ctx.clientId, runId: ctx.runId, settings: ctx.settings })
 
@@ -101,10 +105,14 @@ export async function researchStep(admin: SupabaseClient, ctx: BuildContext): Pr
   const research = await runResearch(admin, { clientId: ctx.clientId, companyName: signals.company, runId: signals.runId, questions, budgetUsd: DOCUMENT_BUILD_BUDGET_USD })
   timings.research = Date.now() - t0
   await spend(admin, ctx, research.costUsd)
-  return { questions, answers: research.answers, costUsd: research.costUsd, stoppedForBudget: research.stoppedForBudget, timings }
+  // The step's output is memoised by Inngest, so no comment's words may be in
+  // it (AGENTS.md): quotes leave as refs with empty text; freezeStep resolves
+  // them again for the picker.
+  const answers = freezeQuotes(research.answers).data as ResearchAnswer[]
+  return { questions, answers, costUsd: research.costUsd, stoppedForBudget: research.stoppedForBudget, timings }
 }
 
-export async function writeStep(admin: SupabaseClient, ctx: BuildContext, r: Pick<ResearchOut, 'answers'>): Promise<WriteOut> {
+export async function writeStep(admin: SupabaseClient, ctx: BuildContext, r: Pick<ResearchOut, 'answers' | 'costUsd'>): Promise<WriteOut> {
   await mark(admin, ctx, 'writing')
   const signals = await signalsOf(admin, ctx)
   const figures = documentFigures(signals, r.answers)
@@ -116,17 +124,17 @@ export async function writeStep(admin: SupabaseClient, ctx: BuildContext, r: Pic
     template: ctx.template, settings: ctx.settings, company: signals.company, period, reader: ctx.report.cover?.reader ?? null,
     figures, signals, answers: r.answers, previous, thin: thinWeek(signals), allow: allowedTokens(signals, r.answers),
   })
-  await spend(admin, ctx, written.costUsd)
+  await spend(admin, ctx, r.costUsd + written.costUsd)
   return { written: written.written, previous, costUsd: written.costUsd, timings: { write: Date.now() - t0 } }
 }
 
-export async function checkStep(admin: SupabaseClient, ctx: BuildContext, w: Pick<WriteOut, 'written'>): Promise<CheckOut> {
+export async function checkStep(admin: SupabaseClient, ctx: BuildContext, w: Pick<WriteOut, 'written'>, priorCostUsd = 0): Promise<CheckOut> {
   await mark(admin, ctx, 'checking')
   const runId = ctx.runId ?? (await latestRunId(admin, ctx.clientId))
   if (!runId) throw new DocumentBuildError('No finished run to check against.')
   const t0 = Date.now()
   const out = await checkDocument(admin, { clientId: ctx.clientId, runId, companyName: ctx.company, written: w.written })
-  await spend(admin, ctx, out.costUsd)
+  await spend(admin, ctx, priorCostUsd + out.costUsd)
   if (out.flagged) await mark(admin, ctx, 'checking', { needs_review: true })
   return { written: out.written, verdicts: out.verdicts, dropped: out.dropped, flagged: out.flagged, costUsd: out.costUsd, timings: { check: Date.now() - t0 } }
 }
@@ -136,8 +144,21 @@ export async function freezeStep(
   ctx: BuildContext,
   args: { answers: ResearchAnswer[]; written: WriterOutput; check: Pick<CheckOut, 'verdicts' | 'dropped'> | null; costUsd: number; timings: Record<string, number> },
 ): Promise<FreezeOut> {
+  // A retried step must not freeze twice: the row already names its snapshot.
+  if (ctx.buildId) {
+    const row = await loadBuild(admin, ctx.buildId)
+    if (row?.snapshot_id) {
+      const { data: snap } = await admin.from('report_snapshots').select('id, title, evidence_ids').eq('id', row.snapshot_id).maybeSingle()
+      if (snap) return { snapshotId: snap.id as string, title: (snap.title as string) ?? '', evidenceIds: (snap.evidence_ids as string[]) ?? [], costUsd: args.costUsd }
+    }
+  }
+  // The quote picker judges words (readsAsHeroQuote); the step boundary
+  // stripped them, so resolve the refs once, in memory, never stored.
+  const refs = collectQuoteRefs(args.answers)
+  const texts = refs.length ? await fetchQuoteTextsByRefs(admin, refs) : new Map<string, string>()
+  const answers = resolveQuotes(args.answers, texts) as ResearchAnswer[]
   const signals = await signalsOf(admin, ctx)
-  const figures = documentFigures(signals, args.answers)
+  const figures = documentFigures(signals, answers)
   const period = periodOf(signals.runDate)
   const title = ctx.report.cover?.title?.trim() || ctx.report.title || ctx.template.name
   const check = args.check
@@ -147,7 +168,7 @@ export async function freezeStep(
       }
     : null
   const { data, workings } = composeDocument({
-    template: ctx.template, settings: ctx.settings, reportId: ctx.report.id, title, period, signals, answers: args.answers, written: args.written, figures,
+    template: ctx.template, settings: ctx.settings, reportId: ctx.report.id, title, period, signals, answers, written: args.written, figures,
     model: DOCUMENT_WRITER_MODEL, promptVersion: DOCUMENT_PROMPT_VERSION, costUsd: args.costUsd, timings: args.timings, check,
   })
   const fullTitle = `${title} · ${signals.company}`
@@ -168,6 +189,14 @@ export async function freezeStep(
 
 /** The render, in a route or a script, never in a step. */
 export async function renderStep(admin: SupabaseClient, ctx: BuildContext, f: Pick<FreezeOut, 'snapshotId' | 'title'>, baseUrl: string): Promise<RenderOut> {
+  if (ctx.buildId) {
+    const row = await loadBuild(admin, ctx.buildId)
+    if (row?.status === 'failed') throw new DocumentBuildError('This build was given up on; a newer one may be running.')
+    if (row?.status === 'done' && row.artifact_id) {
+      const { data: art } = await admin.from('artifacts').select('id, bytes').eq('id', row.artifact_id).maybeSingle()
+      if (art) return { artifactId: art.id as string, bytes: (art.bytes as number) ?? 0, ms: 0, url: '' }
+    }
+  }
   await mark(admin, ctx, 'rendering')
   const out = await finishBuild(admin, { clientId: ctx.clientId, userId: ctx.userId, reportId: ctx.report.id, snapshotId: f.snapshotId, title: f.title, baseUrl })
   if (ctx.buildId) await completeBuild(admin, ctx.buildId, { artifact_id: out.artifact.id, snapshot_id: f.snapshotId })
@@ -187,7 +216,7 @@ export async function runBuildInProcess(
     log(`research: ${research.answers.length} answers · $${research.costUsd.toFixed(3)} · ${research.timings.research} ms`)
     const write = await writeStep(admin, ctx, research)
     log(`write: ${write.written.findings.length} findings · $${write.costUsd.toFixed(3)} · ${write.timings.write} ms`)
-    const check = opts.check === false ? null : await checkStep(admin, ctx, write)
+    const check = opts.check === false ? null : await checkStep(admin, ctx, write, research.costUsd + write.costUsd)
     if (check) log(`check: ${check.verdicts.map((v) => v.verdict).join(', ') || 'nothing to check'} · dropped ${check.dropped.length} · $${check.costUsd.toFixed(3)} · ${check.timings.check} ms`)
     const costUsd = research.costUsd + write.costUsd + (check?.costUsd ?? 0)
     const timings = { ...research.timings, ...write.timings, ...(check?.timings ?? {}) }
@@ -197,21 +226,30 @@ export async function runBuildInProcess(
     log(`render: ${render.bytes} bytes · ${render.ms} ms`)
     return { research, write, check, freeze, render }
   } catch (e) {
-    if (ctx.buildId) await failBuild(admin, ctx.buildId, e instanceof Error ? e.message : String(e)).catch(() => {})
+    if (ctx.buildId) await failBuild(admin, ctx.buildId, plainBuildMessage(e)).catch(() => {})
     throw e
   }
 }
 
+/** What a tenant may read about a failure: the known classes carry
+ *  calibrated words; anything else stays in the logs. */
+export function plainBuildMessage(e: unknown): string {
+  if (e instanceof BuildBlockedError || e instanceof WriteFailedError || e instanceof DocumentBuildError) return e.message
+  console.error('[documents] build failed:', e)
+  return 'The build failed. Try again, or tell us if it keeps happening.'
+}
+
 /** The report's latest document build, for continuity: its summary and its
  *  finding headlines. Null on a first build or when the report has none. */
-export async function previousBrief(admin: SupabaseClient, report: Pick<ReportRow, 'id' | 'latest_snapshot_id'>): Promise<PreviousBrief | null> {
-  if (!report.id) return null
+export async function previousBrief(admin: SupabaseClient, report: Pick<ReportRow, 'id' | 'client_id' | 'latest_snapshot_id'>): Promise<PreviousBrief | null> {
+  // The last brief anyone SAW: reports.latest_snapshot_id is set when a build
+  // printed, so a freeze that never rendered does not steer continuity.
+  if (!report.id || !report.latest_snapshot_id) return null
   const { data } = await admin
     .from('report_snapshots')
     .select('data')
-    .eq('report_id', report.id)
-    .order('created_at', { ascending: false })
-    .limit(1)
+    .eq('id', report.latest_snapshot_id)
+    .eq('client_id', report.client_id)
     .maybeSingle()
   const d = (data as { data?: unknown } | null)?.data
   if (!isDocumentData(d)) return null

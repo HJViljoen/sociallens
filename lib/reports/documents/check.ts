@@ -66,8 +66,10 @@ export async function checkDocument(
       return { headline: f.headline, verdict: (c?.verdict as CheckVerdict | undefined) ?? 'silent', theySay: c?.verdict === 'contradicts' ? (c.theySay ?? null) : null }
     })
   } catch (e) {
+    // The check could not run: keep every finding and record NOTHING, so the
+    // workings say "not checked" rather than a silence that never happened.
     console.error('[documents/check] the verdict pass failed; findings kept unchecked:', e)
-    verdicts = findings.map((f) => ({ headline: f.headline, verdict: 'silent', theySay: null }))
+    return { verdicts: [], dropped: [], flagged: false, costUsd: 0, written: args.written }
   }
   const applied = applyCheck(args.written, verdicts)
   return { verdicts, dropped: applied.dropped, flagged: applied.flagged, costUsd, written: applied.written }

@@ -19,5 +19,5 @@ export function PrintRoot({ style = DEFAULT_PRINT_STYLE, children }: { style?: P
 }
 
 export function printStyleFrom(v: string | undefined): PrintVariantStyle {
-  return v === 'a' || v === 'b' ? v : DEFAULT_PRINT_STYLE
+  return v === 'a' || v === 'b' || v === 'c' ? v : DEFAULT_PRINT_STYLE
 }

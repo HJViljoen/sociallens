@@ -28,6 +28,8 @@ const DEMO = 'de300055-0000-4000-8000-000000000001'
 const checks: { name: string; ok: boolean; note?: string }[] = []
 const check = (name: string, ok: boolean, note?: string) => { checks.push({ name, ok, note }); console.log(`${ok ? '✓' : '✗'} ${name}${note ? ` (${note})` : ''}`) }
 const text = (page: Page) => page.evaluate(() => document.body.innerText)
+/** Eyebrows and labels are CSS-uppercased; compare without case. */
+const hasText = (t: string, ...needles: string[]) => needles.every((n) => t.toLowerCase().includes(n.toLowerCase()))
 const settle = (ms = 800) => new Promise((r) => setTimeout(r, ms))
 
 async function cleanup(since: string, reportId: string | null) {
@@ -82,12 +84,12 @@ async function main() {
       reportId = m?.[1] ?? null
       check('lands in the document editor', Boolean(reportId), page.url())
       // The editor streams in behind a skeleton; wait for the settings pane.
-      await page.waitForFunction(() => document.body.innerText.includes('Who you sell to'), { timeout: 60_000 }).catch(() => null)
+      await page.waitForFunction(() => /who you sell to/i.test(document.body.innerText), { timeout: 60_000 }).catch(() => null)
 
       // 2. The editor before a build: settings save
       t = await text(page)
       check('empty state says Build to write the first draft', t.includes('Build to write the first draft'))
-      check('settings show who you sell to, competitors, findings, English', t.includes('Who you sell to') && t.includes('Competitors to include') && t.includes('Ottobock') && t.includes('English'))
+      check('settings show who you sell to, competitors, findings, English', hasText(t, 'Who you sell to', 'Competitors to include', 'Ottobock', 'English'))
       noDash('document editor (empty)', t)
       await shot('02-editor-empty')
       const reader = await page.$('input[placeholder="the sales team"]')
@@ -110,9 +112,9 @@ async function main() {
       if (!buildBtn) throw new Error('no Build button')
       const t0 = Date.now()
       await buildBtn.click()
-      await page.waitForFunction(() => /Writing · \d+:\d\d/.test(document.body.innerText), { timeout: 30_000 }).catch(() => null)
+      await page.waitForFunction(() => /Building · \d+:\d\d/.test(document.body.innerText), { timeout: 30_000 }).catch(() => null)
       t = await text(page)
-      check('the control counts and says where the build is', /Writing · \d+:\d\d/.test(t) && /(Queued|Reading the update|Starting|Picking up)/.test(t), t.match(/Writing · [^\n]+\n[^\n]+/)?.[0])
+      check('the control counts and says where the build is', /Building · \d+:\d\d/.test(t) && /(Queued|Reading the update|Starting|Picking up)/.test(t), t.match(/Building · [^\n]+\n[^\n]+/)?.[0])
       await shot('03-building')
       const outcome = await page.waitForFunction(() => { const m = document.body.innerText.match(/(Built\.|The build failed[^\n]*|Not a document[^\n]*|Nothing to write[^\n]*|Couldn[^\n]*|failed[^\n]*)/); return m ? m[0] : false }, { timeout: 480_000 })
         .then((h) => h.jsonValue() as Promise<string>).catch(() => 'timed out')
@@ -129,7 +131,7 @@ async function main() {
       await page.waitForFunction(() => document.body.innerText.includes('Click any text to change it'), { timeout: 60_000 }).catch(() => null)
       await settle(1000)
       t = await text(page)
-      check('the pages show after the build', t.includes('Click any text to change it') && t.includes('Findings in this brief'))
+      check('the pages show after the build', hasText(t, 'Click any text to change it', 'Findings in this brief'))
       noDash('document editor (built)', t)
       await shot('04-editor-built')
       const slides = await page.$$('.vb-slide')
@@ -142,13 +144,13 @@ async function main() {
       const ta = await page.waitForSelector('textarea.vb-edit', { timeout: 10_000 })
       const before = await ta!.evaluate((el) => (el as HTMLTextAreaElement).value)
       check('the textarea holds the substituted prose, no placeholders', before.length > 40 && !before.includes('[['), before.slice(0, 60))
-      await page.keyboard.press('End')
+      await ta!.evaluate((el) => { const x = el as HTMLTextAreaElement; x.setSelectionRange(x.value.length, x.value.length) })
       await page.keyboard.type(' SMOKE EDIT 7f3a.')
       await page.keyboard.press('Tab')
       await page.waitForFunction(() => /Saved\. The PDF prints/.test(document.body.innerText), { timeout: 30_000 }).catch(() => null)
       await settle(1500)
       t = await text(page)
-      check('the edit shows on the page with its mark', t.includes('SMOKE EDIT 7f3a.') && t.includes('edited') && t.includes('restore the original'))
+      check('the edit shows on the page with its mark', hasText(t, 'SMOKE EDIT 7f3a.', 'edited', 'restore the original'))
       const { data: edits } = await admin.from('report_edits').select('block_id, text').eq('snapshot_id', snapshotId)
       check('one report_edits row, the snapshot untouched', edits?.length === 1 && edits[0].text.endsWith('SMOKE EDIT 7f3a.'), JSON.stringify(edits?.map((e) => e.block_id)))
       const { data: snapRow } = await admin.from('report_snapshots').select('data').eq('id', snapshotId).single()
@@ -166,7 +168,9 @@ async function main() {
       check('count pills appear in the margin', Boolean(pill))
       if (pill) { await pill.click(); await settle(600) }
       t = await text(page)
-      check('the drawer shows the block\'s points and the questions asked', /conversations?/.test(t) && t.includes('What the researcher asked'))
+      check('the drawer shows the block\'s points and the questions asked', /conversations?/i.test(t) && hasText(t, 'What the researcher asked'))
+      const drawerBox = await page.$eval('aside[aria-label="The workings"]', (el) => { const r = el.getBoundingClientRect(); return { x: r.x, w: r.width, right: r.right, vw: window.innerWidth } }).catch(() => null)
+      check('the drawer is on screen beside the page', Boolean(drawerBox) && drawerBox!.w > 200 && drawerBox!.right <= drawerBox!.vw + 1, JSON.stringify(drawerBox))
       noDash('workings drawer', t)
       await shot('06-workings')
 
@@ -178,25 +182,31 @@ async function main() {
 
       // 7. The Studio list row
       await goto(`/dashboard/studio?item=${reportId}`)
-      await page.waitForFunction(() => document.body.innerText.includes('Written report'), { timeout: 60_000 }).catch(() => null)
+      await page.waitForFunction(() => /written report/i.test(document.body.innerText), { timeout: 60_000 }).catch(() => null)
       t = await text(page)
-      check('the list shows the written report, built, with its cost', t.includes('Written report') && t.includes('Built') && /\$\d\.\d\d/.test(t))
+      check('the list shows the written report, built, with its cost', hasText(t, 'Written report', 'Built') && /\$\d\.\d\d/.test(t))
       noDash('Studio list', t)
       await shot('07-studio')
 
-      // 8. A share link, opened as a stranger
-      const { data: link } = await admin.from('share_links').insert({ client_id: DEMO, snapshot_id: snapshotId, token: `smoke${Math.random().toString(36).slice(2, 14)}${Date.now().toString(36)}`, title: 'Smoke', expires_at: new Date(Date.now() + 3600_000).toISOString() }).select('token').single()
-      if (link) {
+      // 8. A share link made in the Studio, opened as a stranger
+      const [createLink] = await page.$$('xpath/.//button[contains(., "Create link")]')
+      if (!createLink) throw new Error('no Create link button')
+      await createLink.click()
+      const shareUrl = await page.waitForFunction(() => { const a = Array.from(document.querySelectorAll('a')).find((x) => /\/r\/[A-Za-z0-9_-]+/.test(x.getAttribute('href') ?? '')); return a ? a.getAttribute('href') : false }, { timeout: 30_000 })
+        .then((h) => h.jsonValue() as Promise<string>).catch(() => '')
+      check('a share link was made from the Studio', Boolean(shareUrl), shareUrl)
+      if (shareUrl) {
+        const token = shareUrl.split('/r/')[1]
         const ctx = await page.browser().createBrowserContext()
         const p2 = await ctx.newPage()
         await p2.setViewport({ width: 1280, height: 900 })
-        const res = await p2.goto(`${base}/r/${link.token}`, { waitUntil: 'networkidle0', timeout: 120_000 })
+        const res = await p2.goto(`${base}/r/${token}`, { waitUntil: 'networkidle0', timeout: 120_000 })
         const t2 = await p2.evaluate(() => document.body.innerText)
-        check('the share page renders the written document', (res?.status() ?? 0) === 200 && t2.includes('Findings in this brief') && t2.includes('Prepared by'))
+        check('the share page renders the written document', (res?.status() ?? 0) === 200 && hasText(t2, 'Findings in this brief', 'Prepared by'))
         noDash('share page', t2)
         writeFileSync(join(out, '08-share.png'), await p2.screenshot({ type: 'png' }))
         await ctx.close()
-      } else check('a share link could be made', false)
+      }
 
       // 9. Paper prints on hairlines
       const { renderUrl } = await import('../lib/render/render')

@@ -78,12 +78,11 @@ export async function setBuildStatus(admin: SupabaseClient, buildId: string, sta
   if (error) throw new Error(`report_builds: update failed: ${error.message}`)
 }
 
-/** Add to the build's spend (each step pays for its own model calls). */
-export async function addBuildCost(admin: SupabaseClient, buildId: string, usd: number): Promise<void> {
-  if (!(usd > 0)) return
-  const row = await loadBuild(admin, buildId)
-  if (!row) return
-  const { error } = await admin.from('report_builds').update({ cost_usd: Number(row.cost_usd) + usd }).eq('id', buildId)
+/** The build's spend so far, absolute (a retried step writes the same
+ *  number again instead of adding to it). */
+export async function setBuildCost(admin: SupabaseClient, buildId: string, totalUsd: number): Promise<void> {
+  if (!(totalUsd > 0)) return
+  const { error } = await admin.from('report_builds').update({ cost_usd: totalUsd }).eq('id', buildId)
   if (error) throw new Error(`report_builds: cost update failed: ${error.message}`)
 }
 
@@ -101,6 +100,7 @@ export async function completeBuild(admin: SupabaseClient, buildId: string, patc
     .from('report_builds')
     .update({ status: 'done', finished_at: new Date().toISOString(), ...patch })
     .eq('id', buildId)
+    .neq('status', 'failed')
   if (error) throw new Error(`report_builds: complete failed: ${error.message}`)
 }
 

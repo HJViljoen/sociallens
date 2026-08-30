@@ -14,7 +14,7 @@ const fmt = (n: number) => n.toLocaleString('en-GB')
 export function WorkingsDrawer({ workings, selectedId, blockLabel }: { workings: DocumentWorkings; selectedId: string | null; blockLabel: (id: string) => string }) {
   const bw = selectedId ? workings.blocks.find((b) => b.blockId === selectedId) ?? null : null
   const points = bw ? bw.basedOn.map((id) => workings.points.find((p) => p.id === id)).filter((p): p is DocumentWorkings['points'][number] => Boolean(p)) : []
-  const concerns = bw ? bw.basedOn.map((id) => workings.concerns[Number(id.replace(/^S/, '')) - 1]).filter(Boolean) : []
+  const concerns = bw ? bw.basedOn.filter((id) => /^S\d+$/.test(id)).map((id) => workings.concerns[Number(id.slice(1)) - 1]).filter(Boolean) : []
   return (
     <aside className="flex h-full min-h-0 w-[320px] shrink-0 flex-col gap-4 overflow-y-auto border-l border-border bg-tile px-4 py-4 text-[12.5px]" aria-label="The workings">
       {bw ? (

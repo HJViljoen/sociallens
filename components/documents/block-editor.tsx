@@ -34,10 +34,12 @@ export function BlockEditor({ block, textClass, children }: { block: DocBlock; t
   const open = () => { setValue(initial()); setEditing(true) }
   const cancel = () => setEditing(false)
   const commit = async () => {
-    const next = value.replace(/\s+$/, '')
+    const next = value.trim()
     setEditing(false)
-    if (next === initial().replace(/\s+$/, '')) return
+    if (next === initial().trim()) return
     setSaving(true)
+    // An emptied block goes back to the machine's words, never blank.
+    if (!next) { if (edited) await ctx.restore(block); setSaving(false); return }
     await ctx.save(block, next)
     setSaving(false)
   }

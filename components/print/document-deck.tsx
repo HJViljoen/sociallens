@@ -108,7 +108,8 @@ function StatTile({ value, label }: { value: string; label: string }) {
 function OverviewPage({ page, data }: { page: DocPage; data: DocumentSnapshotData }) {
   const f = data.figures
   const summary = page.blocks.find((b) => b.field === 'summary')
-  const findings = page.blocks.find((b) => b.field === 'findings')?.items ?? []
+  // Derived from the finding pages so an edited headline flows through.
+  const findings = data.pages.filter((p) => p.kind === 'finding').map((p) => p.blocks.find((x) => x.field === 'headline')?.text ?? '').filter(Boolean)
   const notSureBlock = page.blocks.find((b) => b.field === 'not_sure')
   const notSure = notSureBlock?.items ?? []
   const competitor = data.pages.find((p) => p.kind === 'competitor')?.meta?.name

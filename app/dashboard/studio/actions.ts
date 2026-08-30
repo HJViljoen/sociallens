@@ -199,6 +199,8 @@ export async function saveBlockEdit(args: { snapshotId: string; blockId: string;
   const admin = createAdminClient()
   const { data: snap } = await admin.from('report_snapshots').select('id, report_id').eq('id', parsed.data.snapshotId).eq('client_id', clientId).maybeSingle()
   if (!snap) return { ok: false, message: 'No such build.' }
+  // Emptying a block is not a way to delete it: it restores the machine's words.
+  if (!parsed.data.text.trim()) return restoreBlock({ snapshotId: parsed.data.snapshotId, blockId: parsed.data.blockId })
   const { error } = await admin
     .from('report_edits')
     .upsert({ client_id: clientId, snapshot_id: snap.id, block_id: parsed.data.blockId, text: parsed.data.text, edited_by: userId, edited_at: new Date().toISOString() }, { onConflict: 'snapshot_id,block_id' })

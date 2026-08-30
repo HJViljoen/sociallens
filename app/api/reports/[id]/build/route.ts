@@ -80,7 +80,17 @@ async function enqueueDocumentBuild(admin: ReturnType<typeof createAdminClient>,
     if (decision === 'busy' && last) return NextResponse.json({ buildId: last.id, inFlight: true }, { status: 409 })
     if (decision === 'takeover' && last) await failBuild(admin, last.id, 'Took too long and was given up on.')
 
-    const build = await insertBuild(admin, { clientId: args.clientId, reportId: args.reportId, runId, requestedBy: args.userId })
+    let build
+    try {
+      build = await insertBuild(admin, { clientId: args.clientId, reportId: args.reportId, runId, requestedBy: args.userId })
+    } catch (e) {
+      // Two clicks raced: the partial unique index kept one; hand back the other.
+      if (e instanceof Error && /duplicate key|23505/.test(e.message)) {
+        const racing = await latestBuild(admin, args.reportId)
+        if (racing) return NextResponse.json({ buildId: racing.id, inFlight: true }, { status: 409 })
+      }
+      throw e
+    }
     try {
       await inngest.send({ name: 'report/build.requested', data: { buildId: build.id, clientId: args.clientId, reportId: args.reportId } })
     } catch (e) {

@@ -62,7 +62,7 @@ function evaluate(data: DocumentSnapshotData, workings: DocumentWorkings | null)
     const heads = fb.filter((b) => b.blockId.endsWith('.headline'))
     f('check verdicts recorded on every finding', heads.every((b) => b.check === 'echoes' || b.check === 'silent'), heads.map((b) => b.check ?? 'none').join(','))
     const carried = heads.filter((b) => b.continuedFrom).length
-    f('continuedFrom coverage recorded', true, `${carried}/${heads.length} carried`)
+    console.log(`  · continuity: ${carried}/${heads.length} findings carried from the previous brief`)
     const wq = workings.points.flatMap((p) => p.quotes).filter((q) => q.text).length
     f('no quote text in the workings at rest', wq === 0, `${wq}`)
   } else f('workings present', false)

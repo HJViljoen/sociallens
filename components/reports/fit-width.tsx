@@ -18,7 +18,7 @@ export function FitWidth({ base, min = 0, children }: { base: number; /** Never 
   }, [base, min])
   return (
     <div ref={ref} className="w-full">
-      <div style={{ zoom: zoom ?? 0.5, width: base }}>{children}</div>
+      <div style={{ zoom: zoom ?? Math.max(0.5, min), width: base }}>{children}</div>
     </div>
   )
 }

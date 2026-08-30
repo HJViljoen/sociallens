@@ -4,6 +4,7 @@ import { useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { updateDocumentSettings } from '@/app/dashboard/studio/actions'
 import { SELLS_TO, type DocumentSettings } from '@/lib/reports/documents/types'
+import { REPORT_TITLE_MAX } from '@/lib/reports/types'
 import type { DocumentSettingsPatch } from '@/lib/reports/validate'
 
 // A written report's settings (S8, 2026-08-31): the few choices it has.
@@ -26,10 +27,12 @@ export function SettingsPane({ reportId, title, reader, settings, tracked }: { r
       if (r.ok) router.refresh()
     })
   }
-  const chosen = settings.competitors === null ? new Set(tracked) : new Set(settings.competitors)
+  // Held in state so two quick ticks both count (props lag the refresh).
+  const [chosen, setChosen] = useState<Set<string>>(() => (settings.competitors === null ? new Set(tracked) : new Set(settings.competitors)))
   const toggle = (name: string, on: boolean) => {
     const next = new Set(chosen)
     if (on) next.add(name); else next.delete(name)
+    setChosen(next)
     const all = tracked.every((t) => next.has(t))
     save({ competitors: all ? null : tracked.filter((t) => next.has(t)) })
   }
@@ -37,7 +40,7 @@ export function SettingsPane({ reportId, title, reader, settings, tracked }: { r
     <div className="flex flex-col gap-4 text-[13px]">
       <label className="flex flex-col gap-1">
         <span className={labelCls}>Title</span>
-        <input defaultValue={title} className={inputCls} maxLength={120} onBlur={(e) => { const v = e.target.value.trim(); if (v && v !== title) save({ title: v }) }} />
+        <input defaultValue={title} className={inputCls} maxLength={REPORT_TITLE_MAX} onBlur={(e) => { const v = e.target.value.trim(); if (v && v !== title) save({ title: v }) }} />
       </label>
       <label className="flex flex-col gap-1">
         <span className={labelCls}>Written for</span>
@@ -54,7 +57,7 @@ export function SettingsPane({ reportId, title, reader, settings, tracked }: { r
         <legend className={labelCls}>Competitors to include</legend>
         {tracked.length ? tracked.map((name) => (
           <label key={name} className="flex items-center gap-2">
-            <input type="checkbox" defaultChecked={chosen.has(name)} onChange={(e) => toggle(name, e.target.checked)} className="size-3.5 accent-primary" />
+            <input type="checkbox" checked={chosen.has(name)} onChange={(e) => toggle(name, e.target.checked)} className="size-3.5 accent-primary" />
             <span>{name}</span>
           </label>
         )) : <span className="text-[11.5px] text-muted-foreground">No competitors tracked yet. Add them under Settings.</span>}

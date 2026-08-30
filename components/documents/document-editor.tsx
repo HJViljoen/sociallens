@@ -30,7 +30,10 @@ export function DocumentEditor({ snapshotId, data, workings, editedIds, deck }: 
     if (!showWorkings || !workings) return null
     const m = new Map<string, number>()
     for (const b of workings.blocks) {
-      const n = b.basedOn.reduce((s, id) => s + (workings.points.find((p) => p.id === id)?.conversationCount ?? 0), 0)
+      const n = b.basedOn.reduce((s, id) => {
+        if (/^S\d+$/.test(id)) return s + (workings.concerns[Number(id.slice(1)) - 1]?.total ?? 0)
+        return s + (workings.points.find((p) => p.id === id)?.conversationCount ?? 0)
+      }, 0)
       if (b.basedOn.length) m.set(b.blockId, n)
     }
     return m
@@ -59,7 +62,12 @@ export function DocumentEditor({ snapshotId, data, workings, editedIds, deck }: 
     })
     setOverflow(over)
   }, [])
-  useEffect(() => { const t = setTimeout(measure, 50); return () => clearTimeout(t) }, [deck, measure])
+  useEffect(() => {
+    const t = setTimeout(measure, 50)
+    // Fonts change line counts; measure again when they settle.
+    document.fonts?.ready.then(() => measure()).catch(() => {})
+    return () => clearTimeout(t)
+  }, [deck, measure])
 
   const ctx: EditContextValue = useMemo(() => ({
     snapshotId,

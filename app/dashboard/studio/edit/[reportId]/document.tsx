@@ -6,7 +6,7 @@ import { EditorLayout } from '@/components/documents/editor-layout'
 import { SettingsPane } from '@/components/documents/settings-pane'
 import { DocumentDeck } from '@/components/print/document-deck'
 import { createAdminClient } from '@/lib/supabase-admin'
-import { hydrateSnapshot, loadSnapshot, loadSnapshotWorkings, type SnapshotRow } from '@/lib/snapshots'
+import { hydrateSnapshot, loadSnapshot, loadSnapshotWorkings } from '@/lib/snapshots'
 import { applyEdits, loadEdits } from '@/lib/reports/documents/edits'
 import { documentSettings, isDocumentData, type DocumentWorkings } from '@/lib/reports/documents/types'
 import { documentTemplate } from '@/lib/reports/documents/templates'
@@ -36,14 +36,16 @@ export async function DocumentStudioPage({ report, clientId }: { report: ReportR
   if (snapshot && snapshot.client_id === clientId) {
     const raw = await hydrateSnapshot(admin, snapshot)
     if (isDocumentData(raw)) {
-      const [edits, workingsRaw] = await Promise.all([loadEdits(admin, snapshot.id), loadSnapshotWorkings<DocumentWorkings>(admin, snapshot.id, clientId)])
+      const [edits, workings] = await Promise.all([
+        loadEdits(admin, snapshot.id),
+        // loadSnapshotWorkings already resolves the quote refs live.
+        loadSnapshotWorkings<DocumentWorkings>(admin, snapshot.id, clientId),
+      ])
       const data = applyEdits(raw, edits)
-      // The workings' quote refs resolve live like the page's own.
-      const workings = workingsRaw ? await hydrateSnapshot<DocumentWorkings>(admin, { ...snapshot, data: workingsRaw } as SnapshotRow) : null
       const built = new Date(data.generatedAt)
       const date = Number.isNaN(built.getTime()) ? undefined : built.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })
       editor = (
-        <DocumentEditor key={`${snapshot.id}:${edits.length}:${edits.map((e) => e.edited_at).join(',')}`} snapshotId={snapshot.id} data={data} workings={workings} editedIds={edits.map((e) => e.block_id)}
+        <DocumentEditor key={snapshot.id} snapshotId={snapshot.id} data={data} workings={workings} editedIds={edits.map((e) => e.block_id)}
           deck={<DocumentDeck data={data} date={date} />} />
       )
     }

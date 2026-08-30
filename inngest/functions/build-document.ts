@@ -41,7 +41,11 @@ export const buildDocument = inngest.createFunction(
       const original = (event.data as { event?: { data?: BuildEvent } }).event
       const buildId = original?.data?.buildId
       if (!buildId) return
-      const message = (event.data as { error?: { message?: string } }).error?.message ?? 'The build failed.'
+      // A NonRetriableError carries our own calibrated words (terminal());
+      // anything else stays in the logs and the tenant reads a plain sentence.
+      const err = (event.data as { error?: { name?: string; message?: string } }).error
+      const message = err?.name === 'NonRetriableError' && err.message ? err.message : 'The build failed. Try again, or tell us if it keeps happening.'
+      if (err?.name !== 'NonRetriableError') console.error('[build-document] failed:', err?.message)
       await failBuild(createAdminClient(), buildId, message)
     },
   },
@@ -58,13 +62,13 @@ export const buildDocument = inngest.createFunction(
     const write = await step.run('write', async () => {
       const admin = createAdminClient()
       const ctx = await buildContext(admin, buildId).catch(terminal)
-      return writeStep(admin, ctx, { answers: research.answers }).catch(terminal)
+      return writeStep(admin, ctx, { answers: research.answers, costUsd: research.costUsd }).catch(terminal)
     })
 
     const check = await step.run('check', async () => {
       const admin = createAdminClient()
       const ctx = await buildContext(admin, buildId).catch(terminal)
-      return checkStep(admin, ctx, { written: write.written }).catch(terminal)
+      return checkStep(admin, ctx, { written: write.written }, research.costUsd + write.costUsd).catch(terminal)
     })
 
     const freeze = await step.run('freeze', async () => {

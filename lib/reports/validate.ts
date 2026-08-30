@@ -35,7 +35,7 @@ export const documentSettingsPatch = z.object({
   reader: z.string().trim().max(80).optional(),
   sellsTo: z.enum(['consumers', 'retail', 'professionals', 'businesses']).optional(),
   /** null = every tracked competitor. */
-  competitors: z.array(z.string().trim().min(1).max(60)).max(15).nullable().optional(),
+  competitors: z.array(z.string().trim().min(1).max(60)).max(10).nullable().optional(),
   findings: z.union([z.literal(3), z.literal(4)]).optional(),
 })
 export type DocumentSettingsPatch = z.infer<typeof documentSettingsPatch>

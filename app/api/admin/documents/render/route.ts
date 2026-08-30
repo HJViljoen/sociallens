@@ -4,6 +4,7 @@ import { appBaseUrl } from '@/lib/site'
 import { renderBaseUrl } from '@/lib/render/render'
 import { buildContext, renderStep } from '@/lib/reports/documents/steps'
 import { failBuild } from '@/lib/reports/documents/builds'
+import { plainBuildMessage } from '@/lib/reports/documents/steps'
 
 // POST /api/admin/documents/render {buildId} — the render half of a document
 // build, called by the build-document Inngest function's last step. Chromium
@@ -28,9 +29,9 @@ export async function POST(req: Request): Promise<Response> {
     const out = await renderStep(admin, ctx, { snapshotId: build.snapshot_id as string, title: (snap?.title as string | undefined) ?? ctx.report.title }, renderBaseUrl(appBaseUrl()))
     return Response.json({ artifactId: out.artifactId, bytes: out.bytes, ms: out.ms })
   } catch (e) {
-    const message = e instanceof Error ? e.message : String(e)
     console.error('[admin/documents/render] failed:', e)
-    await failBuild(admin, buildId, `Printing failed: ${message}`).catch(() => {})
+    const message = plainBuildMessage(e)
+    await failBuild(admin, buildId, message).catch(() => {})
     return Response.json({ error: message }, { status: 500 })
   }
 }
