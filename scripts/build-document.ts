@@ -27,7 +27,8 @@ import { generateDocument, DOCUMENT_WRITER_MODEL } from '../lib/reports/document
 import { DOCUMENT_PROMPT_VERSION } from '../lib/reports/documents/write'
 import { periodOf } from '../lib/reports/documents/build'
 import { createSnapshot } from '../lib/snapshots'
-import { renderArtifact } from '../lib/render/render'
+import { renderArtifact, renderUrl } from '../lib/render/render'
+import { withBrowser } from '../lib/render/chromium'
 
 const OSSUR = 'e52cac94-30e1-426a-9a36-31b11e0b30b6'
 
@@ -39,7 +40,7 @@ const flag = (name: string): string | undefined => {
 const has = (name: string) => args.includes(`--${name}`)
 for (const a of args) {
   if (!a.startsWith('--')) continue
-  if (!['client', 'template', 'sells-to', 'signals', 'questions', 'research', 'out', 'run', 'keep', 'no-check', 'reader', 'reuse', 'reuse-write'].includes(a.slice(2))) throw new Error(`unknown flag: ${a}`)
+  if (!['client', 'template', 'sells-to', 'signals', 'questions', 'research', 'out', 'run', 'keep', 'no-check', 'reader', 'reuse', 'reuse-write', 'png'].includes(a.slice(2))) throw new Error(`unknown flag: ${a}`)
 }
 
 async function main() {
@@ -96,7 +97,7 @@ async function main() {
   console.log(`\nwrite: ${written.ms} ms · $${written.costUsd.toFixed(3)} · ${written.promptTokens}+${written.completionTokens} tok · findings ${written.written.findings.length} · competitors ${written.written.competitors.length} · not sure ${written.written.not_sure_yet.length}`)
   writeFileSync(`${out}/written.json`, JSON.stringify(written.written, null, 2))
   const { data, workings } = composeDocument({
-    template, settings, reportId: '', title: template.name, period, signals, answers: research.answers, written: written.written, figures,
+    template, settings, reportId: '', title: `${signals.company} sales brief`, period, signals, answers: research.answers, written: written.written, figures,
     model: DOCUMENT_WRITER_MODEL, promptVersion: DOCUMENT_PROMPT_VERSION, costUsd: research.costUsd + written.costUsd, timings: { research: Date.now() - t1, write: Date.now() - t2 },
   })
   console.log(`compose: pages ${data.pages.map((p) => p.kind).join(', ')} · dropped ${workings.dropped.length} · not sure ${data.notSureYet.length} · thin ${data.method.thin}`)
@@ -120,6 +121,21 @@ async function main() {
     const { buffer, ms } = await renderArtifact({ baseUrl: base, snapshotId: snap.id, format: 'pdf' })
     writeFileSync(`${out}/${template.key}.pdf`, buffer)
     console.log(`${template.key}.pdf: render ${ms} ms · ${buffer.length} bytes${has('keep') ? ' (snapshot kept)' : ''}`)
+    if (has('png')) {
+      // Every slide as a PNG from the same Chrome, so what is judged is what
+      // is printed: the box-shadow, the fonts, the page box.
+      const url = renderUrl(base, snap.id)
+      const n = await withBrowser(async (page) => {
+        await page.setViewport({ width: 1200, height: 700, deviceScaleFactor: 2 })
+        await page.emulateMediaType('print')
+        await page.goto(url, { waitUntil: 'networkidle0' })
+        await page.evaluate(() => document.fonts.ready)
+        const slides = await page.$$('.vb-slide')
+        for (let i = 0; i < slides.length; i++) writeFileSync(`${out}/page-${String(i + 1).padStart(2, '0')}.png`, Buffer.from(await slides[i].screenshot({ type: 'png' })))
+        return slides.length
+      })
+      console.log(`${n} page PNGs in ${out}/`)
+    }
   } finally {
     if (!has('keep')) await admin.from('report_snapshots').delete().eq('id', snap.id)
   }

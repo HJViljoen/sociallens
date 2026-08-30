@@ -75,6 +75,19 @@ export function pickQuote(point: ResearchPoint | undefined, used: Set<string>): 
 /** Where a finding was heard, written by code from the points and concerns
  *  it rests on: how many conversations across how many strands, which
  *  audiences, the history in words. */
+export function heardMeta(args: { points: ResearchPoint[]; concerns: Signals['concerns'] }): { audiences: string[]; history: string; conversations: number; strands: number } {
+  const buckets = new Set<string>()
+  const words = new Set<string>()
+  for (const c of args.concerns) {
+    for (const b of c.buckets) buckets.add(b.bucket)
+    if (c.trajectory) words.add(c.trajectory)
+  }
+  const w = [...words]
+  const seen = w.map((x) => /seen (\d+)/.exec(x)?.[1]).filter(Boolean).map(Number)
+  const history = w.find((x) => x.startsWith('new')) ?? w.find((x) => x === 'rising') ?? w.find((x) => x === 'fading') ?? (seen.length ? `seen ${Math.max(...seen)} updates running` : w[0] ?? '')
+  return { audiences: [...buckets], history, conversations: args.points.reduce((n, p) => n + p.conversationCount, 0), strands: args.points.length }
+}
+
 export function heardLine(args: { points: ResearchPoint[]; concerns: Signals['concerns']; company: string }): string {
   const buckets = new Set<string>()
   const words = new Set<string>()
@@ -160,7 +173,11 @@ export function composeDocument(a: ComposeArgs): { data: DocumentSnapshotData; w
     ]
     const continued = c.f.continued_from?.trim() || null
     for (const b of blocks) blocksW.push({ blockId: b.id, basedOn: c.ok, continuedFrom: continued })
-    return { id, kind: 'finding', title: PAGE_TITLE.finding, blocks, meta: { sure: c.sure, n: String(i + 1), ...(continued ? { continuedFrom: continued } : {}) } }
+    const heard = heardMeta({ points: c.gs, concerns: c.cs })
+    return {
+      id, kind: 'finding', title: PAGE_TITLE.finding, blocks,
+      meta: { sure: c.sure, n: String(i + 1), audiences: heard.audiences.join(','), history: heard.history, conversations: String(heard.conversations), strands: String(heard.strands), ...(continued ? { continuedFrom: continued } : {}) },
+    }
   })
 
   // Overview: the executive summary, the findings listed, what is not settled.
@@ -202,7 +219,7 @@ export function composeDocument(a: ComposeArgs): { data: DocumentSnapshotData; w
       field: 'persona' as const,
       label: p.name,
       text: prose(wl?.line ?? '', figures, cap('persona')),
-      items: [p.oneLiner, p.wants, p.blockers, p.triggers].map((x) => scrubText(x, figures, 330, { allow }).text),
+      items: [p.oneLiner, p.wants, p.blockers, p.triggers].map((x) => scrubText(x, figures, 300, { allow }).text),
     }
   })
   for (let i = 0; i < personaBlocks.length; i += PERSONAS_PER_PAGE) {
