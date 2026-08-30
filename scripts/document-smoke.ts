@@ -147,8 +147,12 @@ async function main() {
       await ta!.evaluate((el) => { const x = el as HTMLTextAreaElement; x.setSelectionRange(x.value.length, x.value.length) })
       await page.keyboard.type(' SMOKE EDIT 7f3a.')
       await page.keyboard.press('Tab')
-      await page.waitForFunction(() => /Saved\. The PDF prints/.test(document.body.innerText), { timeout: 30_000 }).catch(() => null)
-      await settle(1500)
+      // The saved words come back with the server's refresh, not the blur:
+      // wait for the refreshed deck, not a fixed pause.
+      await page.waitForFunction(() => {
+        const t2 = document.body.innerText.toLowerCase()
+        return t2.includes('smoke edit 7f3a.') && t2.includes('restore the original')
+      }, { timeout: 60_000 }).catch(() => null)
       t = await text(page)
       check('the edit shows on the page with its mark', hasText(t, 'SMOKE EDIT 7f3a.', 'edited', 'restore the original'))
       const { data: edits } = await admin.from('report_edits').select('block_id, text').eq('snapshot_id', snapshotId)
