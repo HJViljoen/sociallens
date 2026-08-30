@@ -9,7 +9,7 @@ import type { ReportSnapshotData } from '@/lib/reports/types'
 export function ReportPreview({ data }: { data: ReportSnapshotData }) {
   return (
     <FitWidth base={1123}>
-      <div className="vb-print vb-preview" data-print-variant="c">
+      <div className="vb-print vb-preview" data-print-variant="b">
         <ReportDeck data={data} />
       </div>
     </FitWidth>
