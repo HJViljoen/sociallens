@@ -78,6 +78,8 @@ export interface DocBlock {
   /** Stable within the snapshot: `f1.saw`, `c-ottobock.hurt`. Edits key on it. */
   id: string
   field: DocField
+  /** A name the block carries on paper: a persona's, a competitor's. */
+  label?: string
   /** Prose with `[[key]]` figure placeholders. Empty when `items` carry the block. */
   text: string
   /** One pull quote, where the field allows it. */

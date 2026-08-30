@@ -13,7 +13,7 @@ import { AUDIENCES, type Audience, type CoverText, type FigureTable } from './ty
  * waits on, or fails for, the model.
  */
 
-export const FIGURE_KEY_RE = /\[\[([a-z_]+)\]\]/g
+export const FIGURE_KEY_RE = /\[\[([a-z][a-z0-9_]*)\]\]/g
 
 export type CoverPart = { text: string } | { figure: string; key: string }
 
@@ -94,7 +94,7 @@ export function dedupeTitles(titles: string[]): string[] {
 // The write-time rules of the executive brief (lib/pipeline/narrative.ts),
 // applied sentence by sentence to model prose that names figures by key.
 
-const KEYED_FIGURE_RE = /\[\[([a-z_]+)\]\]/g
+const KEYED_FIGURE_RE = /\[\[([a-z][a-z0-9_]*)\]\]/g
 
 export interface ScrubbedCover {
   body: string
