@@ -7,7 +7,7 @@ import type { ResearchAnswer, ResearchPoint } from './research'
 import { PAGE_TITLE, PERSONAS_PER_PAGE, type DocumentTemplate } from './templates'
 import type { WriterOutput } from './write'
 import { bucketWord, slug } from './write'
-import { SURE_WORDS, calibrateSure, resolveIndices, scrubLine, scrubText, singularise } from './scrub'
+import { SURE_WORDS, calibrateSure, productTokens, resolveIndices, scrubLine, scrubText, singularise } from './scrub'
 import type { BlockWorkings, DocBlock, DocPage, DocumentSettings, DocumentSnapshotData, DocumentWorkings } from './types'
 
 /**
@@ -22,7 +22,15 @@ import type { BlockWorkings, DocBlock, DocPage, DocumentSettings, DocumentSnapsh
 const cap = (field: string) => DOCUMENT_BLOCK_MAX[field] ?? 400
 const fmtCount = (n: number) => new Intl.NumberFormat('en-US').format(Math.round(n))
 const fmtPct = (n: number) => `${Math.round(n * 10) / 10}%`
-const prose = (raw: string, figures: FigureTable, max: number) => singularise(scrubText(raw, figures, max).text, figures)
+/** Names in the inputs that carry digits, so the writer may repeat them. */
+export function allowedTokens(s: Signals, answers: ResearchAnswer[]): string[] {
+  return productTokens([
+    ...s.competitors.flatMap((c) => c.claims.map((cl) => cl.claim)),
+    ...s.themes.flatMap((t) => [t.label, t.description]),
+    ...answers.flatMap((a) => a.grounded.map((p) => p.text)),
+    ...s.sayVsHear.map((e) => e.you_say),
+  ])
+}
 
 export function thinWeek(s: Pick<Signals, 'runStatus' | 'run'>): boolean {
   return s.runStatus === 'partial' || s.run.conversations < DOCUMENT_THIN_CONVERSATIONS
@@ -78,7 +86,11 @@ export function heardLine(args: { points: ResearchPoint[]; concerns: Signals['co
   const strands = args.points.length
   const parts = [`${fmtCount(conversations)} ${conversations === 1 ? 'conversation' : 'conversations'} across ${strands} ${strands === 1 ? 'strand' : 'strands'} of the research`]
   if (buckets.size) parts.push(`heard from ${[...buckets].join(', ')}`)
-  if (words.size) parts.push([...words].join('; '))
+  // One history word: new beats rising beats fading beats the longest run.
+  const w = [...words]
+  const seen = w.map((x) => /seen (\d+)/.exec(x)?.[1]).filter(Boolean).map(Number)
+  const history = w.find((x) => x.startsWith('new')) ?? w.find((x) => x === 'rising') ?? w.find((x) => x === 'fading') ?? (seen.length ? `seen ${Math.max(...seen)} updates running` : w[0])
+  if (history) parts.push(history)
   return `${parts.join(' · ')}.`
 }
 
@@ -100,6 +112,9 @@ export interface ComposeArgs {
 
 export function composeDocument(a: ComposeArgs): { data: DocumentSnapshotData; workings: DocumentWorkings } {
   const { signals: s, written: w, figures } = a
+  const allow = allowedTokens(s, a.answers)
+  const prose = (raw: string, figures: FigureTable, max: number) => singularise(scrubText(raw, figures, max, { allow }).text, figures)
+  const line = (raw: string, figures: FigureTable, max: number, headline = false) => singularise(scrubLine(raw, figures, max, { headline, allow }).text, figures)
   const points = new Map<string, ResearchPoint>()
   for (const ans of a.answers) for (const p of ans.grounded) points.set(p.id, p)
   const concernById = new Map(s.concerns.map((c) => [c.id, c]))
@@ -121,7 +136,7 @@ export function composeDocument(a: ComposeArgs): { data: DocumentSnapshotData; w
     return { f, ok, gs, cs, sure, conversations }
   })
   const kept = candidates.filter((c) => {
-    const headline = scrubLine(c.f.headline, figures, cap('headline'), { headline: true }).text
+    const headline = line(c.f.headline, figures, cap('headline'), true)
     if (!headline) { dropped.push({ headline: c.f.headline, reason: 'no headline survived scrub' }); return false }
     if (c.gs.length === 0) { dropped.push({ headline, reason: 'rests on no grounded point' }); notSure.push(headline); return false }
     if (c.conversations < DOCUMENT_FINDING_MIN_CONVERSATIONS) { dropped.push({ headline, reason: `too thin: ${c.conversations} conversations` }); notSure.push(headline); return false }
@@ -130,10 +145,10 @@ export function composeDocument(a: ComposeArgs): { data: DocumentSnapshotData; w
   kept.sort((x, y) => y.conversations - x.conversations || y.gs.length - x.gs.length)
   const findingPages: DocPage[] = kept.slice(0, findingsMax).map((c, i) => {
     const id = `f${i + 1}`
-    const headline = scrubLine(c.f.headline, figures, cap('headline'), { headline: true }).text
+    const headline = line(c.f.headline, figures, cap('headline'), true)
     const quoteFrom = c.f.quote_from ? resolveIndices([c.f.quote_from], known).ok[0] : undefined
     const quote = pickQuote(quoteFrom ? points.get(quoteFrom) : c.gs[0], usedQuotes)
-    const practice = (c.f.practice ?? []).map((line) => singularise(scrubLine(line, figures, cap('practice')).text, figures)).filter(Boolean).slice(0, 2)
+    const practice = (c.f.practice ?? []).map((x) => line(x, figures, cap('practice'))).filter(Boolean).slice(0, 2)
     const sureNote = prose(c.f.sure_note ?? '', figures, cap('sure'))
     const blocks: DocBlock[] = [
       { id: `${id}.headline`, field: 'headline', text: headline },
@@ -150,7 +165,7 @@ export function composeDocument(a: ComposeArgs): { data: DocumentSnapshotData; w
 
   // Overview: the executive summary, the findings listed, what is not settled.
   const summary = prose(w.in_short?.summary ?? '', figures, cap('summary'))
-  const notSureYet = [...(w.not_sure_yet ?? []).map((x) => scrubLine(x, figures, cap('not_sure')).text).filter(Boolean), ...notSure].slice(0, 6)
+  const notSureYet = [...(w.not_sure_yet ?? []).map((x) => line(x, figures, cap('not_sure'))).filter(Boolean), ...notSure].slice(0, 6)
   pages.push({
     id: 'in_short', kind: 'in_short', title: PAGE_TITLE.in_short,
     blocks: [
@@ -187,7 +202,7 @@ export function composeDocument(a: ComposeArgs): { data: DocumentSnapshotData; w
       field: 'persona' as const,
       label: p.name,
       text: prose(wl?.line ?? '', figures, cap('persona')),
-      items: [p.oneLiner, p.wants, p.blockers, p.triggers].map((x) => scrubText(x, figures, 330).text),
+      items: [p.oneLiner, p.wants, p.blockers, p.triggers].map((x) => scrubText(x, figures, 330, { allow }).text),
     }
   })
   for (let i = 0; i < personaBlocks.length; i += PERSONAS_PER_PAGE) {
@@ -197,7 +212,7 @@ export function composeDocument(a: ComposeArgs): { data: DocumentSnapshotData; w
   for (const b of personaBlocks) blocksW.push({ blockId: b.id, basedOn: [] })
 
   // Language to handle with care (the writer, scrubbed).
-  const care = (w.care ?? []).map((x) => scrubLine(x, figures, cap('care')).text).filter(Boolean).slice(0, 6)
+  const care = (w.care ?? []).map((x) => line(x, figures, cap('care'))).filter(Boolean).slice(0, 6)
   if (care.length) {
     pages.push({ id: 'language', kind: 'language', title: PAGE_TITLE.language, blocks: [{ id: 'language.care', field: 'care', text: '', items: care }] })
     blocksW.push({ blockId: 'language.care', basedOn: [] })

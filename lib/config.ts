@@ -862,7 +862,7 @@ export const DOCUMENT_RESEARCH_PARALLEL = 3
 /** Characters per block field: pages look alike every week because the
  *  writer cannot run long. Enforced in the schema description and by scrub. */
 export const DOCUMENT_BLOCK_MAX: Record<string, number> = {
-  summary: 1100, headline: 90, saw: 1300, heard: 260, means: 620, practice: 200, sure: 260,
+  summary: 1000, headline: 90, saw: 1050, heard: 260, means: 480, practice: 180, sure: 220,
   pitch: 520, praise: 520, hurt: 520, read: 420, persona: 260, not_sure: 180, care: 220,
 }
 

@@ -22,7 +22,7 @@ import { loadSignals } from '../lib/reports/documents/signals'
 import { composeQuestions } from '../lib/reports/documents/questions'
 import { runResearch } from '../lib/reports/documents/research'
 import { DOCUMENT_BUILD_BUDGET_USD, DOCUMENT_QUESTIONS_MAX } from '../lib/config'
-import { composeDocument, documentFigures, thinWeek } from '../lib/reports/documents/compose'
+import { allowedTokens, composeDocument, documentFigures, thinWeek } from '../lib/reports/documents/compose'
 import { generateDocument, DOCUMENT_WRITER_MODEL } from '../lib/reports/documents/write-model'
 import { DOCUMENT_PROMPT_VERSION } from '../lib/reports/documents/write'
 import { periodOf } from '../lib/reports/documents/build'
@@ -91,7 +91,7 @@ async function main() {
     ? { written: JSON.parse(readFileSync(`${out}/written.json`, 'utf8')) as Awaited<ReturnType<typeof generateDocument>>['written'], costUsd: 0, ms: 0, promptTokens: 0, completionTokens: 0 }
     : await generateDocument(admin, {
         clientId, runId: signals.runId, template, settings, company: signals.company, period, reader: flag('reader') ?? null,
-        figures, signals, answers: research.answers, previous: null, thin: thinWeek(signals),
+        figures, signals, answers: research.answers, previous: null, thin: thinWeek(signals), allow: allowedTokens(signals, research.answers),
       })
   console.log(`\nwrite: ${written.ms} ms · $${written.costUsd.toFixed(3)} · ${written.promptTokens}+${written.completionTokens} tok · findings ${written.written.findings.length} · competitors ${written.written.competitors.length} · not sure ${written.written.not_sure_yet.length}`)
   writeFileSync(`${out}/written.json`, JSON.stringify(written.written, null, 2))

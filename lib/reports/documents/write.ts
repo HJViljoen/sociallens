@@ -39,6 +39,8 @@ export interface WriterArgs {
   answers: ResearchAnswer[]
   previous: PreviousBrief | null
   thin: boolean
+  /** Product names with digits the writer may repeat (compose.allowedTokens). */
+  allow?: string[]
 }
 
 const cap = (field: string) => DOCUMENT_BLOCK_MAX[field] ?? 400
@@ -92,7 +94,8 @@ export function buildWriterPrompts(a: WriterArgs): { system: string; user: strin
     '- A headline is a claim about the market or the buyer ("The sale is decided at the clinic, not on the knee"), never a topic ("Clinic relationships") and never an instruction ("Answer with use cases").',
     '- Weight: what the conversation shows carries the finding; what it means for a sale interprets it; in practice is at most two short lines and may be empty. Do not turn a finding into advice.',
     '- Name competitors, products and themes plainly. Never name a person. Do not name the tool, the model, or "AI"; do not say "this brief" or "this report".',
-    '- You have NO numbers. Where a count or a share belongs, write its placeholder exactly as listed, e.g. "[[g3_conversations]] conversations". Never type a digit. Never invent a figure not in the list. A placeholder means exactly what its label says.',
+    '- You have NO numbers. Where a count or a share belongs, write its placeholder exactly as listed, e.g. "[[g3_conversations]] conversations". Never type a digit. Never invent a figure not in the list. A placeholder means exactly what its label says. Cite at most two counts in a paragraph and none in a headline; a paragraph is a reading, not a tally.',
+    a.allow?.length ? `- Product names that carry digits may be written exactly as they appear here: ${a.allow.slice(0, 30).join(', ')}.` : '',
     noDashes(CALIBRATED_PROSE_RULE),
     '- No dashes between clauses (no em dash, no en dash, no spaced hyphen); use a comma, a colon or a full stop.',
     '- Every finding rests on grounded points: cite them in based_on. Never claim a product fact the grounded points do not carry; if a natural claim has no support, leave it out and put the open question in not_sure_yet instead.',

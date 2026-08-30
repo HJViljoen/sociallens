@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { calibrateSure, capText, noDashes, resolveIndices, scrubLine, scrubText, singularise } from './scrub'
+import { calibrateSure, capText, noDashes, productTokens, resolveIndices, scrubLine, scrubText, singularise } from './scrub'
 import type { FigureTable } from '../types'
 
 const figures: FigureTable = {
@@ -57,5 +57,17 @@ describe('singularise', () => {
   it('turns a count of one into a word with a singular noun and leaves the rest', () => {
     const f: FigureTable = { ...figures, g9_conversations: { label: 'conversations', value: '1', kind: 'count' } }
     expect(singularise('Heard in [[g9_conversations]] conversations and [[g3_conversations]] conversations.', f)).toBe('Heard in one conversation and [[g3_conversations]] conversations.')
+  })
+})
+
+describe('productTokens and the allow list', () => {
+  it('finds names that carry digits and lets them through the digit rule', () => {
+    const allow = productTokens(['The 3R78 pneumatic knee and the C-Leg 4', 'billed as L5999', 'costs 90k and 3 more'])
+    expect(allow).toEqual(expect.arrayContaining(['3R78', 'L5999']))
+    expect(allow).not.toContain('90k')
+    expect(allow).not.toContain('3')
+    expect(scrubText('People ask the price of the 3R78 before purchase.', figures, 200, { allow }).text).toBe('People ask the price of the 3R78 before purchase.')
+    expect(scrubText('People ask the price of the 3R78 before purchase.', figures, 200).text).toBe('')
+    expect(scrubText('The 3R78 costs 4000.', figures, 200, { allow }).text).toBe('')
   })
 })

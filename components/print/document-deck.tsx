@@ -61,7 +61,7 @@ const PERSONA_LABELS = ['Who they are', 'What they want', 'What stops them', 'Wh
 
 function Block({ block, figures }: { block: DocBlock; figures: FigureTable }) {
   const label = FIELD_LABEL[block.field]
-  const body = 'max-w-[78ch] text-[12.5px] leading-[1.5] text-foreground'
+  const body = 'max-w-[96ch] text-[12.5px] leading-[1.5] text-foreground'
   if (block.field === 'headline') {
     return <h2 className="text-[22px] font-semibold leading-[1.15] tracking-[-0.015em] text-foreground [text-wrap:balance]">{block.text}</h2>
   }
@@ -96,10 +96,10 @@ function Block({ block, figures }: { block: DocBlock; figures: FigureTable }) {
       {label && <p className="font-mono text-[9.5px] uppercase tracking-[0.07em] text-muted-foreground">{label}</p>}
       {block.text && <div className="flex flex-col gap-2"><Paragraphs text={block.text} figures={figures} className={body} /></div>}
       {block.quote?.text && (
-        <blockquote className="max-w-[70ch] border-l-2 border-primary/30 pl-3 font-serif text-[12.5px] italic leading-[1.45] text-secondary-foreground">“{block.quote.text}”</blockquote>
+        <blockquote className="max-w-[90ch] border-l-2 border-primary/30 pl-3 font-serif text-[12.5px] italic leading-[1.45] text-secondary-foreground">“{block.quote.text}”</blockquote>
       )}
       {block.items && block.items.length > 0 && (
-        <ol className={`flex max-w-[78ch] flex-col gap-1 pl-4 text-[12.5px] leading-[1.5] text-foreground ${block.field === 'findings' ? 'list-decimal' : 'list-disc'}`}>
+        <ol className={`flex max-w-[96ch] flex-col gap-1 pl-4 text-[12.5px] leading-[1.5] text-foreground ${block.field === 'findings' ? 'list-decimal' : 'list-disc'}`}>
           {block.items.map((it, i) => <li key={i}><Figured text={it} figures={figures} /></li>)}
         </ol>
       )}

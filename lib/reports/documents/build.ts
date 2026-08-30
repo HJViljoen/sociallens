@@ -7,7 +7,7 @@ import { documentSettings, isDocumentData, type DocumentSnapshotData, type Docum
 import { loadSignals } from './signals'
 import { composeQuestions, type ResearchQuestion } from './questions'
 import { runResearch, type ResearchAnswer } from './research'
-import { composeDocument, documentFigures, thinWeek } from './compose'
+import { allowedTokens, composeDocument, documentFigures, thinWeek } from './compose'
 import { generateDocument, DOCUMENT_WRITER_MODEL } from './write-model'
 import { DOCUMENT_PROMPT_VERSION, type PreviousBrief } from './write'
 
@@ -61,7 +61,7 @@ export async function buildDocumentSnapshot(
   const written = await generateDocument(admin, {
     clientId: args.clientId, runId: signals.runId,
     template, settings, company: signals.company, period, reader: args.report.cover?.reader ?? null,
-    figures, signals, answers: research.answers, previous, thin: thinWeek(signals),
+    figures, signals, answers: research.answers, previous, thin: thinWeek(signals), allow: allowedTokens(signals, research.answers),
   })
   t('write', t0)
 

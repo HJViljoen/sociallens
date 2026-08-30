@@ -47,13 +47,34 @@ export function capText(s: string, max: number): string {
 
 /** Paragraphs survive (a developed finding runs to two or three); each is
  *  scrubbed sentence by sentence and the whole is capped. */
-export function scrubText(raw: string, figures: FigureTable, max: number): ScrubResult {
+/** Tokens that carry a digit but are names, not numbers: "3R78", "C-Leg 4",
+ *  "X3", "L5999". Found in the inputs (claims, theme labels and descriptions,
+ *  the agent's points), so the writer may repeat them and the digit rule
+ *  lets them through. Bare numbers never qualify. */
+export function productTokens(texts: string[]): string[] {
+  const out = new Set<string>()
+  for (const text of texts) {
+    for (const m of text.matchAll(/\b(?=[A-Za-z0-9-]*\d)(?=[A-Za-z0-9-]*[A-Za-z])[A-Za-z0-9][A-Za-z0-9-]{1,14}\b/g)) {
+      // A number with a unit or an ordinal (90k, 4th, 12pm) is a number.
+      if (/^\d+[A-Za-z]{1,2}$/.test(m[0])) continue
+      out.add(m[0])
+    }
+  }
+  return [...out].sort((a, b) => b.length - a.length)
+}
+
+export interface ScrubOptions {
+  /** Product names that may carry digits. */
+  allow?: string[]
+}
+
+export function scrubText(raw: string, figures: FigureTable, max: number, opts: ScrubOptions = {}): ScrubResult {
   const paragraphs = (raw ?? '').split(/\n\s*\n/).map((p) => p.replace(/\s*\n\s*/g, ' ').trim()).filter(Boolean)
   const out: string[] = []
   let dropped = 0
   let leaked = false
   for (const para of paragraphs) {
-    const r = scrubParagraph(para, figures)
+    const r = scrubParagraph(para, figures, opts.allow ?? [])
     dropped += r.dropped
     leaked = leaked || r.leaked
     if (r.text) out.push(r.text)
@@ -73,15 +94,17 @@ function capParagraphs(paragraphs: string[], max: number): string {
   return kept.join('\n\n')
 }
 
-function scrubParagraph(raw: string, figures: FigureTable): ScrubResult {
+function scrubParagraph(raw: string, figures: FigureTable, allow: string[]): ScrubResult {
   const kept: string[] = []
   let dropped = 0
   let leaked = false
   const source = noDashes(stripThemeRefs(raw ?? '').replace(/\[[GSJ]\d+\]/g, '').replace(/\b[GSJ]\d+\b/g, ''))
+  const allowed = allow.map((a) => new RegExp(`\\b${a.replace(/[.*+?^${}()|[\]\\-]/g, '\\$&')}\\b`, 'gi'))
   for (const sentence of splitSentences(source)) {
     const keys = [...sentence.matchAll(FIGURE_KEY_RE)].map((m) => m[1])
     if (keys.some((k) => !figures[k])) { dropped += 1; continue }
-    const withoutKeys = sentence.replace(FIGURE_KEY_RE, ' ')
+    let withoutKeys = sentence.replace(FIGURE_KEY_RE, ' ')
+    for (const re of allowed) withoutKeys = withoutKeys.replace(re, ' ')
     FIGURE_RE.lastIndex = 0
     if (withoutKeys.replace(FIGURE_RE, '') !== withoutKeys) { dropped += 1; leaked = true; continue }
     const stripped = sentence.replace(MAGNITUDE_RE, '')
@@ -95,8 +118,8 @@ function scrubParagraph(raw: string, figures: FigureTable): ScrubResult {
 
 /** A short line (a headline, a list item): one sentence's worth, same rules,
  *  no trailing full stop on a headline. */
-export function scrubLine(raw: string, figures: FigureTable, max: number, opts: { headline?: boolean } = {}): ScrubResult {
-  const r = scrubText(raw, figures, max)
+export function scrubLine(raw: string, figures: FigureTable, max: number, opts: { headline?: boolean } & ScrubOptions = {}): ScrubResult {
+  const r = scrubText(raw, figures, max, opts)
   const text = opts.headline ? r.text.replace(/[.!]+$/, '') : r.text
   return { ...r, text }
 }
