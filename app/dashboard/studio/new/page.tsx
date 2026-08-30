@@ -20,13 +20,13 @@ export default function NewReportPage() {
       <PageBar title="New report" context="pick a starting point">
         <Link href="/dashboard/studio"><BarPill>Back to the Studio</BarPill></Link>
       </PageBar>
-      <section className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg bg-tile shadow-tile">
+      <section className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg bg-inner">
         <PaneHeader title="Templates" meta="arrange existing pages, never new analysis" />
-        <PaneBody className="px-5 py-4">
+        <PaneBody className="px-5 py-5">
           <form action={createReport} className="flex flex-col gap-6">
             <ul className="grid gap-3 md:grid-cols-2">
               {STARTER_TEMPLATES.map((t) => (
-                <li key={t.key} className="flex flex-col gap-2 rounded-[4px] bg-inner p-4">
+                <li key={t.key} className="flex flex-col gap-2 rounded-lg bg-tile p-4 shadow-tile">
                   <div>
                     <p className="text-[14px] font-semibold">{t.name}</p>
                     <p className="font-mono text-[10.5px] text-muted-foreground">for {audienceLabel(t.audience)} · {t.sections.length} section{t.sections.length === 1 ? '' : 's'} · {[...new Set(t.sections.map((s) => catalogueTitle(s.page)))].join(' · ')}</p>
@@ -38,7 +38,7 @@ export default function NewReportPage() {
                   </button>
                 </li>
               ))}
-              <li className="flex flex-col gap-2 rounded-[4px] bg-inner p-4">
+              <li className="flex flex-col gap-2 rounded-lg bg-tile p-4 shadow-tile">
                 <div>
                   <p className="text-[14px] font-semibold">Custom</p>
                   <p className="font-mono text-[10.5px] text-muted-foreground">start empty</p>
