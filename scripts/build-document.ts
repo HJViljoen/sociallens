@@ -18,6 +18,9 @@ import { createAdminClient } from '../lib/supabase-admin'
 import { documentSettings, type SellsTo } from '../lib/reports/documents/types'
 import { documentTemplate } from '../lib/reports/documents/templates'
 import { loadSignals } from '../lib/reports/documents/signals'
+import { composeQuestions } from '../lib/reports/documents/questions'
+import { runResearch } from '../lib/reports/documents/research'
+import { DOCUMENT_BUILD_BUDGET_USD, DOCUMENT_QUESTIONS_MAX } from '../lib/config'
 
 const OSSUR = 'e52cac94-30e1-426a-9a36-31b11e0b30b6'
 
@@ -52,7 +55,23 @@ async function main() {
   }
   writeFileSync(`${out}/signals.json`, JSON.stringify({ ...signals, themes: signals.themes.map((t) => ({ ...t, embedding: undefined })), trajectoryOf: undefined }, null, 2))
   if (has('signals')) return
-  console.log('(questions, research and the build follow in the next tasks)')
+
+  const questions = composeQuestions(template, signals, settings, DOCUMENT_QUESTIONS_MAX)
+  console.log(`\nquestions (${questions.length}):`)
+  for (const q of questions) console.log(`  ${q.purpose.padEnd(10)} ${q.id.padEnd(22)} ${q.text}`)
+  if (has('questions')) return
+
+  const t1 = Date.now()
+  const research = await runResearch(admin, { clientId, companyName: signals.company, runId: signals.runId, questions, budgetUsd: DOCUMENT_BUILD_BUDGET_USD })
+  console.log(`\nresearch: ${Date.now() - t1} ms · $${research.costUsd.toFixed(3)}${research.stoppedForBudget ? ' · stopped for budget' : ''}`)
+  for (const a of research.answers) {
+    console.log(`\n  ${a.question.id} · ${a.outcome} · ${a.grounded.length} grounded · ${a.conversationCount} conversations · ${a.ms} ms · $${a.costUsd.toFixed(3)}${a.error ? ` · ${a.error}` : ''}`)
+    console.log(`    ${a.answer.slice(0, 300)}`)
+    for (const p of a.grounded) console.log(`    ${p.id} (${p.conversationCount}) ${p.text.slice(0, 160)} · quotes ${p.quotes.length}${p.quotes.some((q) => q.commentId) ? '' : ' (video only)'}`)
+  }
+  writeFileSync(`${out}/answers.json`, JSON.stringify(research, null, 2))
+  if (has('research')) return
+  console.log('(the writing pass and the build follow in the next task)')
 }
 
 main().catch((e) => {
