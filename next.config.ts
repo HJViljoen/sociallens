@@ -19,6 +19,7 @@ const nextConfig: NextConfig = {
     '/api/reports/\\[id\\]/build': ['./node_modules/@sparticuz/chromium/bin/**/*'],
     // Stage 3: a schedule prints its PDF and the email's PNGs; the ops hook can too.
     // react-dom/server is loaded at runtime for the email body (lib/email/render-html.ts).
+    '/api/admin/documents/render': ['./node_modules/@sparticuz/chromium/bin/**/*'],
     '/api/admin/schedules/run': ['./node_modules/@sparticuz/chromium/bin/**/*', './node_modules/react-dom/**/*'],
     '/api/admin/send-report': ['./node_modules/@sparticuz/chromium/bin/**/*', './node_modules/react-dom/**/*'],
     '/api/schedules/\\[id\\]/send': ['./node_modules/@sparticuz/chromium/bin/**/*', './node_modules/react-dom/**/*'],
