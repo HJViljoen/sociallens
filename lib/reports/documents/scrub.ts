@@ -102,3 +102,16 @@ export const SURE_WORDS: Record<Sure, string> = {
   reasonable: 'Reasonable: the conversation says this, though not from many directions yet.',
   thin: 'Thin: a few voices say this. Treat it as a lead, not a rule.',
 }
+
+/** A count of one reads as "1 conversations" once the figure is substituted.
+ *  The noun after a count key is the writer's; the number is ours, so the
+ *  fix is ours too: "[[g3_conversations]] conversations" becomes "one
+ *  conversation" when the table says 1. A word, not a digit, so the digit
+ *  rules still hold. */
+export function singularise(text: string, figures: FigureTable): string {
+  return text.replace(/\[\[([a-z][a-z0-9_]*)\]\]\s+(conversations|videos|themes)\b/g, (m, key: string, noun: string) => {
+    const f = figures[key]
+    if (!f || f.kind !== 'count' || f.value !== '1') return m
+    return `one ${noun.replace(/s$/, '')}`
+  })
+}

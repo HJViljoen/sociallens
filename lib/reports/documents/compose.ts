@@ -7,7 +7,7 @@ import type { ResearchAnswer, ResearchPoint } from './research'
 import { PAGE_TITLE, type DocumentTemplate } from './templates'
 import type { WriterOutput } from './write'
 import { slug } from './write'
-import { SURE_WORDS, calibrateSure, resolveIndices, scrubLine, scrubText } from './scrub'
+import { SURE_WORDS, calibrateSure, resolveIndices, scrubLine, scrubText, singularise } from './scrub'
 import type { BlockWorkings, DocBlock, DocPage, DocumentSettings, DocumentSnapshotData, DocumentWorkings } from './types'
 
 /**
@@ -19,6 +19,7 @@ import type { BlockWorkings, DocBlock, DocPage, DocumentSettings, DocumentSnapsh
  */
 
 const cap = (field: string) => DOCUMENT_BLOCK_MAX[field] ?? 400
+const prose = (raw: string, figures: FigureTable, max: number) => singularise(scrubText(raw, figures, max).text, figures)
 const fmtCount = (n: number) => new Intl.NumberFormat('en-US').format(Math.round(n))
 const fmtPct = (n: number) => `${Math.round(n * 10) / 10}%`
 
@@ -88,8 +89,8 @@ export function composeDocument(a: ComposeArgs): { data: DocumentSnapshotData; w
   const usedQuotes = new Set<string>()
 
   // In short.
-  const summary = scrubText(w.in_short?.summary ?? '', figures, cap('summary'))
-  pages.push({ id: 'in_short', kind: 'in_short', title: PAGE_TITLE.in_short, blocks: [{ id: 'in_short.summary', field: 'summary', text: summary.text }] })
+  const summary = prose(w.in_short?.summary ?? '', figures, cap('summary'))
+  pages.push({ id: 'in_short', kind: 'in_short', title: PAGE_TITLE.in_short, blocks: [{ id: 'in_short.summary', field: 'summary', text: summary }] })
   blocksW.push({ blockId: 'in_short.summary', basedOn: [] })
 
   // Findings: resolve, floor, order by evidence, cap.
@@ -113,12 +114,12 @@ export function composeDocument(a: ComposeArgs): { data: DocumentSnapshotData; w
     const headline = scrubLine(c.f.headline, figures, cap('headline'), { headline: true }).text
     const quoteFrom = c.f.quote_from ? resolveIndices([c.f.quote_from], known).ok[0] : undefined
     const quote = pickQuote(quoteFrom ? points.get(quoteFrom) : c.gs[0], usedQuotes)
-    const say = (c.f.say ?? []).map((line) => scrubLine(line, figures, cap('say')).text).filter(Boolean).slice(0, 4)
-    const sureNote = scrubText(c.f.sure_note ?? '', figures, cap('sure')).text
+    const say = (c.f.say ?? []).map((line) => singularise(scrubLine(line, figures, cap('say')).text, figures)).filter(Boolean).slice(0, 4)
+    const sureNote = prose(c.f.sure_note ?? '', figures, cap('sure'))
     const blocks: DocBlock[] = [
       { id: `${id}.headline`, field: 'headline', text: headline },
-      { id: `${id}.saw`, field: 'saw', text: scrubText(c.f.saw, figures, cap('saw')).text, quote },
-      { id: `${id}.means`, field: 'means', text: scrubText(c.f.means, figures, cap('means')).text },
+      { id: `${id}.saw`, field: 'saw', text: prose(c.f.saw, figures, cap('saw')), quote },
+      { id: `${id}.means`, field: 'means', text: prose(c.f.means, figures, cap('means')) },
       { id: `${id}.say`, field: 'say', text: '', items: say },
       { id: `${id}.sure`, field: 'sure', text: `${SURE_WORDS[c.sure]}${sureNote ? ` ${sureNote}` : ''}` },
     ]
@@ -132,9 +133,9 @@ export function composeDocument(a: ComposeArgs): { data: DocumentSnapshotData; w
     const id = `c_${slug(c.name)}`
     const wc = (w.competitors ?? []).find((x) => x.name.trim().toLowerCase() === c.name.toLowerCase())
     const { ok } = resolveIndices(wc?.based_on, known)
-    const text = (field: 'pitch' | 'praise' | 'hurt' | 'read', fallback: string) => scrubText(wc?.[field] || fallback, figures, cap(field)).text
+    const text = (field: 'pitch' | 'praise' | 'hurt' | 'read', fallback: string) => prose(wc?.[field] || fallback, figures, cap(field))
     const blocks: DocBlock[] = [
-      { id: `${id}.pitch`, field: 'pitch', label: c.name, text: text('pitch', c.claims.length ? c.claims.slice(0, 4).map((cl) => cl.claim).join(' ') : 'Nothing from their own videos was captured this update.') },
+      { id: `${id}.pitch`, field: 'pitch', text: text('pitch', c.claims.length ? c.claims.slice(0, 4).map((cl) => cl.claim).join(' ') : 'Nothing from their own videos was captured this update.') },
       { id: `${id}.praise`, field: 'praise', text: text('praise', c.praise.length ? c.praise.slice(0, 4).map((t) => `${t.label}: ${t.description}`).join(' ') : 'Nothing their users praised was captured this update.') },
       { id: `${id}.hurt`, field: 'hurt', text: text('hurt', c.hurt.length ? c.hurt.slice(0, 4).map((t) => `${t.label}: ${t.description}`).join(' ') : 'Nothing their users complained about was captured this update.') },
       { id: `${id}.read`, field: 'read', text: text('read', '') },

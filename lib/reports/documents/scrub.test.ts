@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { calibrateSure, capText, noDashes, resolveIndices, scrubLine, scrubText } from './scrub'
+import { calibrateSure, capText, noDashes, resolveIndices, scrubLine, scrubText, singularise } from './scrub'
 import type { FigureTable } from '../types'
 
 const figures: FigureTable = {
@@ -50,5 +50,12 @@ describe('calibrateSure', () => {
     expect(calibrateSure([{ conversationCount: 20 }]).sure).toBe('reasonable')
     expect(calibrateSure([{ conversationCount: 3 }, { conversationCount: 1 }]).sure).toBe('thin')
     expect(calibrateSure([]).sure).toBe('thin')
+  })
+})
+
+describe('singularise', () => {
+  it('turns a count of one into a word with a singular noun and leaves the rest', () => {
+    const f: FigureTable = { ...figures, g9_conversations: { label: 'conversations', value: '1', kind: 'count' } }
+    expect(singularise('Heard in [[g9_conversations]] conversations and [[g3_conversations]] conversations.', f)).toBe('Heard in one conversation and [[g3_conversations]] conversations.')
   })
 })

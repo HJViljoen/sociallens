@@ -59,7 +59,10 @@ function Block({ block, figures }: { block: DocBlock; figures: FigureTable }) {
       {block.label && <p className="text-[13px] font-semibold text-foreground">{block.label}</p>}
       {label && <p className="font-mono text-[9.5px] uppercase tracking-[0.07em] text-muted-foreground">{label}</p>}
       {block.text && <p className="max-w-[78ch] text-[12.5px] leading-[1.5] text-foreground"><Figured text={block.text} figures={figures} /></p>}
-      {block.items && block.items.length > 0 && (
+      {block.field === 'line' && block.items?.[0] && (
+        <p className="max-w-[78ch] font-serif text-[12px] italic leading-[1.45] text-secondary-foreground">{block.items[0]}</p>
+      )}
+      {block.field !== 'line' && block.items && block.items.length > 0 && (
         <ul className="flex max-w-[78ch] flex-col gap-1 pl-4 text-[12.5px] leading-[1.5] text-foreground">
           {block.items.map((it, i) => <li key={i} className="list-disc"><Figured text={it} figures={figures} /></li>)}
         </ul>
