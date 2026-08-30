@@ -8,10 +8,18 @@ import { dayStartIso } from '@/lib/ask/quota'
 import { EXPORT_DAILY_LIMIT } from '@/lib/config'
 import { BuildEmptyError, buildReport } from '@/lib/reports/build'
 import type { ReportRow } from '@/lib/reports/types'
+import { failBuild, inFlightDecision, insertBuild, latestBuild, latestRunId } from '@/lib/reports/documents/builds'
+import { inngest } from '@/inngest/client'
 
 // POST /api/reports/[id]/build — freeze the report as it is now and print it.
 // The tenant is the session's; the report must be that tenant's. Counts
 // toward the daily export cap like any render. No dot in the path.
+//
+// Two kinds (2026-08-31): an ARRANGED report builds here and now (a few
+// seconds; the PDF url comes back). A DOCUMENT report is written by the agent
+// over minutes, so this enqueues a build (report_builds + the
+// report/build.requested event) and answers 202 {buildId}; the Studio polls
+// GET /api/reports/[id]/builds/[buildId]. One build at a time per report.
 
 export const runtime = 'nodejs'
 export const maxDuration = 300
@@ -39,7 +47,11 @@ export async function POST(_req: Request, ctx: { params: Promise<{ id: string }>
     .gte('created_at', dayStartIso(new Date()))
   if (quotaErr) return NextResponse.json({ error: 'Could not start that just now. Try again shortly.' }, { status: 503 })
   if ((usedToday ?? 0) >= EXPORT_DAILY_LIMIT) {
-    return NextResponse.json({ error: `That is ${EXPORT_DAILY_LIMIT} exports today, which is the daily limit. It resets tomorrow — or tell us if you need more.` }, { status: 429 })
+    return NextResponse.json({ error: `That is ${EXPORT_DAILY_LIMIT} exports today, which is the daily limit. It resets tomorrow, or tell us if you need more.` }, { status: 429 })
+  }
+
+  if ((report as ReportRow).kind === 'document') {
+    return enqueueDocumentBuild(admin, { clientId, userId, reportId: id })
   }
 
   try {
@@ -54,6 +66,31 @@ export async function POST(_req: Request, ctx: { params: Promise<{ id: string }>
   } catch (e) {
     if (e instanceof BuildEmptyError) return NextResponse.json({ error: e.message }, { status: 409 })
     console.error('[reports/build] failed:', e)
-    return NextResponse.json({ error: 'Couldn’t build this report — try again.' }, { status: 500 })
+    return NextResponse.json({ error: 'Couldn’t build this report. Try again.' }, { status: 500 })
+  }
+}
+
+async function enqueueDocumentBuild(admin: ReturnType<typeof createAdminClient>, args: { clientId: string; userId: string; reportId: string }) {
+  try {
+    const runId = await latestRunId(admin, args.clientId)
+    if (!runId) return NextResponse.json({ error: 'Nothing to write from yet: your first update has not landed.' }, { status: 409 })
+
+    const last = await latestBuild(admin, args.reportId)
+    const decision = inFlightDecision(last)
+    if (decision === 'busy' && last) return NextResponse.json({ buildId: last.id, inFlight: true }, { status: 409 })
+    if (decision === 'takeover' && last) await failBuild(admin, last.id, 'Took too long and was given up on.')
+
+    const build = await insertBuild(admin, { clientId: args.clientId, reportId: args.reportId, runId, requestedBy: args.userId })
+    try {
+      await inngest.send({ name: 'report/build.requested', data: { buildId: build.id, clientId: args.clientId, reportId: args.reportId } })
+    } catch (e) {
+      console.error('[reports/build] could not enqueue:', e)
+      await failBuild(admin, build.id, 'Could not start the build.')
+      return NextResponse.json({ error: 'Could not start the build just now. Try again shortly.' }, { status: 503 })
+    }
+    return NextResponse.json({ buildId: build.id }, { status: 202 })
+  } catch (e) {
+    console.error('[reports/build] document enqueue failed:', e)
+    return NextResponse.json({ error: 'Couldn’t start this build. Try again.' }, { status: 500 })
   }
 }

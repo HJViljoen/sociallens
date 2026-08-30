@@ -86,6 +86,43 @@ export interface ReportRow {
   updated_at: string
 }
 
+/** One asynchronous build of a document report (report_builds). `status` is
+ *  also the phase: queued → researching → writing → checking → rendering →
+ *  (delivering) → done | failed. Writes go through the service role; a
+ *  tenant reads its own rows to poll. */
+export type ReportBuildStatus = 'queued' | 'researching' | 'writing' | 'checking' | 'rendering' | 'delivering' | 'done' | 'failed'
+export const BUILD_ACTIVE: ReportBuildStatus[] = ['queued', 'researching', 'writing', 'checking', 'rendering', 'delivering']
+
+export interface ReportBuildRow {
+  id: string
+  client_id: string
+  report_id: string | null
+  schedule_id: string | null
+  send_id: string | null
+  run_id: string | null
+  status: ReportBuildStatus
+  needs_review: boolean
+  error: string | null
+  snapshot_id: string | null
+  artifact_id: string | null
+  cost_usd: number
+  requested_by: string | null
+  started_at: string
+  finished_at: string | null
+}
+
+/** An operator's edit of one block of a built document (report_edits): an
+ *  overlay applied at read, never a change to the snapshot. */
+export interface ReportEditRow {
+  id: string
+  client_id: string
+  snapshot_id: string
+  block_id: string
+  text: string
+  edited_by: string | null
+  edited_at: string
+}
+
 export interface ReportTemplate {
   key: string
   name: string

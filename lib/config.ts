@@ -859,6 +859,10 @@ export const DOCUMENT_CITED_COUNT_MIN = 3
  *  from the update's own concerns), and how many run at once. */
 export const DOCUMENT_QUESTIONS_MAX = 8
 export const DOCUMENT_RESEARCH_PARALLEL = 3
+/** A build row younger than this and not finished belongs to whoever is on
+ *  it (the Studio answers 409 with its id); older, it is taken as dead
+ *  (function killed, deploy mid-run) and marked failed so a new one may start. */
+export const DOCUMENT_BUILD_STALE_MS = 30 * 60_000
 /** Characters per block field: pages look alike every week because the
  *  writer cannot run long. Enforced in the schema description and by scrub. */
 export const DOCUMENT_BLOCK_MAX: Record<string, number> = {
