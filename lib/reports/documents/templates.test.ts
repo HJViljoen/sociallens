@@ -4,14 +4,14 @@ import { documentSettings, isDocumentData, DEFAULT_DOCUMENT_SETTINGS } from './t
 
 describe('document templates', () => {
   it('the sales brief skeleton is fixed and in the agreed order', () => {
-    expect(SALES_BRIEF.skeleton.map((p) => p.kind)).toEqual(['in_short', 'finding', 'competitor', 'personas', 'language'])
+    expect(SALES_BRIEF.skeleton.map((p) => p.kind)).toEqual(['in_short', 'finding', 'competitor', 'personas', 'language', 'method'])
     expect(SALES_BRIEF.skeleton.find((p) => p.kind === 'finding')?.repeat).toBe('findings')
     expect(SALES_BRIEF.skeleton.find((p) => p.kind === 'competitor')?.repeat).toBe('competitors')
   })
 
   it('every page kind names its fields, and a finding carries the five', () => {
     for (const p of SALES_BRIEF.skeleton) expect(PAGE_FIELDS[p.kind].length).toBeGreaterThan(0)
-    expect(PAGE_FIELDS.finding).toEqual(['headline', 'saw', 'means', 'say', 'sure'])
+    expect(PAGE_FIELDS.finding).toEqual(['headline', 'saw', 'heard', 'means', 'practice', 'sure'])
   })
 
   it('anchors outnumber the register questions and carry the placeholders the composer fills', () => {

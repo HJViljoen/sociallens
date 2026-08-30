@@ -15,8 +15,8 @@ import type { DocPageKind, SellsTo } from './types'
 
 export interface SkeletonPage {
   kind: DocPageKind
-  /** finding: one page per finding, up to settings.findings; competitor: one per included competitor. */
-  repeat?: 'findings' | 'competitors'
+  /** finding: one page per finding, up to settings.findings; competitor: one per included competitor; personas: two per page. */
+  repeat?: 'findings' | 'competitors' | 'personas'
 }
 
 export interface AnchorQuestion {
@@ -51,15 +51,16 @@ export const SALES_BRIEF: DocumentTemplate = {
   audience: 'sales',
   description: 'What buyers will say this month, what changed, what to say back and how sure we are: written from the update as the company\'s own consumer researcher would write it for the sales team. Read it, edit it, send it.',
   role:
-    'You are the company\'s consumer researcher. You have read this update\'s public conversation (comments and spoken video content around the brand, its competitors and the wider category) and you are writing the sales team\'s brief. You argue; you do not enumerate. A finding is an observation, what it means for a sale, what to say, and how sure you are.',
+    'You are the company\'s consumer researcher. You have read this update\'s public conversation (comments and spoken video content around the brand, its competitors and the wider category) and you are writing the research brief the sales team reads. You report what the conversation shows and what it means for a sale; you are an intelligence function, not a sales coach. A finding is an argument developed from the evidence: what the conversation shows, what it means for a sale, and how sure the reading is.',
   brief:
-    'The reader talks to buyers this month. Tell them what they will hear, what changed since the last brief, what to say back, and where the evidence is thin. Three or four findings, each one an argument that changes what a rep does. Name competitors and themes plainly. Never invent a product fact: where nothing in the conversation supports a natural claim, say so instead of claiming it.',
+    'The reader talks to buyers this month and wants to know what is going on in the market and in buyers\' heads: what they hesitate over, what they ask, what moves them, what they say about each competitor, and what changed since the last brief. Three or four findings, each developed properly, each an argument that changes how a rep understands the buyer. Name competitors, products and themes plainly. Keep advice to a line or two at most; the value is the reading, not the tip. Never invent a product fact: where nothing in the conversation supports a natural claim, leave it out and record the open question.',
   skeleton: [
     { kind: 'in_short' },
     { kind: 'finding', repeat: 'findings' },
     { kind: 'competitor', repeat: 'competitors' },
-    { kind: 'personas' },
+    { kind: 'personas', repeat: 'personas' },
     { kind: 'language' },
+    { kind: 'method' },
   ],
   anchors: [
     { id: 'stops', text: 'What stops people from buying or getting {market}, or makes them hesitate before they commit?' },
@@ -82,18 +83,23 @@ export const documentTemplate = (key: string | null | undefined): DocumentTempla
 /** The fields each page kind carries, in print order. The composer and the
  *  writer schema both read this, so a page cannot gain a field in one place. */
 export const PAGE_FIELDS: Record<DocPageKind, string[]> = {
-  in_short: ['summary'],
-  finding: ['headline', 'saw', 'means', 'say', 'sure'],
+  in_short: ['summary', 'findings', 'not_sure'],
+  finding: ['headline', 'saw', 'heard', 'means', 'practice', 'sure'],
   competitor: ['pitch', 'praise', 'hurt', 'read'],
-  personas: ['line'],
-  language: ['borrow', 'care'],
+  personas: ['persona'],
+  language: ['care'],
+  method: ['method'],
 }
 
 /** Page names as printed top right. */
 export const PAGE_TITLE: Record<DocPageKind, string> = {
-  in_short: 'This month, in short',
+  in_short: 'Overview',
   finding: 'Findings',
   competitor: 'Competitors',
-  personas: 'Who you are talking to',
-  language: 'Say it their way',
+  personas: 'Who is buying',
+  language: 'Language to handle with care',
+  method: 'About this brief',
 }
+
+/** Personas per page. */
+export const PERSONAS_PER_PAGE = 2

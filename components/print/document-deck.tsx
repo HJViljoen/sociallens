@@ -27,6 +27,15 @@ export function Figured({ text, figures }: { text: string; figures: FigureTable 
   )
 }
 
+/** Prose with paragraph breaks kept. */
+function Paragraphs({ text, figures, className }: { text: string; figures: FigureTable; className: string }) {
+  return (
+    <>
+      {text.split(/\n\n+/).filter(Boolean).map((p, i) => <p key={i} className={className}><Figured text={p} figures={figures} /></p>)}
+    </>
+  )
+}
+
 function DocumentCover({ data, pages }: { data: DocumentSnapshotData; pages: number }) {
   const sections = new Set(data.pages.map((p) => p.kind)).size
   return (
@@ -44,36 +53,55 @@ function DocumentCover({ data, pages }: { data: DocumentSnapshotData; pages: num
 }
 
 const FIELD_LABEL: Record<string, string> = {
-  summary: '', headline: '', saw: 'What we saw', means: 'What it means for a sale', say: 'What to say', sure: 'How sure we are',
+  summary: '', findings: 'Findings in this brief', headline: '', saw: 'What the conversation shows', heard: 'Where it was heard', means: 'What it means for a sale', practice: 'In practice', sure: 'Confidence',
   pitch: 'What they are pitching', praise: 'What their users praise', hurt: 'Where their users hurt', read: 'When they come up',
-  line: '', borrow: 'Borrow these', care: 'Handle with care', not_sure: 'Not sure yet',
+  persona: '', care: '', not_sure: 'Not settled this update', method: '',
 }
+const PERSONA_LABELS = ['Who they are', 'What they want', 'What stops them', 'What moves them']
 
 function Block({ block, figures }: { block: DocBlock; figures: FigureTable }) {
   const label = FIELD_LABEL[block.field]
+  const body = 'max-w-[78ch] text-[12.5px] leading-[1.5] text-foreground'
   if (block.field === 'headline') {
     return <h2 className="text-[22px] font-semibold leading-[1.15] tracking-[-0.015em] text-foreground [text-wrap:balance]">{block.text}</h2>
   }
+  if (block.field === 'persona') {
+    return (
+      <div className="flex flex-col gap-1">
+        <p className="text-[14px] font-semibold text-foreground">{block.label}</p>
+        {block.items?.map((it, i) => (
+          <div key={i} className="flex gap-3">
+            <p className="w-[110px] shrink-0 font-mono text-[9.5px] uppercase tracking-[0.07em] text-muted-foreground pt-[3px]">{PERSONA_LABELS[i]}</p>
+            <p className="max-w-[76ch] text-[11.5px] leading-[1.4] text-foreground">{it}</p>
+          </div>
+        ))}
+        {block.text && (
+          <div className="flex gap-3">
+            <p className="w-[110px] shrink-0 font-mono text-[9.5px] uppercase tracking-[0.07em] text-muted-foreground pt-[3px]">For a sale</p>
+            <p className="max-w-[76ch] text-[11.5px] leading-[1.4] text-foreground"><Figured text={block.text} figures={figures} /></p>
+          </div>
+        )}
+      </div>
+    )
+  }
+  if (block.field === 'heard') {
+    return <p className="font-mono text-[10.5px] text-muted-foreground"><span className="uppercase tracking-[0.07em]">{label} · </span>{block.text}</p>
+  }
+  if (block.field === 'method') {
+    return <div className="flex max-w-[78ch] flex-col gap-3">{block.items?.map((it, i) => <p key={i} className="text-[12.5px] leading-[1.5] text-foreground">{it}</p>)}</div>
+  }
+  if ((block.items?.length ?? 0) === 0 && !block.text) return null
   return (
     <div className="flex flex-col gap-1">
-      {block.label && <p className="text-[13px] font-semibold text-foreground">{block.label}</p>}
       {label && <p className="font-mono text-[9.5px] uppercase tracking-[0.07em] text-muted-foreground">{label}</p>}
-      {block.text && <p className="max-w-[78ch] text-[12.5px] leading-[1.5] text-foreground"><Figured text={block.text} figures={figures} /></p>}
-      {block.field === 'line' && block.items?.[0] && (
-        <p className="max-w-[78ch] font-serif text-[12px] italic leading-[1.45] text-secondary-foreground">{block.items[0]}</p>
-      )}
-      {block.field !== 'line' && block.items && block.items.length > 0 && (
-        <ul className="flex max-w-[78ch] flex-col gap-1 pl-4 text-[12.5px] leading-[1.5] text-foreground">
-          {block.items.map((it, i) => <li key={i} className="list-disc"><Figured text={it} figures={figures} /></li>)}
-        </ul>
-      )}
-      {block.quotes && block.quotes.length > 0 && (
-        <ul className="flex max-w-[78ch] flex-col gap-1 font-serif text-[12.5px] italic leading-[1.45] text-secondary-foreground">
-          {block.quotes.filter((q) => q.text).map((q) => <li key={q.ref}>“{q.text}”</li>)}
-        </ul>
-      )}
+      {block.text && <div className="flex flex-col gap-2"><Paragraphs text={block.text} figures={figures} className={body} /></div>}
       {block.quote?.text && (
         <blockquote className="max-w-[70ch] border-l-2 border-primary/30 pl-3 font-serif text-[12.5px] italic leading-[1.45] text-secondary-foreground">“{block.quote.text}”</blockquote>
+      )}
+      {block.items && block.items.length > 0 && (
+        <ol className={`flex max-w-[78ch] flex-col gap-1 pl-4 text-[12.5px] leading-[1.5] text-foreground ${block.field === 'findings' ? 'list-decimal' : 'list-disc'}`}>
+          {block.items.map((it, i) => <li key={i}><Figured text={it} figures={figures} /></li>)}
+        </ol>
       )}
     </div>
   )
@@ -88,9 +116,6 @@ function Page({ page, figures, data }: { page: DocPage; figures: FigureTable; da
         </p>
       )}
       {page.blocks.map((b) => <Block key={b.id} block={b} figures={figures} />)}
-      {page.kind === 'in_short' && data.notSureYet.length > 0 && (
-        <Block block={{ id: 'not_sure', field: 'not_sure', text: '', items: data.notSureYet }} figures={figures} />
-      )}
     </div>
   )
 }
@@ -105,7 +130,7 @@ export function DocumentDeck({ data, date = fmtDate(new Date()) }: { data: Docum
       {slides.map((s, i) => {
         const page = data.pages.find((p) => p.id === s.keys[0])
         if (!page) return null
-        const title = page.kind === 'finding' ? `Finding ${i}` : page.kind === 'competitor' ? page.meta?.name ?? page.title : page.title
+        const title = page.kind === 'finding' ? `Finding ${page.meta?.n ?? ''}` : page.kind === 'competitor' ? page.meta?.name ?? page.title : page.title
         return (
           <Slide key={page.id} title={title} chrome={chrome(page.title)} page={i + 2} pages={pages} layout="single">
             <Page page={page} figures={data.figures} data={data} />

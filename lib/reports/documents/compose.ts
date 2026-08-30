@@ -1,27 +1,28 @@
-import { DOCUMENT_BLOCK_MAX, DOCUMENT_FINDING_MIN_CONVERSATIONS, DOCUMENT_THIN_CONVERSATIONS } from '../../config'
+import { DOCUMENT_BLOCK_MAX, DOCUMENT_CITED_COUNT_MIN, DOCUMENT_FINDING_MIN_CONVERSATIONS, DOCUMENT_THIN_CONVERSATIONS } from '../../config'
 import { readsAsHeroQuote } from '../../quotes'
 import type { Quote, Slide } from '../../renderables/types'
 import type { FigureTable } from '../types'
 import type { Signals } from './signals'
 import type { ResearchAnswer, ResearchPoint } from './research'
-import { PAGE_TITLE, type DocumentTemplate } from './templates'
+import { PAGE_TITLE, PERSONAS_PER_PAGE, type DocumentTemplate } from './templates'
 import type { WriterOutput } from './write'
-import { slug } from './write'
+import { bucketWord, slug } from './write'
 import { SURE_WORDS, calibrateSure, resolveIndices, scrubLine, scrubText, singularise } from './scrub'
 import type { BlockWorkings, DocBlock, DocPage, DocumentSettings, DocumentSnapshotData, DocumentWorkings } from './types'
 
 /**
  * From the writer's output and the signals to the frozen document (pure).
  * Code owns what code can own: the figure table and every number, the order
- * of the findings (by the evidence behind them), how sure we are, which
- * quote leads a finding, the finding floor and the thin-week rule, the page
- * count. The model owns the words inside the blocks, and only after scrub.
+ * of the findings (by the evidence behind them), where each was heard, how
+ * sure the reading is, which quote leads a finding, the finding floor and
+ * the thin-week rule, the page count, the method page. The model owns the
+ * words inside the blocks, and only after scrub.
  */
 
 const cap = (field: string) => DOCUMENT_BLOCK_MAX[field] ?? 400
-const prose = (raw: string, figures: FigureTable, max: number) => singularise(scrubText(raw, figures, max).text, figures)
 const fmtCount = (n: number) => new Intl.NumberFormat('en-US').format(Math.round(n))
 const fmtPct = (n: number) => `${Math.round(n * 10) / 10}%`
+const prose = (raw: string, figures: FigureTable, max: number) => singularise(scrubText(raw, figures, max).text, figures)
 
 export function thinWeek(s: Pick<Signals, 'runStatus' | 'run'>): boolean {
   return s.runStatus === 'partial' || s.run.conversations < DOCUMENT_THIN_CONVERSATIONS
@@ -32,10 +33,10 @@ export function thinWeek(s: Pick<Signals, 'runStatus' | 'run'>): boolean {
  *  behind every grounded point and every concern. */
 export function documentFigures(s: Signals, answers: ResearchAnswer[]): FigureTable {
   const f: FigureTable = {
-    conversations: { label: 'conversations this update', value: fmtCount(s.run.conversations), kind: 'count' },
-    videos: { label: 'videos this update', value: fmtCount(s.run.videos), kind: 'count' },
-    client_videos: { label: `${s.company} videos this update`, value: fmtCount(s.run.clientVideos), kind: 'count' },
-    competitor_videos: { label: 'competitor videos this update', value: fmtCount(s.run.competitorVideos), kind: 'count' },
+    conversations: { label: 'conversations', value: fmtCount(s.run.conversations), kind: 'count' },
+    videos: { label: 'videos', value: fmtCount(s.run.videos), kind: 'count' },
+    client_videos: { label: `${s.company} videos`, value: fmtCount(s.run.clientVideos), kind: 'count' },
+    competitor_videos: { label: 'competitor videos', value: fmtCount(s.run.competitorVideos), kind: 'count' },
   }
   if (s.run.positivePct != null) f.positive_pct = { label: 'positive share of judged conversations', value: fmtPct(s.run.positivePct), kind: 'pct' }
   if (s.run.clientSharePct != null) f.client_share_pct = { label: `${s.company} share of tracked conversation`, value: fmtPct(s.run.clientSharePct), kind: 'pct' }
@@ -43,8 +44,11 @@ export function documentFigures(s: Signals, answers: ResearchAnswer[]): FigureTa
   if (s.delta?.sentiment) f.prev_positive_pct = { label: 'positive share in the previous update', value: fmtPct(s.delta.sentiment.prev), kind: 'pct' }
   if (s.delta?.conversations) f.prev_conversations = { label: 'conversations in the previous update', value: fmtCount(s.delta.conversations.prev), kind: 'count' }
   if (s.delta?.newThemes) f.new_themes = { label: 'themes new this update', value: fmtCount(s.delta.newThemes.count), kind: 'count' }
-  for (const a of answers) for (const p of a.grounded) f[`${p.id.toLowerCase()}_conversations`] = { label: 'conversations', value: fmtCount(p.conversationCount), kind: 'count' }
-  for (const c of s.concerns) f[`${c.id.toLowerCase()}_conversations`] = { label: 'conversations', value: fmtCount(c.total), kind: 'count' }
+  // A count under three is not worth a number on paper ("one conversation
+  // praise…" reads as thin as it is); the point still grounds, the writer
+  // names the pattern instead of counting it.
+  for (const a of answers) for (const p of a.grounded) if (p.conversationCount >= DOCUMENT_CITED_COUNT_MIN) f[`${p.id.toLowerCase()}_conversations`] = { label: 'conversations', value: fmtCount(p.conversationCount), kind: 'count' }
+  for (const c of s.concerns) if (c.total >= DOCUMENT_CITED_COUNT_MIN) f[`${c.id.toLowerCase()}_conversations`] = { label: 'conversations', value: fmtCount(c.total), kind: 'count' }
   return f
 }
 
@@ -58,6 +62,24 @@ export function pickQuote(point: ResearchPoint | undefined, used: Set<string>): 
   if (!pick) return null
   used.add(pick.ref)
   return { ref: pick.ref, text: pick.text }
+}
+
+/** Where a finding was heard, written by code from the points and concerns
+ *  it rests on: how many conversations across how many strands, which
+ *  audiences, the history in words. */
+export function heardLine(args: { points: ResearchPoint[]; concerns: Signals['concerns']; company: string }): string {
+  const buckets = new Set<string>()
+  const words = new Set<string>()
+  for (const c of args.concerns) {
+    for (const b of c.buckets) buckets.add(bucketWord(b.bucket, args.company))
+    if (c.trajectory) words.add(c.trajectory)
+  }
+  const conversations = args.points.reduce((n, p) => n + p.conversationCount, 0)
+  const strands = args.points.length
+  const parts = [`${fmtCount(conversations)} ${conversations === 1 ? 'conversation' : 'conversations'} across ${strands} ${strands === 1 ? 'strand' : 'strands'} of the research`]
+  if (buckets.size) parts.push(`heard from ${[...buckets].join(', ')}`)
+  if (words.size) parts.push([...words].join('; '))
+  return `${parts.join(' · ')}.`
 }
 
 export interface ComposeArgs {
@@ -80,7 +102,8 @@ export function composeDocument(a: ComposeArgs): { data: DocumentSnapshotData; w
   const { signals: s, written: w, figures } = a
   const points = new Map<string, ResearchPoint>()
   for (const ans of a.answers) for (const p of ans.grounded) points.set(p.id, p)
-  const known = new Set([...points.keys(), ...s.concerns.map((c) => c.id)])
+  const concernById = new Map(s.concerns.map((c) => [c.id, c]))
+  const known = new Set([...points.keys(), ...concernById.keys()])
   const thin = thinWeek(s)
   const pages: DocPage[] = []
   const blocksW: BlockWorkings[] = []
@@ -88,18 +111,14 @@ export function composeDocument(a: ComposeArgs): { data: DocumentSnapshotData; w
   const notSure: string[] = []
   const usedQuotes = new Set<string>()
 
-  // In short.
-  const summary = prose(w.in_short?.summary ?? '', figures, cap('summary'))
-  pages.push({ id: 'in_short', kind: 'in_short', title: PAGE_TITLE.in_short, blocks: [{ id: 'in_short.summary', field: 'summary', text: summary }] })
-  blocksW.push({ blockId: 'in_short.summary', basedOn: [] })
-
   // Findings: resolve, floor, order by evidence, cap.
   const findingsMax = thin ? Math.min(a.settings.findings, 3) : a.settings.findings
   const candidates = (w.findings ?? []).map((f) => {
     const { ok } = resolveIndices(f.based_on, known)
     const gs = ok.filter((i) => i.startsWith('G')).map((i) => points.get(i)!).filter(Boolean)
+    const cs = ok.filter((i) => i.startsWith('S')).map((i) => concernById.get(i)!).filter(Boolean)
     const { sure, conversations } = calibrateSure(gs)
-    return { f, ok, gs, sure, conversations }
+    return { f, ok, gs, cs, sure, conversations }
   })
   const kept = candidates.filter((c) => {
     const headline = scrubLine(c.f.headline, figures, cap('headline'), { headline: true }).text
@@ -109,24 +128,39 @@ export function composeDocument(a: ComposeArgs): { data: DocumentSnapshotData; w
     return true
   })
   kept.sort((x, y) => y.conversations - x.conversations || y.gs.length - x.gs.length)
-  kept.slice(0, findingsMax).forEach((c, i) => {
+  const findingPages: DocPage[] = kept.slice(0, findingsMax).map((c, i) => {
     const id = `f${i + 1}`
     const headline = scrubLine(c.f.headline, figures, cap('headline'), { headline: true }).text
     const quoteFrom = c.f.quote_from ? resolveIndices([c.f.quote_from], known).ok[0] : undefined
     const quote = pickQuote(quoteFrom ? points.get(quoteFrom) : c.gs[0], usedQuotes)
-    const say = (c.f.say ?? []).map((line) => singularise(scrubLine(line, figures, cap('say')).text, figures)).filter(Boolean).slice(0, 4)
+    const practice = (c.f.practice ?? []).map((line) => singularise(scrubLine(line, figures, cap('practice')).text, figures)).filter(Boolean).slice(0, 2)
     const sureNote = prose(c.f.sure_note ?? '', figures, cap('sure'))
     const blocks: DocBlock[] = [
       { id: `${id}.headline`, field: 'headline', text: headline },
       { id: `${id}.saw`, field: 'saw', text: prose(c.f.saw, figures, cap('saw')), quote },
+      { id: `${id}.heard`, field: 'heard', text: heardLine({ points: c.gs, concerns: c.cs, company: s.company }) },
       { id: `${id}.means`, field: 'means', text: prose(c.f.means, figures, cap('means')) },
-      { id: `${id}.say`, field: 'say', text: '', items: say },
+      { id: `${id}.practice`, field: 'practice', text: '', items: practice },
       { id: `${id}.sure`, field: 'sure', text: `${SURE_WORDS[c.sure]}${sureNote ? ` ${sureNote}` : ''}` },
     ]
     const continued = c.f.continued_from?.trim() || null
-    pages.push({ id, kind: 'finding', title: PAGE_TITLE.finding, blocks, meta: { sure: c.sure, ...(continued ? { continuedFrom: continued } : {}) } })
     for (const b of blocks) blocksW.push({ blockId: b.id, basedOn: c.ok, continuedFrom: continued })
+    return { id, kind: 'finding', title: PAGE_TITLE.finding, blocks, meta: { sure: c.sure, n: String(i + 1), ...(continued ? { continuedFrom: continued } : {}) } }
   })
+
+  // Overview: the executive summary, the findings listed, what is not settled.
+  const summary = prose(w.in_short?.summary ?? '', figures, cap('summary'))
+  const notSureYet = [...(w.not_sure_yet ?? []).map((x) => scrubLine(x, figures, cap('not_sure')).text).filter(Boolean), ...notSure].slice(0, 6)
+  pages.push({
+    id: 'in_short', kind: 'in_short', title: PAGE_TITLE.in_short,
+    blocks: [
+      { id: 'in_short.summary', field: 'summary', text: summary },
+      { id: 'in_short.findings', field: 'findings', text: '', items: findingPages.map((p) => p.blocks.find((b) => b.field === 'headline')?.text ?? '').filter(Boolean) },
+      { id: 'in_short.not_sure', field: 'not_sure', text: '', items: notSureYet },
+    ],
+  })
+  blocksW.push({ blockId: 'in_short.summary', basedOn: [] }, { blockId: 'in_short.findings', basedOn: [] }, { blockId: 'in_short.not_sure', basedOn: [] })
+  pages.push(...findingPages)
 
   // Competitors: one page each, from the writer where it wrote one, else from the signals.
   for (const c of s.competitors) {
@@ -144,34 +178,34 @@ export function composeDocument(a: ComposeArgs): { data: DocumentSnapshotData; w
     for (const b of blocks) blocksW.push({ blockId: b.id, basedOn: ok })
   }
 
-  // Personas: the profile's own words plus the writer's line each.
-  if (s.personas.length) {
-    const blocks: DocBlock[] = s.personas.slice(0, 5).map((p) => {
-      const wl = (w.persona_lines ?? []).find((x) => x.name.trim().toLowerCase() === p.name.toLowerCase())
-      return {
-        id: `p_${slug(p.key || p.name)}.line`,
-        field: 'line' as const,
-        label: p.name,
-        text: scrubText(wl?.line ?? '', figures, cap('line')).text,
-        items: [p.oneLiner, p.wants, p.blockers, p.triggers].map((x) => scrubText(x, figures, 400).text),
-      }
-    })
-    pages.push({ id: 'personas', kind: 'personas', title: PAGE_TITLE.personas, blocks })
-    for (const b of blocks) blocksW.push({ blockId: b.id, basedOn: [] })
+  // Who is buying: the profile's own words in full, two personas a page, and
+  // the writer's line on what each means for a sale.
+  const personaBlocks: DocBlock[] = s.personas.slice(0, 6).map((p) => {
+    const wl = (w.persona_lines ?? []).find((x) => x.name.trim().toLowerCase() === p.name.toLowerCase())
+    return {
+      id: `p_${slug(p.key || p.name)}`,
+      field: 'persona' as const,
+      label: p.name,
+      text: prose(wl?.line ?? '', figures, cap('persona')),
+      items: [p.oneLiner, p.wants, p.blockers, p.triggers].map((x) => scrubText(x, figures, 330).text),
+    }
+  })
+  for (let i = 0; i < personaBlocks.length; i += PERSONAS_PER_PAGE) {
+    const n = Math.floor(i / PERSONAS_PER_PAGE) + 1
+    pages.push({ id: `personas_${n}`, kind: 'personas', title: PAGE_TITLE.personas, blocks: personaBlocks.slice(i, i + PERSONAS_PER_PAGE) })
+  }
+  for (const b of personaBlocks) blocksW.push({ blockId: b.id, basedOn: [] })
+
+  // Language to handle with care (the writer, scrubbed).
+  const care = (w.care ?? []).map((x) => scrubLine(x, figures, cap('care')).text).filter(Boolean).slice(0, 6)
+  if (care.length) {
+    pages.push({ id: 'language', kind: 'language', title: PAGE_TITLE.language, blocks: [{ id: 'language.care', field: 'care', text: '', items: care }] })
+    blocksW.push({ blockId: 'language.care', basedOn: [] })
   }
 
-  // Language: phrases as quotes (code), care lines (writer, scrubbed).
-  const care = (w.care ?? []).map((x) => scrubLine(x, figures, 220).text).filter(Boolean).slice(0, 5)
-  pages.push({
-    id: 'language', kind: 'language', title: PAGE_TITLE.language,
-    blocks: [
-      { id: 'language.borrow', field: 'borrow', text: '', quotes: s.phrases.slice(0, 10).map((p) => p.quote) },
-      { id: 'language.care', field: 'care', text: '', items: care },
-    ],
-  })
-  blocksW.push({ blockId: 'language.borrow', basedOn: [] }, { blockId: 'language.care', basedOn: [] })
-
-  const notSureYet = [...(w.not_sure_yet ?? []).map((x) => scrubLine(x, figures, cap('not_sure')).text).filter(Boolean), ...notSure].slice(0, 6)
+  // About this brief (code).
+  pages.push({ id: 'method', kind: 'method', title: PAGE_TITLE.method, blocks: [{ id: 'method.method', field: 'method', text: '', items: methodItems(s, a.period, thin, s.updatesCount) }] })
+  blocksW.push({ blockId: 'method.method', basedOn: [] })
 
   const data: DocumentSnapshotData = {
     version: 1,
@@ -220,6 +254,24 @@ function sourcesOf(s: Signals): string[] {
   const platforms = new Set<string>()
   for (const p of s.phrases) if (p.platform) platforms.add(p.platform)
   return [...platforms].sort()
+}
+
+const PLATFORM_NAME: Record<string, string> = { tiktok: 'TikTok', instagram: 'Instagram', youtube: 'YouTube', reddit: 'Reddit' }
+
+/** The report's basis, in code: what was read, how findings are ordered,
+ *  how confidence is judged, what was held back. Not evidence per line; the
+ *  page a professional report ends on. */
+export function methodItems(s: Signals, period: string, thin: boolean, updatesCount: number): string[] {
+  const sources = sourcesOf(s).map((p) => PLATFORM_NAME[p] ?? p)
+  const competitors = s.competitors.map((c) => c.name)
+  return [
+    `This brief is written from public conversation around ${s.company}, ${competitors.length ? `${competitors.join(', ')} ` : ''}and the wider category: ${fmtCount(s.run.conversations)} conversations on ${fmtCount(s.run.videos)} videos in the ${period.replace(/^Update/, 'update')}${sources.length ? `, on ${sources.join(', ')}` : ''}. A conversation is one comment or spoken line the analysis cited; the analysis reads what people said in public, not sales calls or surveys.`,
+    `Findings are the researcher's readings of that conversation, ordered by the evidence behind them. Each rests on grounded points the analysis extracted and verified; confidence is judged from how many conversations and how many independent strands support the reading (solid, reasonable or thin), never by the writer.${thin ? ' This update was thin, so fewer findings were written rather than stretch the evidence.' : ''}`,
+    `Competitor pages read each competitor's own videos for what it pitches and its audience's comments for praise and complaint. Personas come from the consumer profile, which groups the whole conversation by who is speaking and where they are in the journey.${s.heldBackPhrases ? ` ${fmtCount(s.heldBackPhrases)} phrases in other languages were read for the counts but not quoted.` : ''}`,
+    updatesCount > 1
+      ? `This is update ${updatesCount} for ${s.company}. Where a finding carries from the previous brief it says so; "new this update" means the theme was first seen now. Movement is called only after three updates.`
+      : `This is the first update for ${s.company}; there is nothing yet to compare with.`,
+  ]
 }
 
 /** One slide per page, plus the cover. Pagination decided here, never by the browser. */

@@ -55,24 +55,26 @@ export function documentSettings(raw: Partial<DocumentSettings> | null | undefin
 
 // ── the document ──────────────────────────────────────────────────────────
 
-export type DocPageKind = 'in_short' | 'finding' | 'competitor' | 'personas' | 'language'
+export type DocPageKind = 'in_short' | 'finding' | 'competitor' | 'personas' | 'language' | 'method'
 
 /** Every field a block may carry; the skeleton says which page has which. */
 export type DocField =
-  | 'summary'   // in_short: the researcher's opening paragraph
+  | 'summary'   // in_short: the executive summary
+  | 'findings'  // in_short: the findings listed, one line each (items, code)
   | 'headline'  // finding: the argument, one line
-  | 'saw'       // finding: what we saw
+  | 'saw'       // finding: what the conversation shows (paragraphs)
+  | 'heard'     // finding: where it was heard (code: audiences, platforms, history, count)
   | 'means'     // finding: what it means for a sale
-  | 'say'       // finding: what to say / do (items)
-  | 'sure'      // finding: how sure we are, in words
+  | 'practice'  // finding: in practice, at most two lines (items)
+  | 'sure'      // finding: confidence, in words
   | 'pitch'     // competitor: what they are pitching
   | 'praise'    // competitor: what their users praise
   | 'hurt'      // competitor: where their users hurt
   | 'read'      // competitor: the read, when both names come up
-  | 'line'      // personas: one line per persona
-  | 'borrow'    // language: words to borrow (items are quotes)
+  | 'persona'   // personas: one block per persona (label = name; items = who, wants, stuck on, moves when; text = what it means for a sale)
   | 'care'      // language: words that draw pushback (items)
-  | 'not_sure'  // the "not sure yet" list (items)
+  | 'not_sure'  // the "not settled this update" list (items)
+  | 'method'    // method: one paragraph per item (items, code)
 
 export interface DocBlock {
   /** Stable within the snapshot: `f1.saw`, `c-ottobock.hurt`. Edits key on it. */
@@ -84,9 +86,8 @@ export interface DocBlock {
   text: string
   /** One pull quote, where the field allows it. */
   quote?: Quote | null
-  /** List blocks (say, borrow, care, not_sure). Borrow items are quotes. */
+  /** List blocks (findings, practice, care, not_sure, method, persona). */
   items?: string[]
-  quotes?: Quote[]
 }
 
 export interface DocPage {

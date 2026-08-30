@@ -45,14 +45,14 @@ const cap = (field: string) => DOCUMENT_BLOCK_MAX[field] ?? 400
 
 export const WriterSchema = z.object({
   in_short: z.object({
-    summary: z.string().describe(`The opening paragraph: what changed since the last brief and what matters this time. Under ${cap('summary')} characters. Cite figures by [[key]] only.`),
+    summary: z.string().describe(`The executive summary: what the conversation shows this update, what changed since the last brief, and what matters for a sale, developed in one or two paragraphs (separate paragraphs with a blank line). Under ${cap('summary')} characters. Cite figures by [[key]] only.`),
   }),
   findings: z.array(z.object({
     headline: z.string().describe(`The argument in one line, a claim not a topic. Under ${cap('headline')} characters, no full stop.`),
-    saw: z.string().describe(`What we saw: the observation across sources, in plain words, citing counts by [[key]]. Under ${cap('saw')} characters.`),
-    means: z.string().describe(`What it means for a sale. Under ${cap('means')} characters.`),
-    say: z.array(z.string()).describe(`Two to four things a rep can say or do in a conversation, each resting on a grounded point. Each under ${cap('say')} characters.`),
-    sure_note: z.string().describe(`One sentence on why the evidence is as strong or as thin as it is. Under ${cap('sure')} characters.`),
+    saw: z.string().describe(`What the conversation shows: the observation developed across sources in two or three paragraphs (separate paragraphs with a blank line), in the analytical third person, citing counts by [[key]] where a count carries the point. Under ${cap('saw')} characters.`),
+    means: z.string().describe(`What it means for a sale: the implication, developed in one paragraph, about the buyer and the market rather than about the rep. Under ${cap('means')} characters.`),
+    practice: z.array(z.string()).describe(`In practice: at most two lines a rep can act on, each resting on a grounded point. May be empty. Each under ${cap('practice')} characters.`),
+    sure_note: z.string().describe(`One or two sentences on the basis of the reading: what supports it and what is thin. Under ${cap('sure')} characters.`),
     based_on: z.array(z.string()).describe('The grounded point indices (G3) and concern indices (S1) this finding rests on. At least one G.'),
     quote_from: z.string().nullable().describe('The one grounded point (G index) whose voice best carries the finding, or null.'),
     continued_from: z.string().nullable().describe('If this finding carries one of the previous brief\'s headlines, that headline verbatim; else null.'),
@@ -67,7 +67,7 @@ export const WriterSchema = z.object({
   })),
   persona_lines: z.array(z.object({
     name: z.string(),
-    line: z.string().describe(`One line on how to sell to this person. Under ${cap('line')} characters.`),
+    line: z.string().describe(`What this person means for a sale: one or two sentences on where they are and what would move them, drawn from the profile. Under ${cap('persona')} characters.`),
   })),
   care: z.array(z.string()).describe('Words or claims that draw pushback or that the audience contradicts, each as "the words: why". Up to five.'),
   not_sure_yet: z.array(z.string()).describe(`Questions a rep would want answered that the conversation could not settle this update, one line each. Up to five, each under ${cap('not_sure')} characters.`),
@@ -88,8 +88,9 @@ export function buildWriterPrompts(a: WriterArgs): { system: string; user: strin
     t.brief,
     `The reader sells to: ${registerLine(a.settings)}.${a.reader ? ` Written for: ${a.reader}.` : ''} Write for that reader.`,
     'House style:',
-    '- Plain English, short sentences, first person plural where a person would say "we". No headings, no bullet points inside a field, no exclamation marks, no greeting, no sign-off.',
-    '- A headline is a claim that changes what a rep does ("The sale is decided at the clinic, not on the knee"), never a topic ("Clinic relationships").',
+    '- A research report, not a memo: the analytical third person ("the conversation shows", "buyers describe", "owners report"), developed paragraphs, plain English. Never "we", "our" or "you"; never address the reader; no headings, no bullet points inside a field, no exclamation marks, no greeting, no sign-off.',
+    '- A headline is a claim about the market or the buyer ("The sale is decided at the clinic, not on the knee"), never a topic ("Clinic relationships") and never an instruction ("Answer with use cases").',
+    '- Weight: what the conversation shows carries the finding; what it means for a sale interprets it; in practice is at most two short lines and may be empty. Do not turn a finding into advice.',
     '- Name competitors, products and themes plainly. Never name a person. Do not name the tool, the model, or "AI"; do not say "this brief" or "this report".',
     '- You have NO numbers. Where a count or a share belongs, write its placeholder exactly as listed, e.g. "[[g3_conversations]] conversations". Never type a digit. Never invent a figure not in the list. A placeholder means exactly what its label says.',
     noDashes(CALIBRATED_PROSE_RULE),
@@ -100,7 +101,7 @@ export function buildWriterPrompts(a: WriterArgs): { system: string; user: strin
       ? '- Continuity: the previous brief\'s headlines are listed. When a finding still holds, keep its headline (put it in continued_from) and say what is still true and what moved since last time. Mark only what is new as new.'
       : '- This is the first brief: say so in one clause of the summary, without apology.',
     a.thin ? '- The update was thin (see the summary note). Say so plainly in the summary and write fewer findings rather than stretch the evidence.' : '',
-    'Example of the register (a different company, do not reuse its content): headline "Comfort is the buying criterion long-term users apply, and the adjustable socket is the foot in the door"; saw "Long-term users judge a device by whether it can be worn through a whole day: [[g7_conversations]] conversations describe fit changing by evening, sweat and sores, and the adjustable socket shown on the brand\'s videos drew direct requests."; means "A rep who leads with all-day fit is talking about the thing this buyer already measures."; say ["Ask how the fit holds by evening before naming a component.", "Show the adjustable socket; people asked for it by name."].',
+    'Example of the register (a different company, do not reuse its content): headline "Comfort is the criterion long-term users apply, and the adjustable socket is where interest turns concrete"; saw "Long-term users judge a device by whether it can be worn through a whole day. [[g7_conversations]] conversations describe fit changing by evening, sweat and sores, and sock changes as the routine that decides whether a device stays on.\n\nThe adjustable socket shown on the brand\'s videos drew direct requests by name, the one component the audience asked for rather than about."; means "Comfort is not a feature in this market but the test every claim is put to; a buyer who has lived with a poor socket hears a performance claim as a promise about the afternoon."; practice ["Fit through the day is the buyer\'s own measure; it is the question to ask before naming a component."].',
   ].filter(Boolean).join('\n')
 
   const s = a.signals
@@ -109,14 +110,15 @@ export function buildWriterPrompts(a: WriterArgs): { system: string; user: strin
     : f.kind === 'pct' ? `- [[${k}]]: a share, written with its % sign: ${f.label}; put it after a verb ("stood at [[${k}]]")`
     : `- [[${k}]]: a name: ${f.label}`)
 
+  const countKey = (id: string) => (a.figures[`${id.toLowerCase()}_conversations`] ? `count key [[${id.toLowerCase()}_conversations]]` : 'a few conversations, do not cite a count')
   const points = a.answers.flatMap((ans) => ans.grounded.map((p) =>
-    `${p.id} (from question "${ans.question.id}"; count key [[${p.id.toLowerCase()}_conversations]]; themes: ${p.themeLabels.slice(0, 3).join(', ') || 'none'}): ${p.text}`))
+    `${p.id} (from question "${ans.question.id}"; ${countKey(p.id)}; themes: ${p.themeLabels.slice(0, 3).join(', ') || 'none'}): ${p.text}`))
   const judgements = a.answers.flatMap((ans) => ans.judgement.map((j, i) => `J${i + 1} from "${ans.question.id}" (the researcher's own read, not evidence): ${j.text}`))
   const silentQuestions = a.answers.filter((ans) => ans.silent || ans.outcome === 'failed' || ans.outcome === 'unasked').map((ans) => `- ${ans.question.text}`)
   const answersSummary = a.answers.filter((ans) => ans.answer).map((ans) => `- ${ans.question.id}: ${ans.answer}`)
 
   const concerns = s.concerns.map((c) =>
-    `${c.id} (count key [[${c.id.toLowerCase()}_conversations]]; heard from ${c.buckets.map((b) => bucketWord(b.bucket, s.company)).join(', ')}; ${c.trajectory || 'history unknown'}): ${c.label}. ${c.description}`)
+    `${c.id} (${countKey(c.id)}; heard from ${c.buckets.map((b) => bucketWord(b.bucket, s.company)).join(', ')}; ${c.trajectory || 'history unknown'}): ${c.label}. ${c.description}`)
 
   const deltaWords = deltaInWords(s)
 

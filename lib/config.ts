@@ -852,6 +852,9 @@ export const DOCUMENT_THIN_CONVERSATIONS = 300
 /** A finding rests on grounded points totalling at least this many
  *  conversations, or it goes to "not sure yet". */
 export const DOCUMENT_FINDING_MIN_CONVERSATIONS = 3
+/** A grounded point or concern is cited by number only from this many
+ *  conversations; under it the writer names the pattern, not the count. */
+export const DOCUMENT_CITED_COUNT_MIN = 3
 /** Questions the researcher asks the agent per build (five anchors, the rest
  *  from the update's own concerns), and how many run at once. */
 export const DOCUMENT_QUESTIONS_MAX = 8
@@ -859,7 +862,7 @@ export const DOCUMENT_RESEARCH_PARALLEL = 3
 /** Characters per block field: pages look alike every week because the
  *  writer cannot run long. Enforced in the schema description and by scrub. */
 export const DOCUMENT_BLOCK_MAX: Record<string, number> = {
-  summary: 700, headline: 90, saw: 520, means: 360, say: 200, sure: 220,
-  pitch: 420, praise: 420, hurt: 420, read: 360, line: 220, not_sure: 160,
+  summary: 1100, headline: 90, saw: 1300, heard: 260, means: 620, practice: 200, sure: 260,
+  pitch: 520, praise: 520, hurt: 520, read: 420, persona: 260, not_sure: 180, care: 220,
 }
 

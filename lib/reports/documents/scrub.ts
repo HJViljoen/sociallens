@@ -45,7 +45,35 @@ export function capText(s: string, max: number): string {
   return `${head.slice(0, sp > 0 ? sp : max).replace(/[,;:]$/, '')}.`
 }
 
+/** Paragraphs survive (a developed finding runs to two or three); each is
+ *  scrubbed sentence by sentence and the whole is capped. */
 export function scrubText(raw: string, figures: FigureTable, max: number): ScrubResult {
+  const paragraphs = (raw ?? '').split(/\n\s*\n/).map((p) => p.replace(/\s*\n\s*/g, ' ').trim()).filter(Boolean)
+  const out: string[] = []
+  let dropped = 0
+  let leaked = false
+  for (const para of paragraphs) {
+    const r = scrubParagraph(para, figures)
+    dropped += r.dropped
+    leaked = leaked || r.leaked
+    if (r.text) out.push(r.text)
+  }
+  return { text: capParagraphs(out, max), dropped, leaked }
+}
+
+function capParagraphs(paragraphs: string[], max: number): string {
+  const kept: string[] = []
+  let used = 0
+  for (const p of paragraphs) {
+    if (used + p.length <= max) { kept.push(p); used += p.length + 2; continue }
+    const room = max - used
+    if (kept.length === 0 || room > 80) kept.push(capText(p, Math.max(room, 1)))
+    break
+  }
+  return kept.join('\n\n')
+}
+
+function scrubParagraph(raw: string, figures: FigureTable): ScrubResult {
   const kept: string[] = []
   let dropped = 0
   let leaked = false
@@ -62,7 +90,7 @@ export function scrubText(raw: string, figures: FigureTable, max: number): Scrub
     if (!text || text.replace(FIGURE_KEY_RE, '').replace(/[\s.,;:!?]/g, '') === '') { dropped += 1; continue }
     kept.push(text)
   }
-  return { text: capText(kept.join(' '), max), dropped, leaked }
+  return { text: kept.join(' '), dropped, leaked }
 }
 
 /** A short line (a headline, a list item): one sentence's worth, same rules,

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { composeDocument, documentFigures, documentSlides, pickQuote, thinWeek } from './compose'
+import { composeDocument, documentFigures, documentSlides, heardLine, pickQuote, thinWeek } from './compose'
 import { buildWriterPrompts, deltaInWords, type WriterOutput } from './write'
 import { SALES_BRIEF } from './templates'
 import { DEFAULT_DOCUMENT_SETTINGS } from './types'
@@ -47,9 +47,9 @@ const signals = {
 const written: WriterOutput = {
   in_short: { summary: 'The money question leads again, heard in [[conversations]] conversations. Most people — really — say 90% of them.' },
   findings: [
-    { headline: 'The sale is decided at the clinic, not on the knee.', saw: 'We saw [[g1_conversations]] conversations on price [G1].', means: 'A route beats a brochure.', say: ['Open with the coverage route.', 'Name the insurance team — as part of the product.'], sure_note: 'Two strands agree.', based_on: ['G1', 'G2', 'S1', 'G99'], quote_from: 'G1', continued_from: null },
-    { headline: 'A thin one', saw: 'Something.', means: 'Nothing.', say: [], sure_note: '', based_on: ['G7'], quote_from: null, continued_from: null },
-    { headline: 'Comfort by evening', saw: 'People describe fit changing by evening.', means: 'Ask about fit first.', say: ['Ask how the fit holds by evening.'], sure_note: 'One strand.', based_on: ['G2'], quote_from: 'G2', continued_from: 'Comfort by evening' },
+    { headline: 'The sale is decided at the clinic, not on the knee.', saw: 'The conversation shows [[g1_conversations]] conversations on price [G1].\n\nA second paragraph on coverage.', means: 'A route beats a brochure.', practice: ['Open with the coverage route.', 'Name the insurance team — as part of the product.', 'A third line that is cut.'], sure_note: 'Two strands agree.', based_on: ['G1', 'G2', 'S1', 'G99'], quote_from: 'G1', continued_from: null },
+    { headline: 'A thin one', saw: 'Something.', means: 'Nothing.', practice: [], sure_note: '', based_on: ['G7'], quote_from: null, continued_from: null },
+    { headline: 'Comfort by evening', saw: 'People describe fit changing by evening.', means: 'Fit is the buyer\'s measure.', practice: ['Ask how the fit holds by evening.'], sure_note: 'One strand.', based_on: ['G2'], quote_from: 'G2', continued_from: 'Comfort by evening' },
   ],
   competitors: [{ name: 'ottobock', pitch: 'They sell the trial fitting.', praise: 'Knee technology.', hurt: 'Programming quality.', read: 'Ask about programming before comparing knees.', based_on: ['G1'] }],
   persona_lines: [{ name: 'First-time buyer', line: 'Make the category legible.' }],
@@ -64,6 +64,7 @@ describe('documentFigures', () => {
     expect(f.positive_pct.value).toBe('69.4%')
     expect(f.ottobock_share_pct.value).toBe('9%')
     expect(f.g1_conversations.value).toBe('11')
+    expect(documentFigures(signals, [{ ...answers[0], grounded: [{ ...answers[0].grounded[0], id: 'G9', conversationCount: 2 }] }]).g9_conversations).toBeUndefined()
     expect(f.s1_conversations.value).toBe('11')
     expect(f.new_themes.value).toBe('15')
     expect(f.prev_conversations.value).toBe('2,100')
@@ -81,6 +82,7 @@ describe('buildWriterPrompts', () => {
     expect(user).toContain('G1 (from question "stops"')
     expect(user).toContain('Previous brief\'s headlines:\n- Comfort by evening')
     expect(user).toContain('S1 (count key [[s1_conversations]]; heard from Ossur\'s audience, the category; seen 2 updates running)')
+    expect(user).toContain('G2 (from question "stops"; count key [[g2_conversations]]')
     expect(user).toContain('Questions the conversation could not answer:\n- What makes it time?')
     expect(system).toContain('Written for: the US sales team')
     expect(system).toContain('No dashes between clauses')
@@ -110,21 +112,23 @@ describe('composeDocument', () => {
   const { data, workings } = composeDocument({ template: SALES_BRIEF, settings: DEFAULT_DOCUMENT_SETTINGS, reportId: 'rep', title: 'Sales brief', period: 'Update of 30 Aug 2026', signals, answers, written, figures, model: 'gpt-5.4', promptVersion: 'sales_brief_v1', costUsd: 0.9, timings: { research: 100 } })
 
   it('keeps the skeleton and orders findings by evidence, dropping the thin one to not sure yet', () => {
-    expect(data.pages.map((p) => p.kind)).toEqual(['in_short', 'finding', 'finding', 'competitor', 'personas', 'language'])
+    expect(data.pages.map((p) => p.kind)).toEqual(['in_short', 'finding', 'finding', 'competitor', 'personas', 'language', 'method'])
+    expect(data.pages[0].blocks.find((b) => b.field === 'findings')!.items).toEqual(['The sale is decided at the clinic, not on the knee', 'Comfort by evening'])
+    expect(data.pages[0].blocks.find((b) => b.field === 'not_sure')!.items).toEqual(['Whether approval times differ by clinic.', 'A thin one'])
     const f1 = data.pages[1]
     expect(f1.blocks.find((b) => b.field === 'headline')!.text).toBe('The sale is decided at the clinic, not on the knee')
     expect(f1.meta?.sure).toBe('solid')
     expect(data.pages[2].meta?.sure).toBe('reasonable')
     expect(data.pages[2].meta?.continuedFrom).toBe('Comfort by evening')
-    expect(data.notSureYet).toEqual(['Whether approval times differ by clinic.', 'A thin one'])
     expect(workings.dropped).toEqual([{ headline: 'A thin one', reason: 'rests on no grounded point' }])
   })
 
-  it('scrubs the words: digits gone, handles gone, dashes gone, unknown indices dropped', () => {
+  it('scrubs the words: digits gone, handles gone, dashes gone, unknown indices dropped, paragraphs kept, practice capped at two', () => {
     expect(data.pages[0].blocks[0].text).toBe('The money question leads again, heard in [[conversations]] conversations.')
     const saw = data.pages[1].blocks.find((b) => b.field === 'saw')!
-    expect(saw.text).toBe('We saw [[g1_conversations]] conversations on price.')
-    expect(data.pages[1].blocks.find((b) => b.field === 'say')!.items).toEqual(['Open with the coverage route.', 'Name the insurance team, as part of the product.'])
+    expect(saw.text).toBe('The conversation shows [[g1_conversations]] conversations on price.\n\nA second paragraph on coverage.')
+    expect(data.pages[1].blocks.find((b) => b.field === 'practice')!.items).toEqual(['Open with the coverage route.', 'Name the insurance team, as part of the product.'])
+    expect(data.pages[1].blocks.find((b) => b.field === 'heard')!.text).toBe("20 conversations across 2 strands of the research · heard from Ossur's audience, the category · seen 2 updates running.")
     expect(workings.blocks.find((b) => b.blockId === 'f1.saw')!.basedOn).toEqual(['G1', 'G2', 'S1'])
   })
 
@@ -134,11 +138,10 @@ describe('composeDocument', () => {
     const frozen = freezeQuotes(data)
     expect(JSON.stringify(frozen.data)).not.toContain('modern car')
     expect(frozen.refs).toContain('c:aaa')
-    expect(frozen.refs).toContain('p:1')
     expect(JSON.stringify(freezeQuotes(workings).data)).not.toContain('modern car')
   })
 
-  it('writes the competitor page from the writer, matching by name, and the personas from the profile', () => {
+  it('writes the competitor page from the writer, matching by name, the personas from the profile, the method in code', () => {
     const c = data.pages[3]
     expect(c.meta?.name).toBe('Ottobock')
     expect(c.blocks.find((b) => b.field === 'read')!.text).toBe('Ask about programming before comparing knees.')
@@ -146,12 +149,25 @@ describe('composeDocument', () => {
     expect(p.label).toBe('First-time buyer')
     expect(p.text).toBe('Make the category legible.')
     expect(p.items).toEqual(['At the start.', 'Confidence.', 'Cost.', 'Plain answers.'])
-    expect(data.pages[5].blocks[0].quotes).toEqual([{ ref: 'p:1', text: 'is it comfortable.' }])
+    expect(data.pages[5].blocks[0].items).toEqual(['"no excuses": the category jokes about batteries.'])
+    const method = data.pages[6].blocks[0].items!
+    expect(method).toHaveLength(4)
+    expect(method[0]).toContain('3,270 conversations on 469 videos')
+    expect(method[0]).toContain('Ottobock')
+    expect(method[2]).toContain('192 phrases in other languages')
+    expect(method[3]).toContain('update 5')
     expect(data.method.heldBack).toBe(192)
   })
 
-  it('paginates one page per skeleton page', () => {
-    expect(documentSlides(data).map((s) => s.keys[0])).toEqual(['in_short', 'f1', 'f2', 'c_ottobock', 'personas', 'language'])
+  it('paginates one page per skeleton page, personas two a page', () => {
+    expect(documentSlides(data).map((s) => s.keys[0])).toEqual(['in_short', 'f1', 'f2', 'c_ottobock', 'personas_1', 'language', 'method'])
+    const many = { ...signals, personas: [1, 2, 3, 4, 5].map((n) => ({ ...signals.personas[0], key: `p${n}`, name: `P${n}` })) } as unknown as Signals
+    const d = composeDocument({ template: SALES_BRIEF, settings: DEFAULT_DOCUMENT_SETTINGS, reportId: 'rep', title: 't', period: 'p', signals: many, answers, written, figures, model: 'm', promptVersion: 'v', costUsd: 0, timings: {} }).data
+    expect(d.pages.filter((p) => p.kind === 'personas').map((p) => p.blocks.length)).toEqual([2, 2, 1])
+  })
+
+  it('writes where a finding was heard from its points and concerns', () => {
+    expect(heardLine({ points: [{ conversationCount: 1 } as never], concerns: [], company: 'X' })).toBe('1 conversation across 1 strand of the research.')
   })
 })
 

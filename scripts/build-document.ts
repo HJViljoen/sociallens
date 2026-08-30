@@ -10,7 +10,7 @@
  *   --questions  also print the questions the researcher would ask (no calls)
  *   --research   ask them (agent calls, billed) and write answers.json
  *   (default)    the whole build: research, write, snapshot, PDF into --out
- *   --reuse      take answers.json and written.json from --out instead of paying for them again
+ *   --reuse      take answers.json from --out instead of paying for the research again; --reuse-write also written.json
  *
  * Össur is the default client, as in the other per-client scripts.
  */
@@ -39,7 +39,7 @@ const flag = (name: string): string | undefined => {
 const has = (name: string) => args.includes(`--${name}`)
 for (const a of args) {
   if (!a.startsWith('--')) continue
-  if (!['client', 'template', 'sells-to', 'signals', 'questions', 'research', 'out', 'run', 'keep', 'no-check', 'reader', 'reuse'].includes(a.slice(2))) throw new Error(`unknown flag: ${a}`)
+  if (!['client', 'template', 'sells-to', 'signals', 'questions', 'research', 'out', 'run', 'keep', 'no-check', 'reader', 'reuse', 'reuse-write'].includes(a.slice(2))) throw new Error(`unknown flag: ${a}`)
 }
 
 async function main() {
@@ -87,7 +87,7 @@ async function main() {
   const figures = documentFigures(signals, research.answers)
   const period = periodOf(signals.runDate)
   const t2 = Date.now()
-  const written = reuse && existsSync(`${out}/written.json`)
+  const written = reuse && has('reuse-write') && existsSync(`${out}/written.json`)
     ? { written: JSON.parse(readFileSync(`${out}/written.json`, 'utf8')) as Awaited<ReturnType<typeof generateDocument>>['written'], costUsd: 0, ms: 0, promptTokens: 0, completionTokens: 0 }
     : await generateDocument(admin, {
         clientId, runId: signals.runId, template, settings, company: signals.company, period, reader: flag('reader') ?? null,
@@ -105,7 +105,6 @@ async function main() {
     for (const b of p.blocks) {
       if (b.text) console.log(`    ${b.field}${b.label ? ` (${b.label})` : ''}: ${b.text}`)
       for (const it of b.items ?? []) console.log(`      - ${it}`)
-      for (const q of b.quotes ?? []) console.log(`      “${q.text}”`)
       if (b.quote) console.log(`      quote: “${b.quote.text}”`)
     }
   }
