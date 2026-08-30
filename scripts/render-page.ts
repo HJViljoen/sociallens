@@ -50,7 +50,7 @@ async function renderReport() {
     if (!t) throw new Error(`unknown template: ${flag('template')}`)
     const audience = isAudience(flag('audience')) ? flag('audience') as ReportRow['audience'] : t.audience
     report = {
-      id: '00000000-0000-0000-0000-000000000000', client_id: clientId, template_key: t.key, title: flag('title') || t.name, audience,
+      id: '00000000-0000-0000-0000-000000000000', client_id: clientId, kind: 'arranged', settings: {}, template_key: t.key, title: flag('title') || t.name, audience,
       sections: instantiate(t.sections), cover: { register: audience }, status: 'draft', latest_snapshot_id: null, created_by: null,
       created_at: new Date().toISOString(), updated_at: new Date().toISOString(),
     }

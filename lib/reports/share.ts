@@ -1,7 +1,7 @@
 import { createHmac, randomBytes, scrypt as scryptCb, timingSafeEqual } from 'crypto'
 import { promisify } from 'util'
 import type { SupabaseClient } from '@supabase/supabase-js'
-import type { SnapshotRow } from '../snapshots'
+import { SNAPSHOT_COLS, type SnapshotRow } from '../snapshots'
 
 const scrypt = promisify(scryptCb)
 
@@ -106,7 +106,7 @@ export async function loadShareLink(admin: SupabaseClient, token: string): Promi
   const link = (data as ShareLinkRow | null) ?? null
   const status = shareStatus(link)
   if (status !== 'ok' || !link) return { status: status === 'ok' ? 'invalid' : status }
-  const { data: snap } = await admin.from('report_snapshots').select('*').eq('id', link.snapshot_id).eq('client_id', link.client_id).maybeSingle()
+  const { data: snap } = await admin.from('report_snapshots').select(SNAPSHOT_COLS).eq('id', link.snapshot_id).eq('client_id', link.client_id).maybeSingle()
   if (!snap) return { status: 'invalid' }
   return { status: 'ok', link, snapshot: snap as SnapshotRow }
 }

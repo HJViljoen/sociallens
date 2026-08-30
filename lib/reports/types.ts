@@ -1,6 +1,7 @@
 import type { PageKey, PrintVariant, Slide } from '../renderables/types'
 import type { MethodNoteData } from '../../components/print/method-note'
 import type { RunDelta } from '../report-delta'
+import type { DocumentSettings } from './documents/types'
 
 /**
  * The Report Studio's model (Reports & Exports Stage 2, 2026-08-30).
@@ -60,14 +61,24 @@ export interface CoverSpec {
   reader?: string
 }
 
+/** Two kinds of report (2026-08-31). `arranged` = the ordered list of page
+ *  sections above. `document` = written by the agent in a role inside a fixed
+ *  skeleton (lib/reports/documents); its `sections` are empty and its
+ *  `settings` carry the few choices a document has. */
+export type ReportKind = 'arranged' | 'document'
+export const isReportKind = (v: unknown): v is ReportKind => v === 'arranged' || v === 'document'
+
 export interface ReportRow {
   id: string
   client_id: string
+  kind: ReportKind
   template_key: string | null
   title: string
   audience: Audience
   sections: ReportSection[]
   cover: CoverSpec
+  /** Document reports only; `{}` on arranged rows. */
+  settings: Partial<DocumentSettings>
   status: 'draft' | 'built'
   latest_snapshot_id: string | null
   created_by: string | null

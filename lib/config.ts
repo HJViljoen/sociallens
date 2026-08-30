@@ -832,3 +832,32 @@ export const SCHEDULE_RECIPIENTS_MAX = 25
  *  wider than the route's 300 s cap plus Inngest's retry backoff, so a late
  *  retry finds a claim, not a second email. */
 export const SCHEDULE_CLAIM_STALE_MS = 30 * 60_000
+
+// Document reports (2026-08-31): the Sales brief and the templates after it.
+/** Model spend one build may reach. Research stops asking past it; the
+ *  writing pass always runs. A build is ~8 gpt-5.4 calls; this is a ceiling
+ *  against a runaway, not a budget to spend. */
+export const DOCUMENT_BUILD_BUDGET_USD = 3
+/** Themes from different buckets (yours, a competitor's, the category's) that
+ *  read as the same concern merge above this cosine on their stored
+ *  embeddings. Tuned on Össur's 30 Aug run (T5); one notch under the theme
+ *  registry's own match threshold, because a concern crosses buckets more
+ *  loosely than an identity crosses runs. */
+export const DOCUMENT_MERGE_THRESHOLD = 0.82
+/** Under this many conversations in the period the brief says the update was
+ *  thin and writes fewer findings rather than padding. */
+export const DOCUMENT_THIN_CONVERSATIONS = 300
+/** A finding rests on grounded points totalling at least this many
+ *  conversations, or it goes to "not sure yet". */
+export const DOCUMENT_FINDING_MIN_CONVERSATIONS = 3
+/** Questions the researcher asks the agent per build (five anchors, the rest
+ *  from the update's own concerns), and how many run at once. */
+export const DOCUMENT_QUESTIONS_MAX = 8
+export const DOCUMENT_RESEARCH_PARALLEL = 3
+/** Characters per block field: pages look alike every week because the
+ *  writer cannot run long. Enforced in the schema description and by scrub. */
+export const DOCUMENT_BLOCK_MAX: Record<string, number> = {
+  summary: 700, headline: 90, saw: 520, means: 360, say: 200, sure: 220,
+  pitch: 420, praise: 420, hurt: 420, read: 360, line: 220, not_sure: 160,
+}
+

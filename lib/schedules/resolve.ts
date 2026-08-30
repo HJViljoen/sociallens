@@ -29,6 +29,8 @@ export async function resolveScheduleReport(
       id: '',
       client_id: schedule.client_id,
       template_key: t.key,
+      kind: 'arranged',
+      settings: {},
       title: t.name,
       audience: t.audience,
       sections: instantiate(t.sections),

@@ -39,11 +39,21 @@ export interface SnapshotRow {
   created_at: string
 }
 
+/** The columns every reader gets. `workings` (document builds' Studio-only
+ *  evidence) is deliberately not among them: the render and share paths
+ *  cannot print what they never select — loadSnapshotWorkings is the one door. */
+export const SNAPSHOT_COLS = 'id, client_id, kind, ref, title, run_id, data, evidence_ids, created_by, created_at'
+
 export async function createSnapshot(
   admin: SupabaseClient,
-  args: { clientId: string; userId: string | null; kind: SnapshotKind; ref: SnapshotRef; title: string; runId: string | null; data: unknown; reportId?: string | null },
+  args: {
+    clientId: string; userId: string | null; kind: SnapshotKind; ref: SnapshotRef; title: string; runId: string | null; data: unknown; reportId?: string | null
+    /** Document builds: the evidence behind each block, for the Studio. Frozen like data (quote refs only). */
+    workings?: unknown
+  },
 ): Promise<{ id: string; evidenceIds: string[] }> {
   const { data: frozen, refs } = freezeQuotes(args.data)
+  const workings = args.workings === undefined ? undefined : freezeQuotes(args.workings).data
   const { data, error } = await admin
     .from('report_snapshots')
     .insert({
@@ -56,6 +66,7 @@ export async function createSnapshot(
       evidence_ids: refs,
       created_by: args.userId,
       ...(args.reportId ? { report_id: args.reportId } : {}),
+      ...(workings === undefined ? {} : { workings }),
     })
     .select('id')
     .single()
@@ -64,9 +75,21 @@ export async function createSnapshot(
 }
 
 export async function loadSnapshot(admin: SupabaseClient, id: string): Promise<SnapshotRow | null> {
-  const { data, error } = await admin.from('report_snapshots').select('*').eq('id', id).maybeSingle()
+  const { data, error } = await admin.from('report_snapshots').select(SNAPSHOT_COLS).eq('id', id).maybeSingle()
   if (error) throw new Error(`snapshot: read failed: ${error.message}`)
   return (data as SnapshotRow | null) ?? null
+}
+
+/** A document build's workings, words resolved, for the Studio's evidence
+ *  view. Null for any other snapshot. */
+export async function loadSnapshotWorkings<T = unknown>(admin: SupabaseClient, id: string, clientId: string): Promise<T | null> {
+  const { data, error } = await admin.from('report_snapshots').select('workings').eq('id', id).eq('client_id', clientId).maybeSingle()
+  if (error) throw new Error(`snapshot: workings read failed: ${error.message}`)
+  const w = (data as { workings?: unknown } | null)?.workings
+  if (!w) return null
+  const refs = collectQuoteRefs(w)
+  const texts = refs.length ? await fetchQuoteTextsByRefs(admin, refs) : new Map<string, string>()
+  return resolveQuotes(w, texts) as T
 }
 
 /** The snapshot's data with the words put back — what the renderers get. */
