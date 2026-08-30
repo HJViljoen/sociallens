@@ -1,58 +1,66 @@
+// The digest, by hand (Reports & Exports Stage 3).
+//
+//   node --env-file=.env.local --import tsx scripts/send-report.ts --client <uuid> [--schedule <id>] [--run <uuid>] [--out email-preview]
+//     default: PREVIEW — builds the schedule's report (loaders + cover, no PDF, no link, no send),
+//              writes <out>.html + <out>.txt, prints the subject and recipients; leaves no rows behind.
+//   … --test <email>      one real send to that address only (PDF + link + email); nothing recorded
+//   … --commit            the real thing for the latest completed update: claim, build, send to the list, record
+//
+// Without --schedule the workspace's default schedule (its digest) is used.
+// Sending goes through lib/email.ts: with no RESEND_API_KEY the send is a
+// logged stub and everything else still happens.
+
 import { writeFileSync } from 'fs'
-import { previewWeeklyReport, generateWeeklyReport } from '../lib/report'
+import { createAdminClient } from '../lib/supabase-admin'
+import { resolveScheduleReport } from '../lib/schedules/resolve'
+import { snapshotReport } from '../lib/reports/build'
+import { renderDigestEmail } from '../lib/email/digest'
+import type { ScheduleRow } from '../lib/schedules/types'
 
-// Preview / test the weekly report. Run with env loaded:
-//   node --env-file=.env.local --import tsx scripts/send-report.ts [flags]
-//
-// Default mode is a safe PREVIEW — builds the report HTML and writes it to a file,
-// no DB write and no email. Use --commit to actually store it (weekly_reports) and,
-// unless --no-send, attempt delivery via Resend.
-//
-// Flags:
-//   --client <uuid>  client_id (default: Ossur)
-//   --run <uuid>     specific pipeline run (default: latest completed/partial)
-//   --out <file>     where to write the HTML preview (default: report-preview.html)
-//   --commit         persist to weekly_reports (and send unless --no-send)
-//   --no-send        with --commit, store but don't email
+const args = process.argv.slice(2)
+const flag = (name: string, dflt = '') => { const i = args.indexOf(`--${name}`); return i >= 0 && args[i + 1] && !args[i + 1].startsWith('--') ? args[i + 1] : dflt }
+const has = (name: string) => args.includes(`--${name}`)
 
-const OSSUR = 'e52cac94-30e1-426a-9a36-31b11e0b30b6'
-
-function parseArgs(argv: string[]) {
-  const a = { clientId: OSSUR, runId: undefined as string | undefined, out: 'report-preview.html', commit: false, send: true }
-  for (let i = 0; i < argv.length; i++) {
-    const flag = argv[i]
-    const next = () => argv[++i]
-    if (flag === '--client') a.clientId = next()!
-    else if (flag === '--run') a.runId = next()
-    else if (flag === '--out') a.out = next()!
-    else if (flag === '--commit') a.commit = true
-    else if (flag === '--no-send') a.send = false
-  }
-  return a
-}
+const clientId = flag('client', 'e52cac94-30e1-426a-9a36-31b11e0b30b6')
+const out = flag('out', 'email-preview')
+const appUrl = (process.env.NEXT_PUBLIC_APP_URL || process.env.RENDER_BASE_URL || 'http://localhost:3000').replace(/\/$/, '')
 
 async function main() {
-  const args = parseArgs(process.argv.slice(2))
+  const admin = createAdminClient()
+  const q = admin.from('report_schedules').select('*').eq('client_id', clientId)
+  const { data: schedule } = flag('schedule') ? await q.eq('id', flag('schedule')).maybeSingle() : await q.eq('is_default', true).maybeSingle()
+  if (!schedule) throw new Error('no such schedule for that client')
+  const s = schedule as ScheduleRow
+  console.log(`${s.name} · ${s.starter_key ?? s.report_id} · ${s.cadence} · ${s.recipients.length} recipient(s) · pdf ${s.attach_pdf ? 'attached' : 'not attached'} · link ${s.share_days ?? 'never expires'}`)
 
-  if (!args.commit) {
-    const preview = await previewWeeklyReport({ clientId: args.clientId, runId: args.runId })
-    if (!preview) {
-      console.error('No completed run to report on for client', args.clientId)
-      process.exit(1)
-    }
-    writeFileSync(args.out, preview.html)
-    console.log('PREVIEW (no DB write, no email)')
-    console.log('  run:       ', preview.runId)
-    console.log('  subject:   ', preview.subject)
-    console.log('  recipients:', preview.recipients.length ? preview.recipients.join(', ') : '(none configured)')
-    console.log('  html ->    ', args.out, `(${preview.html.length} bytes)`)
-    console.log('\n--- text version ---\n' + preview.text)
+  if (has('commit') || has('test')) {
+    const { runSchedule } = await import('../lib/schedules/run')
+    const runId = flag('run') || (await latestRun(admin))
+    if (!runId) throw new Error('no completed update to send')
+    const res = await runSchedule({ admin, schedule: s, runId, baseUrl: appUrl, mode: has('test') ? 'test' : 'send', to: has('test') ? [flag('test')] : undefined })
+    console.log(`${res.status} · ${res.ms} ms${res.subject ? ` · "${res.subject}"` : ''}${res.shareUrl ? ` · ${res.shareUrl}` : ''}${res.error ? ` · ${res.error}` : ''}`)
     return
   }
 
-  const res = await generateWeeklyReport({ clientId: args.clientId, runId: args.runId, send: args.send })
-  console.log('COMMITTED')
-  console.log(JSON.stringify(res, null, 2))
+  const resolved = await resolveScheduleReport(admin, s)
+  if (!resolved) throw new Error('the schedule points at a template that no longer exists')
+  const t0 = Date.now()
+  const snap = await snapshotReport({ admin, supabase: admin, clientId, userId: null, report: resolved.report, company: resolved.company })
+  try {
+    const email = renderDigestEmail({ data: snap.data, shareUrl: `${appUrl}/r/preview-link`, appUrl, attached: s.attach_pdf })
+    writeFileSync(`${out}.html`, email.html)
+    writeFileSync(`${out}.txt`, email.text)
+    console.log(`subject: ${email.subject}`)
+    console.log(`to: ${s.recipients.join(', ') || '(nobody)'}`)
+    console.log(`sections ${snap.data.sections.length} · delta ${snap.data.delta ? `since ${snap.data.delta.prevRunDate.slice(0, 10)}` : 'none'} · ${Date.now() - t0} ms · ${email.html.length} chars → ${out}.html / ${out}.txt`)
+  } finally {
+    if (!has('keep')) await admin.from('report_snapshots').delete().eq('id', snap.snapshotId)
+  }
+}
+
+async function latestRun(admin: ReturnType<typeof createAdminClient>): Promise<string | null> {
+  const { data } = await admin.from('pipeline_runs').select('id').eq('client_id', clientId).in('status', ['completed', 'partial']).order('completed_at', { ascending: false, nullsFirst: false }).limit(1).maybeSingle()
+  return (data as { id: string } | null)?.id ?? null
 }
 
 main().catch((e) => { console.error(e); process.exit(1) })

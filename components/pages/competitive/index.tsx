@@ -18,6 +18,7 @@ import {
 } from '@/lib/pages/competitive'
 import type { PageModule, PrintVariant, RenderMode, Renderable, Slide } from '@/lib/renderables/types'
 import { FaceOff, FaceOffHeader, YOU_COLOR, THEM_COLOR } from './face-off'
+import { competitiveEmail } from '@/components/email/tiles'
 
 // Competitive Intelligence renderers — the JSX half of the old page (split
 // 2026-08-29, Reports & Exports T5), one pure function per tile/pane. `mode`
@@ -389,6 +390,8 @@ const baseRenderables: Record<string, Renderable<D>> = {
 }
 
 const OVERVIEW_ORDER = ['competitive.standings', 'competitive.faceoff', 'competitive.shareLine', 'competitive.table']
+
+for (const [k, fn] of Object.entries(competitiveEmail)) baseRenderables[k].email = fn
 
 function competitiveSlides(d: D, variant: PrintVariant): Slide[] {
   const slides: Slide[] = [

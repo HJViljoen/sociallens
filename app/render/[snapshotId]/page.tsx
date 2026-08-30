@@ -40,6 +40,19 @@ export default async function RenderPage({
   // component composes them; hydration is the same walk as for a page.
   if (row.kind === 'report') {
     const data = await hydrateSnapshot<ReportSnapshotData>(admin, row)
+    // One tile of one section on its own (Stage 3: the PNGs an email carries).
+    // The token binds the tile; the first section of that page supplies it.
+    if (token.tileKey) {
+      const page = token.tileKey.split('.')[0]
+      const section = data.sections.find((s) => s.section.page === page)
+      const r = section ? pageModule(page)?.renderables[token.tileKey] : null
+      if (!section || !r) notFound()
+      return (
+        <PrintRoot style={style}>
+          <PrintTile>{r.render(section.data, 'print')}</PrintTile>
+        </PrintRoot>
+      )
+    }
     return (
       <PrintRoot style={style}>
         <ReportDeck data={data} />

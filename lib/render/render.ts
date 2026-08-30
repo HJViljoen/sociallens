@@ -24,6 +24,29 @@ export function renderUrl(base: string, snapshotId: string, opts: { tileKey?: st
   return `${base}/render/${snapshotId}?${q.toString()}`
 }
 
+/** Several renders of one snapshot in ONE browser session — the PDF and the
+ *  inline PNGs an email carries (Stage 3). PDFs go first: a screenshot leaves
+ *  the page emulating screen media, a print must not inherit that. */
+export async function renderMany(args: {
+  baseUrl: string
+  snapshotId: string
+  jobs: { format: ArtifactFormat; tileKey?: string | null; style?: string | null }[]
+}): Promise<{ buffer: Buffer; ms: number }[]> {
+  if (!args.jobs.length) return []
+  const order = [...args.jobs.keys()].sort((a, b) => Number(args.jobs[a].format === 'png') - Number(args.jobs[b].format === 'png'))
+  const out: { buffer: Buffer; ms: number }[] = new Array(args.jobs.length)
+  await withBrowser(async (page) => {
+    for (const i of order) {
+      const job = args.jobs[i]
+      const url = renderUrl(args.baseUrl, args.snapshotId, { tileKey: job.tileKey, style: job.style })
+      const t0 = Date.now()
+      const buffer = job.format === 'png' ? await shootTile(page, url) : await printPdf(page, url)
+      out[i] = { buffer, ms: Date.now() - t0 }
+    }
+  })
+  return out
+}
+
 export async function renderArtifact(args: {
   baseUrl: string
   snapshotId: string

@@ -23,6 +23,7 @@ import {
 } from '@/lib/pages/content'
 import type { PageModule, PrintVariant, RenderMode, Renderable, Slide } from '@/lib/renderables/types'
 import { basePath, inboxTile, repliesBody, prettyTheme, EngageDetailBody } from './engage-section'
+import { contentEmail } from '@/components/email/tiles'
 
 // Content — "what content works, and who to answer?", on one screen (one-screen
 // redesign, 2026-08-22: the playbook + the reply inbox; renderers split from
@@ -422,6 +423,8 @@ function pagedRenderable(key: string): Renderable<D> | undefined {
   }
   return { key, title: 'All videos', render: (d) => <CatalogTable rows={d.catalog.rows.slice(n * CATALOG_PER_SLIDE, (n + 1) * CATALOG_PER_SLIDE)} /> }
 }
+
+for (const [k, fn] of Object.entries(contentEmail)) renderables[k].email = fn
 
 export const contentPage: PageModule<D> = {
   key: 'content',

@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react'
+import type { EmailTheme } from '../email/theme'
 
 /**
  * The spine of Reports & Exports (Stage 1, 2026-08-29).
@@ -60,7 +61,19 @@ export interface Slide {
   layout: 'grid' | 'single' | 'item'
 }
 
+/** What an email renderer may reach for (Stage 3): where links land, an
+ *  inline image (`cid:`) the runner rendered for this tile — or null, in which
+ *  case the tile says it in words — and the literal-hex palette. */
+export interface EmailContext {
+  appUrl: string
+  image(tileKey: string): string | null
+  theme: EmailTheme
+}
+
 export interface Renderable<D> {
+  /** Table-based, inline-styled markup for an email body (Stage 3). A tile
+   *  without one is simply not in the email — it is still on the paper. */
+  email?: (data: D, ctx: EmailContext) => ReactNode
   /** `<page>.<tile>`, e.g. 'dashboard.strip'. Stable: it names PNG exports and
    *  registry entries; renaming one orphans stored artifacts' tile_key. */
   key: string

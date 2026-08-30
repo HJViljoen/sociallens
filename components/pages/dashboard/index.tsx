@@ -16,6 +16,7 @@ import { RingSync } from '@/components/charts/ring-sync'
 import { ClaimPopover } from '@/components/claim-popover'
 import { Mover } from '@/components/charts/mover'
 import { PlatformIcon } from '@/components/charts/platform-icon'
+import { dashboardEmail } from '@/components/email/tiles'
 import { fmtInt, fmtCompact, fmtPct, weekdayDate, shortDate, platformLabel } from '@/lib/format'
 import { BUCKET_COLOR, loadDashboard, isDashboardEmpty, priorityLabel, type DashboardData, type DashboardEmpty } from '@/lib/pages/dashboard'
 import type { PageModule, RenderMode, Renderable, Slide } from '@/lib/renderables/types'
@@ -405,6 +406,10 @@ const renderables: Record<string, Renderable<D>> = {
   'dashboard.accounts': { key: 'dashboard.accounts', title: 'On your accounts', render: accounts },
   'dashboard.brief': { key: 'dashboard.brief', title: 'The executive brief', render: brief },
 }
+
+// The email says the same tiles in tables (Stage 3); a tile without an email
+// renderer is on the paper only.
+for (const [k, fn] of Object.entries(dashboardEmail)) renderables[k].email = fn
 
 /** The grid, in the page's order. */
 const GRID_ORDER = ['dashboard.strip', 'dashboard.hero', 'dashboard.sentiment', 'dashboard.share', 'dashboard.themes', 'dashboard.movement', 'dashboard.recommendation', 'dashboard.accounts']
