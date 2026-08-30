@@ -8,6 +8,8 @@ import { PrintRoot, printStyleFrom } from '@/components/print/print-root'
 import { Slide } from '@/components/print/slide'
 import { PrintTile } from '@/components/print/print-tile'
 import { ReportDeck } from '@/components/print/report-deck'
+import { DocumentDeck } from '@/components/print/document-deck'
+import { isDocumentData } from '@/lib/reports/documents/types'
 import type { ReportSnapshotData } from '@/lib/reports/types'
 import { MethodNote, type MethodNoteData } from '@/components/print/method-note'
 
@@ -40,6 +42,16 @@ export default async function RenderPage({
   // component composes them; hydration is the same walk as for a page.
   if (row.kind === 'report') {
     const data = await hydrateSnapshot<ReportSnapshotData>(admin, row)
+    // A document (2026-08-31): written pages, no sections, no tiles. Its
+    // workings were never selected, so nothing here can print them.
+    if (isDocumentData(data)) {
+      if (token.tileKey) notFound()
+      return (
+        <PrintRoot style={style}>
+          <DocumentDeck data={data} />
+        </PrintRoot>
+      )
+    }
     // One tile of one section on its own (Stage 3: the PNGs an email carries).
     // The token binds the tile; the first section of that page supplies it.
     if (token.tileKey) {

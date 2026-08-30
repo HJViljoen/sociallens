@@ -6,7 +6,7 @@ import { loadBrandClaims, type BrandClaim, type BrandVoiceSnapshot } from '../..
 import type { CiSummary, SayVsHearEntry } from '../../pipeline/schemas'
 import { normalisePersona, type Persona } from '../../profile-tiles'
 import { shortPhrases, themeTrajectories, type ThemeHistoryRow, type Trajectory } from '../../voice-tiles'
-import { englishHits } from '../../quotes'
+import { englishHits, keywordsOf } from '../../quotes'
 import { quoteRef } from '../../renderables/quotes-freeze'
 import type { Quote } from '../../renderables/types'
 import { competitorThemes, mergeAcrossBuckets, trajectoryWord, type MergeThemeRow, type MergedConcern } from './merge'
@@ -206,12 +206,15 @@ export async function loadSignals(
     })
     .filter((p): p is PersonaSignal => !!p)
 
-  // Phrases: short, English-reading, as refs. The count held back is what the
-  // method line and the workings report; a Thai phrase is signal, not noise,
-  // it just cannot lead an English page.
+  // Phrases: English-reading, about the things the brief is about (they share
+  // a content word with a concern or a competitor theme), four to fourteen
+  // words, as refs. The count held back is what the method line and the
+  // workings report; a Thai phrase is signal, not noise, it just cannot lead
+  // an English page.
   const samples = ((samplesRes.data ?? []) as { id: string; phrase: string; platform: string | null }[])
   const english = samples.filter((s) => englishHits(s.phrase) >= 2 && s.phrase.length >= 12)
-  const phrases = shortPhrases(english, 30, 14).map((s) => ({ quote: { ref: quoteRef.phrase(s.id), text: s.phrase }, platform: s.platform }))
+  const phrases = pickPhrases(english, [...concerns.map((c) => c.label), ...concerns.map((c) => c.description), ...competitors.flatMap((c) => [...c.praise, ...c.hurt].map((t) => t.label))])
+    .map((s) => ({ quote: { ref: quoteRef.phrase(s.id), text: s.phrase }, platform: s.platform }))
 
   const aud = summary.period_audience_sentiment ?? summary.audience_sentiment
   const positivePct = aud?.positive == null ? null : Number(aud.positive)
@@ -249,6 +252,29 @@ export async function loadSignals(
     heldBackPhrases: samples.length - english.length,
     competitiveInsights: (ciRes.data ?? []) as Signals['competitiveInsights'],
   }
+}
+
+/** Phrases that speak to the brief's subjects: score by content words shared
+ *  with the concerns and competitor themes, keep four to fourteen words, the
+ *  best thirty. Falls back to the shortest when fewer than ten score. */
+export function pickPhrases<T extends { phrase: string }>(samples: T[], subjects: string[], n = 30): T[] {
+  const subjectWords = new Set(subjects.flatMap((s) => [...keywordsOf(s)]))
+  const words = (s: string) => s.trim().split(/\s+/).length
+  const scored = samples
+    .filter((s) => { const w = words(s.phrase); return w >= 4 && w <= 14 })
+    .map((s) => ({ s, score: [...keywordsOf(s.phrase)].filter((k) => subjectWords.has(k)).length }))
+    .filter((x) => x.score > 0)
+    .sort((a, b) => b.score - a.score || a.s.phrase.length - b.s.phrase.length)
+  const seen = new Set<string>()
+  const out: T[] = []
+  for (const { s } of scored) {
+    const key = s.phrase.toLowerCase()
+    if (seen.has(key)) continue
+    seen.add(key)
+    out.push(s)
+    if (out.length >= n) break
+  }
+  return out.length >= 10 ? out : shortPhrases(samples, n, 14)
 }
 
 interface ThemeDbRow {
