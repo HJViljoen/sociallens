@@ -3,6 +3,7 @@ import { createAdminClient, selectAll } from '../lib/supabase-admin'
 import { authorKey, handleVariants } from '../lib/gather/suppression'
 import { deleteCommentsProperly } from '../lib/retention/youtube-refresh-io'
 import { AI_LOG_BODY_RETENTION_DAYS, DEMO_CLIENT_ID } from '../lib/config'
+import { markSnapshotsStale } from '../lib/artifacts'
 
 // Erase one commenter on request (Tier 1.5, 2026-08-22). The privacy notice
 // says: write with the handle and platform and we will remove the comments tied
@@ -311,6 +312,38 @@ async function main() {
     console.log(`stored agent answers carrying the text: ${agentTurnsScrubbed} → ${args.apply ? 'scrubbed' : 'would be scrubbed'}`)
   }
 
+  // 7d. Operator edits of a written report. `report_edits.text` is a person's
+  //     own words typed over a block, saved literally (no scrub at write
+  //     time, deliberately) — so an operator who quoted a commenter while
+  //     editing has put that commenter's words in a table nothing else
+  //     reaches: the snapshot's own quotes are refs, and this text is not.
+  //     Same treatment as the report copies, and the snapshot's artifacts are
+  //     staled so the next download re-renders without the words.
+  let editsScrubbed = 0
+  if (clientIds.length && texts.length) {
+    const stored = await selectAll<{ id: string; snapshot_id: string; text: string }>(() =>
+      admin.from('report_edits').select('id, snapshot_id, text').in('client_id', clientIds).order('id', { ascending: true }),
+    )
+    const touchedSnapshots = new Set<string>()
+    for (const row of stored) {
+      let cleaned = row.text
+      for (const t of texts) cleaned = cleaned.split(t).join('[removed at the commenter\'s request]')
+      if (cleaned === row.text) continue
+      editsScrubbed++
+      touchedSnapshots.add(row.snapshot_id)
+      if (args.apply) {
+        const { error } = await admin.from('report_edits').update({ text: cleaned }).eq('id', row.id)
+        if (error) throw new Error(`scrub report_edits ${row.id}: ${error.message}`)
+      }
+    }
+    if (touchedSnapshots.size) {
+      const staled = await markSnapshotsStale(admin, [...touchedSnapshots], { apply: args.apply })
+      console.log(`edited report text carrying the words: ${editsScrubbed} of ${stored.length} → ${args.apply ? 'scrubbed' : 'would be scrubbed'}, ${staled.artifacts} export(s) ${args.apply ? 'flagged for re-render' : 'would be flagged'}`)
+    } else {
+      console.log(`edited report text carrying the words: 0 of ${stored.length}`)
+    }
+  }
+
   // 6. Suppression — every key variant we know of.
   const keys = [...new Set([authorKey(args.platform, args.handle), ...exactAuthors.map((a) => authorKey(args.platform, a))].filter((k): k is string => !!k))]
   console.log(`suppression keys (${args.platform}): ${keys.join(', ')} → ${args.apply ? 'recorded' : 'would be recorded'}`)
@@ -324,7 +357,7 @@ async function main() {
 
   console.log(`\n--- reply template ---
 We have removed the ${rows.length} comment(s) tied to ${args.handle} on ${args.platform} from Verbatim, together with every quote of them in our analysis${del.heroQuotesNulled ? ' and in report headlines' : ''}, and we have recorded the handle so it is not collected again.
-What we cannot undo: report emails and exported files already sent or downloaded by our customers before your request, and our AI provider's copy of any analysis input for its own retention period (up to 30 days).
+What we cannot undo: report emails and exported files already sent or downloaded by our customers before your request, and our AI provider's copy of any analysis input for its own retention period (up to 30 days).${editsScrubbed ? '\nWhere one of our customers had typed your words into a report of their own, we have replaced them and the report will re-print without them.' : ''}
 ${args.apply ? '' : '(DRY RUN — nothing has been changed yet.)'}`)
 }
 

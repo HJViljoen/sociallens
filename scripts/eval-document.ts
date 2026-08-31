@@ -13,6 +13,7 @@ import { createAdminClient } from '../lib/supabase-admin'
 import { DOCUMENT_BLOCK_MAX } from '../lib/config'
 import { isDocumentData, type DocumentSnapshotData, type DocumentWorkings } from '../lib/reports/documents/types'
 import { FIGURE_KEY_RE } from '../lib/reports/cover'
+import { collectQuoteRefs } from '../lib/renderables/quotes-freeze'
 
 const args = process.argv.slice(2)
 const ids = args.filter((a) => !a.startsWith('--'))
@@ -20,7 +21,7 @@ if (!ids.length) { console.error('give at least one snapshot id'); process.exit(
 
 interface Finding { ok: boolean; name: string; note?: string }
 
-function evaluate(data: DocumentSnapshotData, workings: DocumentWorkings | null): Finding[] {
+function evaluate(data: DocumentSnapshotData, workings: DocumentWorkings | null, evidenceIds: string[] = []): Finding[] {
   const out: Finding[] = []
   const f = (name: string, ok: boolean, note?: string) => out.push({ name, ok, note })
   const kinds = data.pages.map((p) => p.kind)
@@ -65,6 +66,13 @@ function evaluate(data: DocumentSnapshotData, workings: DocumentWorkings | null)
     console.log(`  · continuity: ${carried}/${heads.length} findings carried from the previous brief`)
     const wq = workings.points.flatMap((p) => p.quotes).filter((q) => q.text).length
     f('no quote text in the workings at rest', wq === 0, `${wq}`)
+    // Erasure finds a snapshot through evidence_ids alone. A voice cited only
+    // in the workings must be in there, or an erased commenter would keep
+    // being printed by a document nobody could find (T11).
+    const have = new Set(evidenceIds)
+    const cited = collectQuoteRefs({ data, workings })
+    const uncovered = cited.filter((r) => !have.has(r))
+    f('every voice the brief cites is in evidence_ids', uncovered.length === 0, uncovered.length ? `${uncovered.length} of ${cited.length} missing` : `${cited.length} refs`)
   } else f('workings present', false)
   return out
 }
@@ -73,9 +81,9 @@ async function main() {
   const admin = createAdminClient()
   let failed = 0
   for (const id of ids) {
-    const { data: row } = await admin.from('report_snapshots').select('id, client_id, data, workings').eq('id', id).maybeSingle()
+    const { data: row } = await admin.from('report_snapshots').select('id, client_id, data, workings, evidence_ids').eq('id', id).maybeSingle()
     if (!row || !isDocumentData(row.data)) { console.log(`✗ ${id}: not a document snapshot`); failed++; continue }
-    const res = evaluate(row.data, (row.workings as DocumentWorkings | null) ?? null)
+    const res = evaluate(row.data, (row.workings as DocumentWorkings | null) ?? null, (row.evidence_ids as string[] | null) ?? [])
     console.log(`\n${id.slice(0, 8)} · ${row.data.title} · ${row.data.pages.length + 1} pages`)
     for (const r of res) { console.log(`  ${r.ok ? '✓' : '✗'} ${r.name}${r.note ? ` (${r.note})` : ''}`); if (!r.ok) failed++ }
   }

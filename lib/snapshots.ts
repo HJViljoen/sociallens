@@ -53,7 +53,14 @@ export async function createSnapshot(
   },
 ): Promise<{ id: string; evidenceIds: string[] }> {
   const { data: frozen, refs } = freezeQuotes(args.data)
-  const workings = args.workings === undefined ? undefined : freezeQuotes(args.workings).data
+  // The workings cite more voices than the pages do: a finding prints one
+  // lead quote, its grounded points hold up to three each. `evidence_ids` is
+  // how erasure FINDS a snapshot, so it must carry both sets, or a document
+  // whose only citation of an erased commenter lives in the workings would
+  // keep printing them (T11, 2026-08-31).
+  const frozenWorkings = args.workings === undefined ? undefined : freezeQuotes(args.workings)
+  const workings = frozenWorkings?.data
+  const evidenceIds = frozenWorkings ? [...new Set([...refs, ...frozenWorkings.refs])] : refs
   const { data, error } = await admin
     .from('report_snapshots')
     .insert({
@@ -63,7 +70,7 @@ export async function createSnapshot(
       title: args.title,
       run_id: args.runId,
       data: frozen,
-      evidence_ids: refs,
+      evidence_ids: evidenceIds,
       created_by: args.userId,
       ...(args.reportId ? { report_id: args.reportId } : {}),
       ...(workings === undefined ? {} : { workings }),
@@ -71,7 +78,7 @@ export async function createSnapshot(
     .select('id')
     .single()
   if (error || !data) throw new Error(`snapshot: insert failed: ${error?.message ?? 'no row'}`)
-  return { id: data.id as string, evidenceIds: refs }
+  return { id: data.id as string, evidenceIds }
 }
 
 export async function loadSnapshot(admin: SupabaseClient, id: string): Promise<SnapshotRow | null> {
