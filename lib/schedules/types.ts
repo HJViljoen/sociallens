@@ -30,6 +30,8 @@ export interface ScheduleRow {
   /** 7 | 30 | 90 | null (never expires) */
   share_days: number | null
   active: boolean
+  /** Review before sending: the build waits as a `ready` send until a member delivers it. */
+  review: boolean
   /** The workspace's digest: the schedule an accepted invite joins. */
   is_default: boolean
   last_sent_at: string | null
@@ -38,7 +40,7 @@ export interface ScheduleRow {
   updated_at: string
 }
 
-export type SendStatus = 'claimed' | 'sent' | 'failed' | 'skipped'
+export type SendStatus = 'claimed' | 'ready' | 'sent' | 'failed' | 'skipped'
 
 export interface SendRow {
   id: string
@@ -56,4 +58,7 @@ export interface SendRow {
   error: string | null
   claimed_at: string
   sent_at: string | null
+  /** Who pressed Send on a review send (any member may). */
+  approved_by: string | null
+  ready_at: string | null
 }

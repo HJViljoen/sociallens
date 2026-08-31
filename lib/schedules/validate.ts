@@ -37,6 +37,7 @@ export const scheduleInputSchema = z
     attachPdf: z.boolean(),
     shareDays: shareDaysSchema,
     active: z.boolean(),
+    review: z.boolean().default(false),
   })
   .refine((s) => Boolean(s.starterKey) !== Boolean(s.reportId), { message: 'Pick one template.', path: ['starterKey'] })
 

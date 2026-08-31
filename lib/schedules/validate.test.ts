@@ -25,6 +25,10 @@ describe('scheduleInputSchema', () => {
     expect(scheduleInputSchema.safeParse({ ...base }).success).toBe(false)
     expect(scheduleInputSchema.safeParse({ ...base, starterKey: 'weekly_digest', reportId: '4f6c4a1c-2b2f-4d1a-9d3a-3e3f9a1b2c3d' }).success).toBe(false)
   })
+  it('review defaults to off and round-trips on', () => {
+    expect(scheduleInputSchema.parse({ ...base, starterKey: 'weekly_digest' }).review).toBe(false)
+    expect(scheduleInputSchema.parse({ ...base, starterKey: 'weekly_digest', review: true }).review).toBe(true)
+  })
   it('share-link life is 7, 30, 90 or never', () => {
     expect(scheduleInputSchema.safeParse({ ...base, starterKey: 'weekly_digest', shareDays: null }).success).toBe(true)
     expect(scheduleInputSchema.safeParse({ ...base, starterKey: 'weekly_digest', shareDays: 14 }).success).toBe(false)

@@ -153,6 +153,7 @@ export async function saveSchedule(args: { id?: string | null; input: ScheduleIn
     attach_pdf: s.attachPdf,
     share_days: s.shareDays,
     active: s.active,
+    review: s.review,
     updated_at: new Date().toISOString(),
   }
   const id = args.id ? z.uuid().safeParse(args.id).data ?? null : null

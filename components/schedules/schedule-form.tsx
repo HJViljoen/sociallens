@@ -39,6 +39,7 @@ export function ScheduleForm({ reportId, reportTitle, schedule, canManage, userE
   const [attachPdf, setAttachPdf] = useState(schedule?.attach_pdf ?? true)
   const [shareDays, setShareDays] = useState(schedule ? (schedule.share_days == null ? 'never' : String(schedule.share_days)) : '30')
   const [active, setActive] = useState(schedule?.active ?? true)
+  const [review, setReview] = useState(schedule?.review ?? false)
   const [status, setStatus] = useState<{ ok: boolean; message: string } | null>(null)
   const [confirm, setConfirm] = useState<'send' | 'delete' | null>(null)
   const [preview, setPreview] = useState(false)
@@ -60,6 +61,7 @@ export function ScheduleForm({ reportId, reportTitle, schedule, canManage, userE
         attachPdf,
         shareDays: shareDays === 'never' ? null : (Number(shareDays) as 7 | 30 | 90),
         active,
+        review,
       },
     })
     setStatus(r)
@@ -114,7 +116,9 @@ export function ScheduleForm({ reportId, reportTitle, schedule, canManage, userE
       <div className="flex flex-wrap items-center gap-5 text-[13px]">
         <label className="flex items-center gap-2"><input type="checkbox" checked={attachPdf} disabled={readOnly} onChange={(e) => setAttachPdf(e.target.checked)} className="size-3.5 accent-primary" /> Attach the PDF</label>
         <label className="flex items-center gap-2"><input type="checkbox" checked={active} disabled={readOnly} onChange={(e) => setActive(e.target.checked)} className="size-3.5 accent-primary" /> Sending is on</label>
+        <label className="flex items-center gap-2"><input type="checkbox" checked={review} disabled={readOnly} onChange={(e) => setReview(e.target.checked)} className="size-3.5 accent-primary" /> Review before sending</label>
       </div>
+      {review && <p className="-mt-2 text-[11px] text-muted-foreground">Everyone in this workspace gets an email when it is ready; any of them can read, edit and send it. Nothing goes to the list above until then.</p>}
 
       {canManage && (
         <div className="flex flex-wrap items-center gap-2 border-t border-border/60 pt-4">
