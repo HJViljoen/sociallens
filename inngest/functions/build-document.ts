@@ -50,8 +50,11 @@ export const buildDocument = inngest.createFunction(
       await failBuild(admin, buildId, message)
       // A schedule is waiting on this one: its send row must say so too, or it
       // sits claimed until the stale window and the Studio shows nothing.
+      // Only a row still mid-flight: a row that already reached `ready` was
+      // delivered to the reviewers, and a lost response on a later retry must
+      // not take that away from them.
       const sendId = original?.data?.sendId
-      if (sendId) await admin.from('report_sends').update({ status: 'failed', error: message.slice(0, 500) }).eq('id', sendId).in('status', ['claimed', 'ready'])
+      if (sendId) await admin.from('report_sends').update({ status: 'failed', error: message.slice(0, 500) }).eq('id', sendId).eq('status', 'claimed')
     },
   },
   async ({ event, step }) => {

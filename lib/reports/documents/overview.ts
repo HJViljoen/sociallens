@@ -47,9 +47,3 @@ export function inShortSummary(data: DocumentSnapshotData): string {
   const page = data.pages.find((p) => p.kind === 'in_short')
   return page?.blocks.find((b) => b.field === 'summary')?.text ?? ''
 }
-
-/** What is not settled this update (at most three, as the paper shows). */
-export function notSettled(data: DocumentSnapshotData): string[] {
-  const page = data.pages.find((p) => p.kind === 'in_short')
-  return (page?.blocks.find((b) => b.field === 'not_sure')?.items ?? []).slice(0, 3)
-}

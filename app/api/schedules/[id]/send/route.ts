@@ -56,7 +56,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
 
   const r = await runSchedule({ admin, schedule: schedule as ScheduleRow, runId, baseUrl: appBaseUrl(), renderBaseUrl: renderBaseUrl(appBaseUrl()), mode, to: mode === 'test' ? [session.email!] : undefined })
   return NextResponse.json(
-    { status: r.status, subject: r.subject, shareUrl: r.shareUrl, ms: r.ms, error: r.error, to: mode === 'test' ? session.email : (schedule as ScheduleRow).recipients },
+    { status: r.status, subject: r.subject, shareUrl: r.shareUrl, notified: r.notified, ms: r.ms, error: r.error, to: mode === 'test' ? session.email : (schedule as ScheduleRow).recipients },
     { status: r.status === 'failed' ? 500 : 200 },
   )
 }

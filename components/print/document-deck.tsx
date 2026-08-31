@@ -108,9 +108,10 @@ function StatTile({ value, label }: { value: string; label: string }) {
 function OverviewPage({ page, data }: { page: DocPage; data: DocumentSnapshotData }) {
   const f = data.figures
   const summary = page.blocks.find((b) => b.field === 'summary')
-  // The numbers, the headlines and the not-settled list are derived in
+  // The numbers and the headlines are derived in
   // lib/reports/documents/overview.ts — the email reads the same functions, so
-  // the paper and the email cannot drift.
+  // the paper and the email cannot drift. (The not-settled list stays local:
+  // it is the page's own block, and the email does not carry it.)
   const findings = findingHeadlines(data)
   const notSureBlock = page.blocks.find((b) => b.field === 'not_sure')
   const notSure = notSureBlock?.items ?? []
@@ -129,7 +130,7 @@ function OverviewPage({ page, data }: { page: DocPage; data: DocumentSnapshotDat
               {findings.map((h, i) => (
                 <li key={i} className="flex items-baseline gap-4 text-[16px] leading-[1.4] text-foreground">
                   <span className="w-6 shrink-0 font-mono text-[13px] tabular-nums text-primary">{i + 1}</span>
-                  <span className="font-medium">{h}</span>
+                  <span className="font-medium"><Figured text={h} figures={f} /></span>
                 </li>
               ))}
             </ol>
@@ -179,7 +180,7 @@ function FindingPage({ page, figures, company }: { page: DocPage; figures: Figur
   return (
     <div className="flex h-full min-h-0 flex-col gap-5">
       <div className="flex items-end justify-between gap-8">
-        {headline && <BlockSlot block={headline} textClass="max-w-[30ch] text-[32px] font-semibold leading-[1.12] tracking-[-0.02em] text-foreground"><h2 className="max-w-[30ch] text-[32px] font-semibold leading-[1.12] tracking-[-0.02em] text-foreground [text-wrap:balance]">{headline.text}</h2></BlockSlot>}
+        {headline && <BlockSlot block={headline} textClass="max-w-[30ch] text-[32px] font-semibold leading-[1.12] tracking-[-0.02em] text-foreground"><h2 className="max-w-[30ch] text-[32px] font-semibold leading-[1.12] tracking-[-0.02em] text-foreground [text-wrap:balance]"><Figured text={headline.text} figures={figures} /></h2></BlockSlot>}
         <div className="flex shrink-0 flex-wrap justify-end gap-1.5 pb-1">
           {audiencePills(page.meta?.audiences ?? '', company)}
           {history && <Pill tone={history.startsWith('new') ? 'new' : 'plain'}>{history}</Pill>}

@@ -164,13 +164,17 @@ export default async function StudioPage({ searchParams }: { searchParams?: Prom
                   canManage={canManage}
                   userEmail={email ?? null}
                   sendable={sendable}
+                  isDocument={isDocument}
                   ready={readySend ? { id: readySend.id, subject: readySend.subject, readyAt: readySend.ready_at, error: readySend.error ? sendFailureSentence(readySend.error) : null } : null}
                 />
                 {history.length > 0 && (
                   <ul className="mt-4 flex flex-col gap-1.5 border-t border-border/60 pt-3">
                     {history.map((s) => (
                       <li key={s.id} className="flex flex-wrap items-baseline gap-x-3 text-[12.5px]">
-                        <Link href={`/dashboard/reports?group=sent&item=${s.id}`} className="font-medium underline-offset-2 hover:underline">{s.subject ?? 'Update'}</Link>
+                        {/* A ready send has no archive page yet: Reports lists what went out. */}
+                        {s.status === 'ready'
+                          ? <span className="font-medium">{s.subject ?? 'Update'}</span>
+                          : <Link href={`/dashboard/reports?group=sent&item=${s.id}`} className="font-medium underline-offset-2 hover:underline">{s.subject ?? 'Update'}</Link>}
                         <span className="font-mono text-[10.5px] text-muted-foreground">
                           {s.status === 'sent' && s.sent_at
                             ? `sent ${fmtWhen(s.sent_at)} to ${s.recipients.length}${s.approved_by ? ` · sent by ${nameOf.get(s.approved_by) ?? 'a teammate'}` : ''}`

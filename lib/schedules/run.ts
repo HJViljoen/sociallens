@@ -65,11 +65,13 @@ export interface RunScheduleResult {
   subject?: string
   html?: string
   text?: string
+  /** 'ready': whether the workspace was actually emailed about it. */
+  notified?: boolean
   ms: number
   error?: string
 }
 
-type Claim = { status: 'claimed'; id: string } | { status: 'already_sent' | 'skipped'; id: string }
+type Claim = { status: 'claimed'; id: string } | { status: 'already_sent' | 'waiting' | 'skipped'; id: string }
 
 /** The row for (schedule, run): new → claimed; sent → already_sent; a young
  *  claim → skipped; failed / skipped / stale → taken over. The takeover is a
@@ -171,6 +173,9 @@ export async function runSchedule(a: RunScheduleArgs): Promise<RunScheduleResult
 
   if (recording) {
     const claim = await claimSend(admin, schedule, runId)
+    // 'waiting': this update is already built and sitting with the reviewers.
+    // Sending it is their Send, not another build.
+    if (claim.status === 'waiting') return { status: 'ready', sendId: claim.id, ms: ms() }
     if (claim.status !== 'claimed') return { status: claim.status, sendId: claim.id, ms: ms() }
     sendId = claim.id
   }
@@ -245,16 +250,21 @@ export async function runSchedule(a: RunScheduleArgs): Promise<RunScheduleResult
       pdfFilename = artifactFilename(snap.title, artifact)
       await logExport(admin, { clientId: schedule.client_id, userId: null, snapshotId, artifactId: artifact.id, action: 'export', kind: 'report', format: 'pdf' })
 
-      // 4. The link the email carries. Open with the link; the schedule's life; no password.
-      const token = mintShareToken()
-      const { data: link, error: linkError } = await admin
-        .from('share_links')
-        .insert({ client_id: schedule.client_id, snapshot_id: snapshotId, token, title: snap.title, expires_at: expiryFromDays(schedule.share_days), password_hash: null, created_by: null })
-        .select('id')
-        .single()
-      if (linkError || !link) throw new Error(`send: share link failed: ${linkError?.message ?? 'no row'}`)
-      shareLinkId = (link as { id: string }).id
-      shareUrl = `${a.baseUrl}/r/${token}`
+      // 4. The link the email carries. Open with the link; the schedule's life;
+      // no password. A review send mints nothing here: a report that is never
+      // approved must not leave a public link behind. deliverSend mints one
+      // when a member sends it.
+      if (!reviewing) {
+        const token = mintShareToken()
+        const { data: link, error: linkError } = await admin
+          .from('share_links')
+          .insert({ client_id: schedule.client_id, snapshot_id: snapshotId, token, title: snap.title, expires_at: expiryFromDays(schedule.share_days), password_hash: null, created_by: null })
+          .select('id')
+          .single()
+        if (linkError || !link) throw new Error(`send: share link failed: ${linkError?.message ?? 'no row'}`)
+        shareLinkId = (link as { id: string }).id
+        shareUrl = `${a.baseUrl}/r/${token}`
+      }
     }
 
     // 4b. A review schedule stops here: the build stands as a `ready` send,
@@ -272,7 +282,7 @@ export async function runSchedule(a: RunScheduleArgs): Promise<RunScheduleResult
         await mark('failed', ready.error ?? 'Could not put this out for review.')
         return { status: 'failed', sendId, snapshotId, artifactId, ms: ms(), error: ready.error }
       }
-      return { status: 'ready', sendId, snapshotId, artifactId, shareUrl: shareUrl ?? undefined, subject: ready.subject, ms: ms() }
+      return { status: 'ready', sendId, snapshotId, artifactId, shareUrl: shareUrl ?? undefined, subject: ready.subject, notified: ready.notified, ms: ms() }
     }
 
     // 5. The email, from the same data the paper was printed from.

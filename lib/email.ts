@@ -143,7 +143,7 @@ export async function sendReviewEmail(review: ReviewEmail): Promise<{ sent: bool
     console.log(`[email:stub] review "${review.reportTitle}" ready -> ${review.to.join(', ') || '(no members)'}: ${review.studioUrl}`)
     return { sent: false }
   }
-  const subject = `${review.companyName}: ${review.reportTitle} is ready for review`
+  const subject = review.companyName ? `${review.companyName}: ${review.reportTitle} is ready for review` : `${review.reportTitle} is ready for review`
   const text = [
     `${review.reportTitle} was built on ${review.builtOn} from the latest update.`,
     ``,

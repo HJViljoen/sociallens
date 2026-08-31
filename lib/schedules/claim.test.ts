@@ -12,6 +12,11 @@ describe('claimDecision — one email per schedule per update', () => {
   it('a young claim belongs to whoever is on it', () => {
     expect(claimDecision({ id: 'a', status: 'claimed', claimed_at: at(SCHEDULE_CLAIM_STALE_MS - 1000) }, now)).toBe('skipped')
   })
+  it('a build waiting for review is never taken over, however old', () => {
+    // Taking it over would discard a reviewed brief and its edits, and pay to
+    // write another one.
+    expect(claimDecision({ id: 'a', status: 'ready', claimed_at: at(SCHEDULE_CLAIM_STALE_MS * 10) }, now)).toBe('waiting')
+  })
   it('a stale claim, a failure or a skip is taken over', () => {
     expect(claimDecision({ id: 'a', status: 'claimed', claimed_at: at(SCHEDULE_CLAIM_STALE_MS + 1000) }, now)).toBe('takeover')
     expect(claimDecision({ id: 'a', status: 'failed', claimed_at: at(1000) }, now)).toBe('takeover')

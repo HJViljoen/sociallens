@@ -116,8 +116,18 @@ async function main() {
       t = await text(page)
       check('the control counts and says where the build is', /Building · \d+:\d\d/.test(t) && /(Queued|Reading the update|Starting|Picking up)/.test(t), t.match(/Building · [^\n]+\n[^\n]+/)?.[0])
       await shot('03-building')
-      const outcome = await page.waitForFunction(() => { const m = document.body.innerText.match(/(Built\.|The build failed[^\n]*|Not a document[^\n]*|Nothing to write[^\n]*|Couldn[^\n]*|failed[^\n]*)/); return m ? m[0] : false }, { timeout: 480_000 })
-        .then((h) => h.jsonValue() as Promise<string>).catch(() => 'timed out')
+      // Polled in short reads, never one long wait: puppeteer's protocol
+      // timeout is 180 s, so a single waitForFunction cannot outlast a build
+      // that takes longer (it reported "timed out" at 180 s while the build
+      // was still writing).
+      const ENDED = /(Built\.|The build failed[^\n]*|Not a document[^\n]*|Nothing to write[^\n]*|Couldn[^\n]*|failed[^\n]*)/
+      let outcome = 'timed out'
+      const until = Date.now() + 480_000
+      while (Date.now() < until) {
+        const found = (await text(page).catch(() => '')).match(ENDED)?.[0]
+        if (found) { outcome = found; break }
+        await settle(3000)
+      }
       const secs = Math.round((Date.now() - t0) / 1000)
       check(`the build ends Built (in ${secs} s)`, outcome === 'Built.', outcome)
       const { data: build } = await admin.from('report_builds').select('status, cost_usd, snapshot_id, artifact_id, needs_review, error').eq('report_id', reportId!).order('started_at', { ascending: false }).limit(1).single()

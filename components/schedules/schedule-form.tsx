@@ -26,6 +26,8 @@ interface Props {
   sendable: boolean
   /** A build waiting for a person: any member may read it and send it. */
   ready?: { id: string; subject: string | null; readyAt: string | null; error: string | null } | null
+  /** A written report is edited block by block before it goes; an arranged one is not. */
+  isDocument?: boolean
 }
 
 const inputCls = 'h-8 w-full rounded-[4px] border border-input bg-tile px-2.5 text-[13px] outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:opacity-60'
@@ -34,7 +36,7 @@ const btn = 'inline-flex h-8 items-center rounded-full px-3 text-[12px] font-med
 const btnPrimary = `${btn} bg-primary text-primary-foreground hover:bg-accent-foreground`
 const btnQuiet = `${btn} bg-tile text-secondary-foreground ring-1 ring-border hover:bg-inner`
 
-export function ScheduleForm({ reportId, reportTitle, schedule, canManage, userEmail, sendable, ready }: Props) {
+export function ScheduleForm({ reportId, reportTitle, schedule, canManage, userEmail, sendable, ready, isDocument }: Props) {
   const router = useRouter()
   const [pending, start] = useTransition()
   const [cadence, setCadence] = useState<ScheduleRow['cadence']>(schedule?.cadence ?? 'every_update')
@@ -77,10 +79,11 @@ export function ScheduleForm({ reportId, reportTitle, schedule, canManage, userE
     try {
       const body = mode === 'deliver' ? { mode, sendId: ready?.id } : { mode }
       const r = await fetch(`/api/schedules/${schedule.id}/send`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) })
-      const j = (await r.json().catch(() => ({}))) as { status?: string; error?: string; to?: string | string[]; subject?: string }
+      const j = (await r.json().catch(() => ({}))) as { status?: string; error?: string; to?: string | string[]; subject?: string; notified?: boolean }
       if (!r.ok) setStatus({ ok: false, message: j.error ?? 'Could not send. Try again.' })
       else if (j.status === 'sent') setStatus({ ok: true, message: mode === 'test' ? `Sent to ${j.to}: "${j.subject}".` : `Sent to ${Array.isArray(j.to) ? j.to.length : 0} people: "${j.subject}".` })
-      else if (j.status === 'ready') setStatus({ ok: true, message: 'Built and waiting for review. Everyone in the workspace was told by email.' })
+      else if (j.status === 'enqueued') setStatus({ ok: true, message: 'Writing it now. It goes out when it is done, or comes back here for review.' })
+      else if (j.status === 'ready') setStatus({ ok: true, message: `Built and waiting for review${j.notified ? '; everyone in this workspace was emailed' : ''}. Use Send it above when you have read it.` })
       else if (j.status === 'already_sent') setStatus({ ok: true, message: 'This update already went out to this list.' })
       else if (j.status === 'skipped') setStatus({ ok: false, message: j.error ?? 'Nothing was sent.' })
       else setStatus({ ok: false, message: j.error ?? 'Could not send.' })
@@ -102,7 +105,7 @@ export function ScheduleForm({ reportId, reportTitle, schedule, canManage, userE
             Ready for review{readyOn ? ` · built ${readyOn}` : ''}
           </p>
           <p className="text-[12px] leading-[1.45] text-muted-foreground">
-            Read it, change anything that needs changing, then send it to {schedule.recipients.length} {schedule.recipients.length === 1 ? 'person' : 'people'}. Anyone here can send it.
+            {isDocument ? 'Read it, change anything that needs changing, then send it' : 'Read it, then send it'} to {schedule.recipients.length} {schedule.recipients.length === 1 ? 'person' : 'people'}. Anyone here can send it.
           </p>
           {ready.error && <p className="text-[12px] text-negative">The last attempt did not go: {ready.error}</p>}
           <div className="mt-1 flex flex-wrap items-center gap-2">
@@ -117,7 +120,9 @@ export function ScheduleForm({ reportId, reportTitle, schedule, canManage, userE
                 {busy === 'deliver' ? <><LoaderCircle className="mr-1.5 size-3 animate-spin" aria-hidden /> Sending…</> : 'Send it'}
               </button>
             )}
-            <Link href={`/dashboard/studio/edit/${reportId}`} className={btnQuiet}>Read and edit it</Link>
+            {isDocument
+              ? <Link href={`/dashboard/studio/edit/${reportId}`} className={btnQuiet}>Read and edit it</Link>
+              : <button type="button" onClick={() => setPreview((v) => !v)} className={btnQuiet}>{preview ? 'Hide the email' : 'Read the email'}</button>}
           </div>
         </div>
       )}

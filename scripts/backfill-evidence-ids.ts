@@ -13,7 +13,7 @@
  *
  * Dry run by default: prints what each snapshot would gain.
  */
-import { createAdminClient } from '../lib/supabase-admin'
+import { createAdminClient, selectAll } from '../lib/supabase-admin'
 import { collectQuoteRefs } from '../lib/renderables/quotes-freeze'
 
 const args = process.argv.slice(2)
@@ -22,11 +22,13 @@ const clientId = args.includes('--client') ? args[args.indexOf('--client') + 1] 
 
 async function main() {
   const admin = createAdminClient()
-  let q = admin.from('report_snapshots').select('id, client_id, title, evidence_ids, workings').not('workings', 'is', null).order('created_at')
-  if (clientId) q = q.eq('client_id', clientId)
-  const { data, error } = await q
-  if (error) throw new Error(`report_snapshots: read failed: ${error.message}`)
-  const rows = (data ?? []) as { id: string; client_id: string; title: string; evidence_ids: string[] | null; workings: unknown }[]
+  // selectAll, not a bare select: a silent 1000-row cap would leave part of an
+  // erasure fixture unrepaired, which is exactly what must not happen here.
+  const rows = await selectAll<{ id: string; client_id: string; title: string; evidence_ids: string[] | null; workings: unknown }>(() => {
+    let q = admin.from('report_snapshots').select('id, client_id, title, evidence_ids, workings').not('workings', 'is', null).order('id', { ascending: true })
+    if (clientId) q = q.eq('client_id', clientId)
+    return q
+  })
   console.log(`${rows.length} snapshot(s) with workings${clientId ? ` for client ${clientId}` : ''}${apply ? '' : ' — DRY RUN (add --apply to write)'}\n`)
 
   let changed = 0

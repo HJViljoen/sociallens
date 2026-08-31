@@ -42,8 +42,11 @@ function NumberCell({ value, label }: { value: string; label: string }) {
 
 export function DocumentBriefEmail({ data, shareUrl, appUrl, attached, preheader }: DocumentBriefEmailProps) {
   const tiles = overviewTiles(data)
-  const summary = coverPlainText(inShortSummary(data), data.figures)
-  const headlines = findingHeadlines(data)
+  // Substituted per paragraph, so the summary keeps the breaks it has on
+  // paper; substituted at all, so a headline the writer put a figure key in
+  // never reaches an inbox as [[key]].
+  const paragraphs = inShortSummary(data).split(/\n\n+/).map((p) => coverPlainText(p, data.figures)).filter(Boolean)
+  const headlines = findingHeadlines(data).map((h) => coverPlainText(h, data.figures)).filter(Boolean)
   const m = data.method
 
   return (
@@ -83,9 +86,9 @@ export function DocumentBriefEmail({ data, shareUrl, appUrl, attached, preheader
                             </tbody>
                           </table>
                         ) : null}
-                        {summary ? (
+                        {paragraphs.length ? (
                           <Section title="In short">
-                            {summary.split(/\n\n+/).filter(Boolean).map((p, i) => (
+                            {paragraphs.map((p, i) => (
                               <p key={i} style={{ ...text.body, margin: i === 0 ? 0 : '10px 0 0' }}>{p}</p>
                             ))}
                           </Section>

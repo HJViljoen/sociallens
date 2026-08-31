@@ -60,10 +60,13 @@ const EMAIL_FAILED = 'email not sent, provider not configured or the send failed
 export async function readyForReview(
   admin: SupabaseClient,
   a: { sendId: string; baseUrl: string },
-): Promise<{ status: 'ready' | 'failed'; subject?: string; error?: string }> {
+): Promise<{ status: 'ready' | 'failed'; subject?: string; error?: string; notified?: boolean }> {
   const { data: sendRow } = await admin.from('report_sends').select('*').eq('id', a.sendId).maybeSingle()
   const row = sendRow as SendRow | null
   if (!row?.snapshot_id) return { status: 'failed', error: 'This send did not build, so there is nothing to review.' }
+  // Already waiting: a retried step (a lost response, a redeploy) must not
+  // email the whole workspace a second time.
+  if (row.status === 'ready' && row.ready_at) return { status: 'ready', subject: row.subject ?? undefined, notified: false }
   const snapRow = await loadSnapshot(admin, row.snapshot_id)
   if (!snapRow) return { status: 'failed', error: 'The built report is gone.' }
 
@@ -86,14 +89,17 @@ export async function readyForReview(
   // The report's own name, not the snapshot's: a snapshot title carries the
   // company, and the subject already leads with it.
   const { data: report } = reportId ? await admin.from('reports').select('title').eq('id', reportId).maybeSingle() : { data: null }
-  await sendReviewEmail({
+  const { sent } = await sendReviewEmail({
     to: members,
     companyName: (client?.company_name as string | undefined) ?? '',
     reportTitle: (report?.title as string | undefined) ?? snapRow.title,
     builtOn: new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' }),
     studioUrl: `${a.baseUrl}/dashboard/studio${reportId ? `?item=${reportId}` : ''}`,
   })
-  return { status: 'ready', subject }
+  // The build stands either way; the copy must not claim an email that the
+  // provider refused or that no provider was configured to send.
+  if (!sent) console.warn(`[deliver ${a.sendId}] the review email was not sent (${members.length} member(s))`)
+  return { status: 'ready', subject, notified: sent }
 }
 
 export async function deliverSend(a: DeliverArgs): Promise<DeliverResult> {
@@ -112,51 +118,55 @@ export async function deliverSend(a: DeliverArgs): Promise<DeliverResult> {
   if (!scheduleRow) return { status: 'failed', ms: ms(), error: 'The schedule this send belonged to was removed.' }
   const schedule = scheduleRow as ScheduleRow
 
-  // Take the row before rendering anything, so two Sends deliver once.
-  if (a.mode === 'review') {
-    if (row.status === 'ready') {
-      const { data: taken } = await admin
-        .from('report_sends')
-        .update({ status: 'claimed', claimed_at: new Date().toISOString(), error: null })
-        .eq('id', sendId)
-        .eq('status', 'ready')
-        .select('id')
-        .maybeSingle()
-      if (!taken) return { status: 'skipped', ms: ms(), error: 'Someone else is sending it right now.' }
-    } else if (row.status === 'claimed') {
-      const decision = claimDecision(row as ExistingSend, Date.now())
-      if (decision === 'skipped') return { status: 'skipped', ms: ms(), error: 'Someone else is sending it right now.' }
-      const { data: taken } = await admin
-        .from('report_sends')
-        .update({ status: 'claimed', claimed_at: new Date().toISOString(), error: null })
-        .eq('id', sendId)
-        .eq('claimed_at', row.claimed_at)
-        .select('id')
-        .maybeSingle()
-      if (!taken) return { status: 'skipped', ms: ms(), error: 'Someone else is sending it right now.' }
-    } else {
-      return { status: 'failed', ms: ms(), error: 'This send did not build, so there is nothing to deliver.' }
+  // Nothing is delivered without a build behind it, whichever door this is:
+  // a stale `claimed` row from a build that died has no snapshot, and must
+  // never be promoted to a Send button by the failure path below.
+  if (!row.snapshot_id) return { status: 'failed', ms: ms(), error: 'This send did not build, so there is nothing to deliver.' }
+
+  // Take the row before rendering anything, so two Sends deliver once. Both
+  // doors compare-and-set: the review door on `ready` (or on the claimed_at of
+  // a stale claim), the automatic one on the claim the runner made — an
+  // Inngest step retry that overlaps the first attempt must not send twice.
+  const wasReady = row.status === 'ready'
+  if (row.status === 'ready') {
+    const { data: taken } = await admin
+      .from('report_sends')
+      .update({ status: 'claimed', claimed_at: new Date().toISOString(), error: null })
+      .eq('id', sendId)
+      .eq('status', 'ready')
+      .select('id')
+      .maybeSingle()
+    if (!taken) return { status: 'skipped', ms: ms(), error: 'Someone else is sending it right now.' }
+  } else if (row.status === 'claimed') {
+    // A young claim on the review door belongs to whoever is on it. On the
+    // automatic door the claim IS ours (the runner made it), so we take it by
+    // its timestamp and a second attempt finds the timestamp moved.
+    if (a.mode === 'review' && claimDecision(row as ExistingSend, Date.now()) === 'skipped') {
+      return { status: 'skipped', ms: ms(), error: 'Someone else is sending it right now.' }
     }
-  } else if (row.status !== 'claimed' && row.status !== 'ready') {
+    const { data: taken } = await admin
+      .from('report_sends')
+      .update({ status: 'claimed', claimed_at: new Date().toISOString(), error: null })
+      .eq('id', sendId)
+      .eq('claimed_at', row.claimed_at)
+      .select('id')
+      .maybeSingle()
+    if (!taken) return { status: 'skipped', ms: ms(), error: 'Someone else is sending it right now.' }
+  } else {
     return { status: 'failed', ms: ms(), error: 'This send did not build, so there is nothing to deliver.' }
   }
 
-  // A failure on the review door puts the row back to ready — the build
-  // stands, and Send can be pressed again. On the auto door it is a failed
-  // scheduled send, plainly.
+  // A failure on a build that was waiting for a person puts it back to
+  // `ready` — the build stands and Send can be pressed again. A failure on a
+  // scheduled send that was never reviewed is a failed send, plainly.
   const failAs = async (error: string): Promise<DeliverResult> => {
-    if (a.mode === 'review') {
-      await admin.from('report_sends').update({ status: 'ready', error: error.slice(0, 500) }).eq('id', sendId)
-    } else {
-      await admin.from('report_sends').update({ status: 'failed', error: error.slice(0, 500) }).eq('id', sendId)
-    }
+    await admin.from('report_sends').update({ status: wasReady ? 'ready' : 'failed', error: error.slice(0, 500) }).eq('id', sendId)
     return { status: 'failed', ms: ms(), error }
   }
 
   try {
     const to = schedule.recipients
     if (!to.length) return await failAs('no recipients')
-    if (!row.snapshot_id) return await failAs('This send did not build, so there is nothing to deliver.')
 
     const snapRow = await loadSnapshot(admin, row.snapshot_id)
     if (!snapRow || snapRow.client_id !== schedule.client_id) return await failAs('The built report is gone.')
@@ -196,8 +206,13 @@ export async function deliverSend(a: DeliverArgs): Promise<DeliverResult> {
     let shareUrl: string | null = null
     let shareLinkId = row.share_link_id
     if (shareLinkId) {
-      const { data: link } = await admin.from('share_links').select('token').eq('id', shareLinkId).maybeSingle()
-      if (link) shareUrl = `${a.baseUrl}/r/${(link as { token: string }).token}`
+      // A link a member revoked between the build and the Send is not a link:
+      // mint a fresh one rather than email a dead one.
+      const { data: link } = await admin.from('share_links').select('token, revoked_at, expires_at').eq('id', shareLinkId).maybeSingle()
+      const l = link as { token: string; revoked_at: string | null; expires_at: string | null } | null
+      const dead = !l || l.revoked_at != null || (l.expires_at != null && new Date(l.expires_at).getTime() <= Date.now())
+      if (dead) shareLinkId = null
+      else shareUrl = `${a.baseUrl}/r/${l!.token}`
     }
     if (!shareUrl) {
       const token = mintShareToken()
