@@ -1,10 +1,11 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { artifactFilename, logExport, storeArtifact } from '../artifacts'
-import { sendReportEmail, type EmailAttachment } from '../email'
+import { sendReportEmail, sendReviewEmail, type EmailAttachment } from '../email'
 import { EMAIL_IMAGE_TILES, renderDigestEmail } from '../email/digest'
 import { renderMany } from '../render/render'
 import { BuildEmptyError, snapshotReport } from '../reports/build'
 import { expiryFromDays, mintShareToken } from '../reports/share'
+import { memberEmails } from './members'
 import { resolveScheduleReport } from './resolve'
 import { claimDecision, pruneInlineImages, type ExistingSend } from './claim'
 import type { ScheduleRow } from './types'
@@ -49,7 +50,7 @@ export interface RunScheduleArgs {
 }
 
 export interface RunScheduleResult {
-  status: 'sent' | 'already_sent' | 'skipped' | 'failed' | 'preview'
+  status: 'sent' | 'ready' | 'already_sent' | 'skipped' | 'failed' | 'preview'
   sendId?: string
   snapshotId?: string
   artifactId?: string
@@ -150,7 +151,10 @@ export async function runSchedule(a: RunScheduleArgs): Promise<RunScheduleResult
     }
 
     // 3. The PDF, then the PNGs the email may carry inline, one browser session.
-    const imageTiles = EMAIL_IMAGE_TILES.filter((k) => {
+    // A review build renders no PNGs: the recipient email comes later, from
+    // deliverSend, which renders its own.
+    const reviewing = recording && schedule.review
+    const imageTiles = reviewing ? [] : EMAIL_IMAGE_TILES.filter((k) => {
       const page = k.split('.')[0]
       return snap.data.sections.some((s) => s.section.page === page && (s.section.keys ? s.section.keys.includes(k) : true))
     })
@@ -182,6 +186,32 @@ export async function runSchedule(a: RunScheduleArgs): Promise<RunScheduleResult
       if (linkError || !link) throw new Error(`send: share link failed: ${linkError?.message ?? 'no row'}`)
       shareLinkId = (link as { id: string }).id
       shareUrl = `${a.baseUrl}/r/${token}`
+    }
+
+    // 4b. A review schedule stops here: the build stands as a `ready` send,
+    // the workspace's members get the review email, and a member's Send
+    // delivers it (deliverSend). Nothing reaches the recipients yet.
+    if (reviewing && sendId) {
+      const email = renderDigestEmail({ data: snap.data, shareUrl, appUrl: a.baseUrl, attached: schedule.attach_pdf, cadenceWord })
+      const now = new Date().toISOString()
+      await admin
+        .from('report_sends')
+        .update({
+          status: 'ready',
+          ready_at: now,
+          error: null,
+          subject: email.subject,
+          snapshot_id: snapshotId,
+          artifact_id: artifactId ?? null,
+          share_link_id: shareLinkId,
+        })
+        .eq('id', sendId)
+      if (schedule.report_id) await admin.from('reports').update({ status: 'built', latest_snapshot_id: snapshotId, updated_at: now }).eq('id', schedule.report_id)
+      const members = await memberEmails(admin, schedule.client_id)
+      const builtOn = new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })
+      const studioUrl = `${a.baseUrl}/dashboard/studio${schedule.report_id ? `?item=${schedule.report_id}` : ''}`
+      await sendReviewEmail({ to: members, companyName: resolved.company, reportTitle: snap.title, builtOn, studioUrl })
+      return { status: 'ready', sendId, snapshotId, artifactId, shareUrl: shareUrl ?? undefined, subject: email.subject, ms: ms() }
     }
 
     // 5. The email, from the same data the paper was printed from.

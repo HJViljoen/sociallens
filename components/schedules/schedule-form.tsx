@@ -76,6 +76,7 @@ export function ScheduleForm({ reportId, reportTitle, schedule, canManage, userE
       const j = (await r.json().catch(() => ({}))) as { status?: string; error?: string; to?: string | string[]; subject?: string }
       if (!r.ok) setStatus({ ok: false, message: j.error ?? 'Could not send. Try again.' })
       else if (j.status === 'sent') setStatus({ ok: true, message: mode === 'test' ? `Sent to ${j.to}: "${j.subject}".` : `Sent to ${Array.isArray(j.to) ? j.to.length : 0} people: "${j.subject}".` })
+      else if (j.status === 'ready') setStatus({ ok: true, message: 'Built and waiting for review. Everyone in the workspace was told by email.' })
       else if (j.status === 'already_sent') setStatus({ ok: true, message: 'This update already went out to this list.' })
       else if (j.status === 'skipped') setStatus({ ok: false, message: j.error ?? 'Nothing was sent.' })
       else setStatus({ ok: false, message: j.error ?? 'Could not send.' })

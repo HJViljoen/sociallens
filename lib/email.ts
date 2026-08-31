@@ -125,6 +125,69 @@ export async function sendLeadEmail(lead: LeadEmail): Promise<{ sent: boolean }>
   }
 }
 
+export interface ReviewEmail {
+  to: string[]
+  companyName: string
+  reportTitle: string
+  /** When the build finished, already formatted for reading. */
+  builtOn: string
+  studioUrl: string
+}
+
+// A report built on a review schedule is waiting for a person. Thin by design:
+// nothing from the report's content is in the email — the review IS the read,
+// and the body stays free of anything an erasure would have to chase. Same
+// optional posture as the rest of this module.
+export async function sendReviewEmail(review: ReviewEmail): Promise<{ sent: boolean }> {
+  if (!resend || !from || review.to.length === 0) {
+    console.log(`[email:stub] review "${review.reportTitle}" ready -> ${review.to.join(', ') || '(no members)'}: ${review.studioUrl}`)
+    return { sent: false }
+  }
+  const subject = `${review.companyName}: ${review.reportTitle} is ready for review`
+  const text = [
+    `${review.reportTitle} was built on ${review.builtOn} from the latest update.`,
+    ``,
+    `Read it, edit it if anything needs a change, then send it:`,
+    review.studioUrl,
+    ``,
+    `Nothing goes to the recipients until someone presses Send.`,
+  ].join('\n')
+  const html = `<!doctype html>
+<html>
+  <body style="margin:0;background:#f1f5f9;font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:#0f172a">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="padding:32px 16px">
+      <tr><td align="center">
+        <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:480px;background:#ffffff;border-radius:12px;padding:32px">
+          <tr><td>
+            <p style="margin:0 0 16px;font-size:16px;line-height:1.5">
+              <strong>${escapeHtml(review.reportTitle)}</strong> is ready for review.
+            </p>
+            <p style="margin:0 0 24px;font-size:14px;line-height:1.5;color:#475569">
+              Built on ${escapeHtml(review.builtOn)} from the latest update. Read it, edit it if anything needs a change, then send it. Nothing goes to the recipients until someone presses Send.
+            </p>
+            <a href="${review.studioUrl}"
+               style="display:inline-block;background:#1E40AF;color:#ffffff;text-decoration:none;font-weight:600;font-size:15px;padding:12px 24px;border-radius:8px">
+              Open in the Studio
+            </a>
+          </td></tr>
+        </table>
+      </td></tr>
+    </table>
+  </body>
+</html>`
+  try {
+    const { error } = await resend.emails.send({ from, to: review.to, subject, text, html })
+    if (error) {
+      console.error('[email] review send failed:', error)
+      return { sent: false }
+    }
+    return { sent: true }
+  } catch (err) {
+    console.error('[email] review send threw:', err)
+    return { sent: false }
+  }
+}
+
 export interface EmailAttachment {
   filename: string
   content: Buffer
