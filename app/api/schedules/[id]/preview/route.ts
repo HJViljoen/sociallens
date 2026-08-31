@@ -3,6 +3,9 @@ import { createAdminClient } from '@/lib/supabase-admin'
 import { appBaseUrl } from '@/lib/site'
 import { hydrateSnapshot, loadSnapshot } from '@/lib/snapshots'
 import { renderDigestEmail } from '@/lib/email/digest'
+import { renderDocumentEmail } from '@/lib/email/document-brief'
+import { loadEdits } from '@/lib/reports/documents/edits'
+import { isDocumentData } from '@/lib/reports/documents/types'
 import { runSchedule } from '@/lib/schedules/run'
 import type { ScheduleRow } from '@/lib/schedules/types'
 import type { ReportSnapshotData } from '@/lib/reports/types'
@@ -47,7 +50,27 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
       const l = link as { token: string; revoked_at: string | null } | null
       if (l && !l.revoked_at) shareUrl = `${appBaseUrl()}/r/${l.token}`
     }
+    if (isDocumentData(data)) {
+      // Edits are read fresh: an edit made a minute ago shows on the next open.
+      const edits = await loadEdits(admin, row.id)
+      return page(renderDocumentEmail({ data, edits, shareUrl, appUrl: appBaseUrl(), attached: s.attach_pdf }).html)
+    }
     return page(renderDigestEmail({ data, shareUrl, appUrl: appBaseUrl(), attached: s.attach_pdf, cadenceWord: s.cadence === 'monthly' ? 'monthly' : 'weekly' }).html)
+  }
+
+  // A written report is not built here: writing one costs money and minutes.
+  // The dry preview shows the email over the last brief this report built.
+  if (s.report_id) {
+    const { data: report } = await admin.from('reports').select('kind, latest_snapshot_id').eq('id', s.report_id).eq('client_id', session.clientId).maybeSingle()
+    const r = report as { kind: string | null; latest_snapshot_id: string | null } | null
+    if (r?.kind === 'document') {
+      const row = r.latest_snapshot_id ? await loadSnapshot(admin, r.latest_snapshot_id) : null
+      if (!row) return note('Nothing to show yet. Build this report once, and the email shows what would go out.', 409)
+      const data = await hydrateSnapshot<ReportSnapshotData>(admin, row)
+      if (!isDocumentData(data)) return note('This send has no stored build to show.', 404)
+      const edits = await loadEdits(admin, row.id)
+      return page(renderDocumentEmail({ data, edits, shareUrl: null, appUrl: appBaseUrl(), attached: s.attach_pdf }).html)
+    }
   }
 
   const { data: run } = await admin.from('pipeline_runs').select('id').eq('client_id', session.clientId).in('status', ['completed', 'partial']).order('completed_at', { ascending: false, nullsFirst: false }).limit(1).maybeSingle()

@@ -4,6 +4,7 @@ import { DeckFooter } from '@/components/print/report-deck'
 import { Slide } from '@/components/print/slide'
 import { substituteFigures } from '@/lib/reports/cover'
 import { documentSlides } from '@/lib/reports/documents/compose'
+import { findingHeadlines, overviewTiles, slugOf } from '@/lib/reports/documents/overview'
 import type { DocBlock, DocPage, DocumentSnapshotData } from '@/lib/reports/documents/types'
 import type { FigureTable } from '@/lib/reports/types'
 
@@ -24,7 +25,6 @@ import type { FigureTable } from '@/lib/reports/types'
 const fmtDate = (d: Date) => d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })
 const fmtCount = (n: number) => new Intl.NumberFormat('en-US').format(n)
 const PLATFORM: Record<string, string> = { tiktok: 'TikTok', instagram: 'Instagram', youtube: 'YouTube', reddit: 'Reddit' }
-const slugOf = (name: string) => name.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/(^_|_$)/g, '')
 
 const CARD = 'rounded-lg border border-border bg-tile'
 const BODY = 'text-[15.5px] leading-[1.55] text-foreground'
@@ -108,17 +108,13 @@ function StatTile({ value, label }: { value: string; label: string }) {
 function OverviewPage({ page, data }: { page: DocPage; data: DocumentSnapshotData }) {
   const f = data.figures
   const summary = page.blocks.find((b) => b.field === 'summary')
-  // Derived from the finding pages so an edited headline flows through.
-  const findings = data.pages.filter((p) => p.kind === 'finding').map((p) => p.blocks.find((x) => x.field === 'headline')?.text ?? '').filter(Boolean)
+  // The numbers, the headlines and the not-settled list are derived in
+  // lib/reports/documents/overview.ts — the email reads the same functions, so
+  // the paper and the email cannot drift.
+  const findings = findingHeadlines(data)
   const notSureBlock = page.blocks.find((b) => b.field === 'not_sure')
   const notSure = notSureBlock?.items ?? []
-  const competitor = data.pages.find((p) => p.kind === 'competitor')?.meta?.name
-  const compKey = competitor ? `${slugOf(competitor)}_share_pct` : null
-  const tiles = [
-    f.conversations && { value: f.conversations.value, label: `conversations read this update${f.videos ? `, on ${f.videos.value} videos` : ''}` },
-    f.client_share_pct && { value: f.client_share_pct.value, label: compKey && f[compKey] ? `${data.company}'s share of tracked conversation · ${competitor} ${f[compKey].value}` : `${data.company}'s share of tracked conversation` },
-    f.positive_pct && { value: f.positive_pct.value, label: 'positive, of the conversations judged for tone' },
-  ].filter(Boolean) as { value: string; label: string }[]
+  const tiles = overviewTiles(data)
   return (
     <div className="grid h-full min-h-0 grid-cols-[7fr_5fr] gap-x-12">
       <div className="flex min-h-0 flex-col gap-6">

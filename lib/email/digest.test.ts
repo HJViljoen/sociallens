@@ -109,6 +109,10 @@ describe('text helpers', () => {
     const text = htmlToText('<html><head><title>x</title></head><body><div>One &amp; two</div><table><tr><td>a</td><td>b</td></tr></table><a href="https://x.y/z">Open</a><p>Done&nbsp;now</p></body></html>')
     expect(text).toBe('One & two\na b\nOpen (https://x.y/z)\nDone now')
   })
+  it('htmlToText decodes hex entities too, so an apostrophe reads as one', () => {
+    // React writes an apostrophe as &#x27;: Össur&#x27;s must not reach an inbox.
+    expect(htmlToText('<p>Össur&#x27;s share &#8212; and &#x2019;s</p>')).toBe('Össur\'s share — and ’s')
+  })
   it('tokenHex maps tokens and classes to hex and never to nothing', () => {
     expect(tokenHex('var(--you)')).toBe(EMAIL.green)
     expect(tokenHex('bg-warning')).toBe(EMAIL.mixed)

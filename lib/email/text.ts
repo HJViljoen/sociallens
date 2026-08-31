@@ -32,7 +32,14 @@ export function htmlToText(html: string): string {
     .replace(/<\/?(p|div|tr|h[1-6]|li|blockquote|table)\b[^>]*>/gi, '\n')
     .replace(/<\/t[dh]>/gi, '  ')
     .replace(/<[^>]+>/g, '')
-    .replace(/&(#\d+|[a-z]+);/gi, (m, e: string) => (e.startsWith('#') ? String.fromCharCode(Number(e.slice(1))) : (ENTITIES[e.toLowerCase()] ?? m)))
+    // Numeric entities come in both bases: React writes an apostrophe as the
+    // hex &#x27;, so a company name like Össur's read as Össur&#x27;s here.
+    .replace(/&(#x[0-9a-f]+|#\d+|[a-z]+);/gi, (m, e: string) => {
+      const c = e.toLowerCase()
+      if (c.startsWith('#x')) return String.fromCodePoint(parseInt(c.slice(2), 16))
+      if (c.startsWith('#')) return String.fromCodePoint(Number(c.slice(1)))
+      return ENTITIES[c] ?? m
+    })
   s = s
     .split('\n')
     .map((l) => l.replace(/[ \t]+/g, ' ').trim())

@@ -2,6 +2,8 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { artifactFilename, logExport, replaceArtifactFile, storeArtifact, type ArtifactRow } from '../artifacts'
 import { sendReportEmail, type EmailAttachment } from '../email'
 import { EMAIL_IMAGE_TILES, renderDigestEmail } from '../email/digest'
+import { renderDocumentEmail } from '../email/document-brief'
+import { loadEdits } from '../reports/documents/edits'
 import { renderMany } from '../render/render'
 import { expiryFromDays, mintShareToken } from '../reports/share'
 import { isDocumentData } from '../reports/documents/types'
@@ -112,13 +114,11 @@ export async function deliverSend(a: DeliverArgs): Promise<DeliverResult> {
     if (!snapRow || snapRow.client_id !== schedule.client_id) return await failAs('The built report is gone.')
     const data = await hydrateSnapshot<ReportSnapshotData>(admin, snapRow)
 
-    if (isDocumentData(data)) {
-      // T10 wires the document email; until then the door stays closed plainly.
-      return await failAs('Sending a written report by email is not ready yet.')
-    }
-
+    // A written report carries no inline tile pictures: its pages are the
+    // report, and the email is the way in.
+    const document = isDocumentData(data) ? data : null
     const cadenceWord = schedule.cadence === 'monthly' ? 'monthly' : 'weekly'
-    const imageTiles = EMAIL_IMAGE_TILES.filter((k) => {
+    const imageTiles = document ? [] : EMAIL_IMAGE_TILES.filter((k) => {
       const page = k.split('.')[0]
       return data.sections.some((s) => s.section.page === page && (s.section.keys ? s.section.keys.includes(k) : true))
     })
@@ -170,7 +170,9 @@ export async function deliverSend(a: DeliverArgs): Promise<DeliverResult> {
       images[k] = `cid:${cid}`
       inline.push({ filename: `${k}.png`, content: rendered[i + 1].buffer, contentType: 'image/png', contentId: cid })
     })
-    const email = renderDigestEmail({ data, shareUrl, appUrl: a.baseUrl, attached: schedule.attach_pdf, images, cadenceWord })
+    const email = document
+      ? renderDocumentEmail({ data: document, edits: await loadEdits(admin, snapRow.id), shareUrl, appUrl: a.baseUrl, attached: schedule.attach_pdf })
+      : renderDigestEmail({ data, shareUrl, appUrl: a.baseUrl, attached: schedule.attach_pdf, images, cadenceWord })
     const attachments = pruneInlineImages(email.html, inline)
     if (schedule.attach_pdf) attachments.push({ filename: pdfFilename, content: rendered[0].buffer, contentType: 'application/pdf' })
     const { sent } = await sendReportEmail({ to, subject: email.subject, html: email.html, text: email.text, attachments })
