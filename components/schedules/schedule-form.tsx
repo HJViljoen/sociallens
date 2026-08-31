@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useTransition } from 'react'
+import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { LoaderCircle } from 'lucide-react'
 import { deleteSchedule, saveSchedule } from '@/app/dashboard/studio/actions'
@@ -23,6 +24,8 @@ interface Props {
   userEmail: string | null
   /** Whether the workspace has a completed update to send. */
   sendable: boolean
+  /** A build waiting for a person: any member may read it and send it. */
+  ready?: { id: string; subject: string | null; readyAt: string | null; error: string | null } | null
 }
 
 const inputCls = 'h-8 w-full rounded-[4px] border border-input bg-tile px-2.5 text-[13px] outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:opacity-60'
@@ -31,7 +34,7 @@ const btn = 'inline-flex h-8 items-center rounded-full px-3 text-[12px] font-med
 const btnPrimary = `${btn} bg-primary text-primary-foreground hover:bg-accent-foreground`
 const btnQuiet = `${btn} bg-tile text-secondary-foreground ring-1 ring-border hover:bg-inner`
 
-export function ScheduleForm({ reportId, reportTitle, schedule, canManage, userEmail, sendable }: Props) {
+export function ScheduleForm({ reportId, reportTitle, schedule, canManage, userEmail, sendable, ready }: Props) {
   const router = useRouter()
   const [pending, start] = useTransition()
   const [cadence, setCadence] = useState<ScheduleRow['cadence']>(schedule?.cadence ?? 'every_update')
@@ -41,9 +44,9 @@ export function ScheduleForm({ reportId, reportTitle, schedule, canManage, userE
   const [active, setActive] = useState(schedule?.active ?? true)
   const [review, setReview] = useState(schedule?.review ?? false)
   const [status, setStatus] = useState<{ ok: boolean; message: string } | null>(null)
-  const [confirm, setConfirm] = useState<'send' | 'delete' | null>(null)
+  const [confirm, setConfirm] = useState<'send' | 'delete' | 'deliver' | null>(null)
   const [preview, setPreview] = useState(false)
-  const [busy, setBusy] = useState<'test' | 'now' | null>(null)
+  const [busy, setBusy] = useState<'test' | 'now' | 'deliver' | null>(null)
 
   const parsedRecipients = splitRecipients(recipients)
   const tooMany = parsedRecipients.length > SCHEDULE_RECIPIENTS_MAX
@@ -68,11 +71,12 @@ export function ScheduleForm({ reportId, reportTitle, schedule, canManage, userE
     if (r.ok) router.refresh()
   })
 
-  const send = async (mode: 'test' | 'now') => {
+  const send = async (mode: 'test' | 'now' | 'deliver') => {
     if (!schedule) return
     setBusy(mode); setConfirm(null); setStatus(null)
     try {
-      const r = await fetch(`/api/schedules/${schedule.id}/send`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ mode }) })
+      const body = mode === 'deliver' ? { mode, sendId: ready?.id } : { mode }
+      const r = await fetch(`/api/schedules/${schedule.id}/send`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) })
       const j = (await r.json().catch(() => ({}))) as { status?: string; error?: string; to?: string | string[]; subject?: string }
       if (!r.ok) setStatus({ ok: false, message: j.error ?? 'Could not send. Try again.' })
       else if (j.status === 'sent') setStatus({ ok: true, message: mode === 'test' ? `Sent to ${j.to}: "${j.subject}".` : `Sent to ${Array.isArray(j.to) ? j.to.length : 0} people: "${j.subject}".` })
@@ -88,8 +92,35 @@ export function ScheduleForm({ reportId, reportTitle, schedule, canManage, userE
     }
   }
 
+  const readyOn = ready?.readyAt ? new Date(ready.readyAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'long' }) : null
+
   return (
     <div className="flex flex-col gap-4">
+      {ready && schedule && (
+        <div className="flex flex-col gap-2 rounded-[6px] bg-inner px-4 py-3">
+          <p className="text-[13px] font-medium text-foreground">
+            Ready for review{readyOn ? ` · built ${readyOn}` : ''}
+          </p>
+          <p className="text-[12px] leading-[1.45] text-muted-foreground">
+            Read it, change anything that needs changing, then send it to {schedule.recipients.length} {schedule.recipients.length === 1 ? 'person' : 'people'}. Anyone here can send it.
+          </p>
+          {ready.error && <p className="text-[12px] text-negative">The last attempt did not go: {ready.error}</p>}
+          <div className="mt-1 flex flex-wrap items-center gap-2">
+            {confirm === 'deliver' ? (
+              <span className="inline-flex items-center gap-2 text-[12px]">
+                Send it to {schedule.recipients.length} {schedule.recipients.length === 1 ? 'person' : 'people'} now?
+                <button type="button" onClick={() => send('deliver')} className={btnPrimary}>Yes, send</button>
+                <button type="button" onClick={() => setConfirm(null)} className="text-muted-foreground hover:text-foreground">Cancel</button>
+              </span>
+            ) : (
+              <button type="button" onClick={() => setConfirm('deliver')} disabled={busy != null || schedule.recipients.length === 0} className={btnPrimary}>
+                {busy === 'deliver' ? <><LoaderCircle className="mr-1.5 size-3 animate-spin" aria-hidden /> Sending…</> : 'Send it'}
+              </button>
+            )}
+            <Link href={`/dashboard/studio/edit/${reportId}`} className={btnQuiet}>Read and edit it</Link>
+          </div>
+        </div>
+      )}
       <label className="flex flex-col gap-1">
         <span className={labelCls}>To</span>
         <textarea value={recipients} disabled={readOnly} rows={2} onChange={(e) => setRecipients(e.target.value)} className={`${inputCls} h-auto py-1.5 leading-relaxed`} placeholder="one@company.com, two@company.com" />

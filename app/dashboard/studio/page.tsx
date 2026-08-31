@@ -33,7 +33,7 @@ const fmtBytes = (n: number) => (n >= 1_000_000 ? `${(n / 1_000_000).toFixed(1)}
 
 interface Report { id: string; kind: ReportKind; template_key: string | null; title: string; audience: string; cover: CoverSpec; status: 'draft' | 'built'; sections: ReportSection[]; latest_snapshot_id: string | null; updated_at: string }
 interface BuildRow { id: string; title: string; created_at: string; cover: CoverText | null; figures: FigureTable | null; artifacts: { id: string; format: string; bytes: number; stale: boolean; rendered_at: string; version: number }[] }
-interface SendRow { id: string; schedule_id: string | null; status: string; subject: string | null; recipients: string[]; sent_at: string | null; claimed_at: string; error: string | null }
+interface SendRow { id: string; schedule_id: string | null; status: string; subject: string | null; recipients: string[]; sent_at: string | null; claimed_at: string; error: string | null; ready_at: string | null; approved_by: string | null }
 
 const readerOf = (r: Pick<Report, 'audience' | 'cover'>) => r.cover?.reader?.trim() || AUDIENCES.find((a) => a.key === r.audience)?.label || 'General'
 const pagesOf = (sections: { page: string }[]) => [...new Set(sections.map((s) => catalogueTitle(s.page)))]
@@ -46,7 +46,7 @@ export default async function StudioPage({ searchParams }: { searchParams?: Prom
   const [{ data: reportData }, { data: scheduleData }, { data: sendData }, { data: runData }] = await Promise.all([
     supabase.from('reports').select('id, kind, template_key, title, audience, cover, status, sections, latest_snapshot_id, updated_at').eq('client_id', clientId).order('created_at'),
     supabase.from('report_schedules').select('*').eq('client_id', clientId),
-    supabase.from('report_sends').select('id, schedule_id, status, subject, recipients, sent_at, claimed_at, error').eq('client_id', clientId).order('claimed_at', { ascending: false }).limit(100),
+    supabase.from('report_sends').select('id, schedule_id, status, subject, recipients, sent_at, claimed_at, error, ready_at, approved_by').eq('client_id', clientId).order('claimed_at', { ascending: false }).limit(100),
     supabase.from('pipeline_runs').select('id').eq('client_id', clientId).in('status', ['completed', 'partial']).limit(1),
   ])
   const reports = (reportData ?? []) as Report[]
@@ -58,7 +58,17 @@ export default async function StudioPage({ searchParams }: { searchParams?: Prom
   const selectedId = sp.item && reports.some((r) => r.id === sp.item) ? sp.item : reports[0]?.id ?? null
   const selected = selectedId ? reports.find((r) => r.id === selectedId) ?? null : null
   const schedule = selected ? scheduleOf.get(selected.id) ?? null : null
-  const history = schedule ? sends.filter((s) => s.schedule_id === schedule.id).slice(0, 6) : []
+  const scheduleSends = schedule ? sends.filter((s) => s.schedule_id === schedule.id) : []
+  const history = scheduleSends.slice(0, 6)
+  // A build waiting for a person: the newest one, shown to every member.
+  const readySend = scheduleSends.find((s) => s.status === 'ready') ?? null
+  // Who pressed Send, for the archive line.
+  const approverIds = [...new Set(history.map((s) => s.approved_by).filter(Boolean) as string[])]
+  let nameOf = new Map<string, string>()
+  if (approverIds.length) {
+    const { data: people } = await supabase.from('users').select('id, full_name, email').in('id', approverIds)
+    nameOf = new Map(((people ?? []) as { id: string; full_name: string | null; email: string }[]).map((p) => [p.id, p.full_name || p.email]))
+  }
 
   let builds: BuildRow[] = []
   let shareLinks: ShareLinkView[] = []
@@ -146,14 +156,27 @@ export default async function StudioPage({ searchParams }: { searchParams?: Prom
                 </div>
               </DetailSection>
               <DetailSection label="Sending">
-                <ScheduleForm key={`${selected.id}:${schedule?.updated_at ?? 'none'}`} reportId={selected.id} reportTitle={selected.title} schedule={schedule} canManage={canManage} userEmail={email ?? null} sendable={sendable} />
+                <ScheduleForm
+                  key={`${selected.id}:${schedule?.updated_at ?? 'none'}:${readySend?.id ?? 'none'}`}
+                  reportId={selected.id}
+                  reportTitle={selected.title}
+                  schedule={schedule}
+                  canManage={canManage}
+                  userEmail={email ?? null}
+                  sendable={sendable}
+                  ready={readySend ? { id: readySend.id, subject: readySend.subject, readyAt: readySend.ready_at, error: readySend.error ? sendFailureSentence(readySend.error) : null } : null}
+                />
                 {history.length > 0 && (
                   <ul className="mt-4 flex flex-col gap-1.5 border-t border-border/60 pt-3">
                     {history.map((s) => (
                       <li key={s.id} className="flex flex-wrap items-baseline gap-x-3 text-[12.5px]">
                         <Link href={`/dashboard/reports?group=sent&item=${s.id}`} className="font-medium underline-offset-2 hover:underline">{s.subject ?? 'Update'}</Link>
                         <span className="font-mono text-[10.5px] text-muted-foreground">
-                          {s.status === 'sent' && s.sent_at ? `sent ${fmtWhen(s.sent_at)} to ${s.recipients.length}` : s.status === 'failed' ? `did not send ${fmtWhen(s.claimed_at)} · ${sendFailureSentence(s.error)}` : `${s.status} ${fmtWhen(s.claimed_at)}`}
+                          {s.status === 'sent' && s.sent_at
+                            ? `sent ${fmtWhen(s.sent_at)} to ${s.recipients.length}${s.approved_by ? ` · sent by ${nameOf.get(s.approved_by) ?? 'a teammate'}` : ''}`
+                            : s.status === 'failed' ? `did not send ${fmtWhen(s.claimed_at)} · ${sendFailureSentence(s.error)}`
+                            : s.status === 'ready' ? `ready for review ${fmtWhen(s.ready_at ?? s.claimed_at)}`
+                            : `${s.status} ${fmtWhen(s.claimed_at)}`}
                         </span>
                       </li>
                     ))}
