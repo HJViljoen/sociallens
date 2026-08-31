@@ -46,7 +46,12 @@ export const buildDocument = inngest.createFunction(
       const err = (event.data as { error?: { name?: string; message?: string } }).error
       const message = err?.name === 'NonRetriableError' && err.message ? err.message : 'The build failed. Try again, or tell us if it keeps happening.'
       if (err?.name !== 'NonRetriableError') console.error('[build-document] failed:', err?.message)
-      await failBuild(createAdminClient(), buildId, message)
+      const admin = createAdminClient()
+      await failBuild(admin, buildId, message)
+      // A schedule is waiting on this one: its send row must say so too, or it
+      // sits claimed until the stale window and the Studio shows nothing.
+      const sendId = original?.data?.sendId
+      if (sendId) await admin.from('report_sends').update({ status: 'failed', error: message.slice(0, 500) }).eq('id', sendId).in('status', ['claimed', 'ready'])
     },
   },
   async ({ event, step }) => {
@@ -90,6 +95,27 @@ export const buildDocument = inngest.createFunction(
       return { artifactId: j.artifactId ?? null, bytes: j.bytes ?? 0, ms: j.ms ?? 0 }
     })
 
-    return { buildId, snapshotId: freeze.snapshotId, artifactId: render.artifactId, costUsd: research.costUsd + write.costUsd + check.costUsd, flagged: check.flagged }
+    // A build a schedule asked for finishes the job: the email goes out, or
+    // the send waits as `ready` for a person. A build someone started in the
+    // Studio carries no send row and stops at the printing.
+    //
+    // The build row is already `done` (renderStep completes it): delivering is
+    // the send row's business, and a send that fails is recorded there, so a
+    // printed brief is never marked failed because an inbox refused it.
+    const sendId = (event.data as BuildEvent).sendId ?? null
+    const deliver = sendId
+      ? await step.run('deliver', async () => {
+          const r = await fetch(`${appBaseUrl()}/api/admin/schedules/deliver`, {
+            method: 'POST',
+            headers: { 'content-type': 'application/json', 'x-admin-key': process.env.ADMIN_API_KEY ?? process.env.SUPABASE_SERVICE_ROLE_KEY ?? '' },
+            body: JSON.stringify({ sendId }),
+          })
+          const j = (await r.json().catch(() => ({}))) as { status?: string; error?: string }
+          if (!r.ok) throw new Error(`schedules/deliver ${r.status}: ${j.error ?? 'no body'}`)
+          return { status: j.status ?? 'sent' }
+        })
+      : null
+
+    return { buildId, snapshotId: freeze.snapshotId, artifactId: render.artifactId, costUsd: research.costUsd + write.costUsd + check.costUsd, flagged: check.flagged, delivered: deliver?.status ?? null }
   },
 )

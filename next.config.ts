@@ -21,6 +21,8 @@ const nextConfig: NextConfig = {
     // react-dom/server is loaded at runtime for the email body (lib/email/render-html.ts).
     '/api/admin/documents/render': ['./node_modules/@sparticuz/chromium/bin/**/*'],
     '/api/admin/schedules/run': ['./node_modules/@sparticuz/chromium/bin/**/*', './node_modules/react-dom/**/*'],
+    // A scheduled document's delivery: it re-prints a stale PDF and renders the email body.
+    '/api/admin/schedules/deliver': ['./node_modules/@sparticuz/chromium/bin/**/*', './node_modules/react-dom/**/*'],
     '/api/admin/send-report': ['./node_modules/@sparticuz/chromium/bin/**/*', './node_modules/react-dom/**/*'],
     '/api/schedules/\\[id\\]/send': ['./node_modules/@sparticuz/chromium/bin/**/*', './node_modules/react-dom/**/*'],
     '/api/schedules/\\[id\\]/preview': ['./node_modules/react-dom/**/*'],

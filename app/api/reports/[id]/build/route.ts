@@ -8,8 +8,8 @@ import { dayStartIso } from '@/lib/ask/quota'
 import { EXPORT_DAILY_LIMIT } from '@/lib/config'
 import { BuildEmptyError, buildReport } from '@/lib/reports/build'
 import type { ReportRow } from '@/lib/reports/types'
-import { failBuild, inFlightDecision, insertBuild, latestBuild, latestRunId } from '@/lib/reports/documents/builds'
-import { inngest } from '@/inngest/client'
+import { latestRunId } from '@/lib/reports/documents/builds'
+import { enqueueDocumentBuild } from '@/lib/reports/documents/enqueue'
 
 // POST /api/reports/[id]/build — freeze the report as it is now and print it.
 // The tenant is the session's; the report must be that tenant's. Counts
@@ -51,7 +51,7 @@ export async function POST(_req: Request, ctx: { params: Promise<{ id: string }>
   }
 
   if ((report as ReportRow).kind === 'document') {
-    return enqueueDocumentBuild(admin, { clientId, userId, reportId: id })
+    return startDocumentBuild(admin, { clientId, userId, reportId: id })
   }
 
   try {
@@ -70,35 +70,13 @@ export async function POST(_req: Request, ctx: { params: Promise<{ id: string }>
   }
 }
 
-async function enqueueDocumentBuild(admin: ReturnType<typeof createAdminClient>, args: { clientId: string; userId: string; reportId: string }) {
+async function startDocumentBuild(admin: ReturnType<typeof createAdminClient>, args: { clientId: string; userId: string; reportId: string }) {
   try {
     const runId = await latestRunId(admin, args.clientId)
     if (!runId) return NextResponse.json({ error: 'Nothing to write from yet: your first update has not landed.' }, { status: 409 })
-
-    const last = await latestBuild(admin, args.reportId)
-    const decision = inFlightDecision(last)
-    if (decision === 'busy' && last) return NextResponse.json({ buildId: last.id, inFlight: true }, { status: 409 })
-    if (decision === 'takeover' && last) await failBuild(admin, last.id, 'Took too long and was given up on.')
-
-    let build
-    try {
-      build = await insertBuild(admin, { clientId: args.clientId, reportId: args.reportId, runId, requestedBy: args.userId })
-    } catch (e) {
-      // Two clicks raced: the partial unique index kept one; hand back the other.
-      if (e instanceof Error && /duplicate key|23505/.test(e.message)) {
-        const racing = await latestBuild(admin, args.reportId)
-        if (racing) return NextResponse.json({ buildId: racing.id, inFlight: true }, { status: 409 })
-      }
-      throw e
-    }
-    try {
-      await inngest.send({ name: 'report/build.requested', data: { buildId: build.id, clientId: args.clientId, reportId: args.reportId } })
-    } catch (e) {
-      console.error('[reports/build] could not enqueue:', e)
-      await failBuild(admin, build.id, 'Could not start the build.')
-      return NextResponse.json({ error: 'Could not start the build just now. Try again shortly.' }, { status: 503 })
-    }
-    return NextResponse.json({ buildId: build.id }, { status: 202 })
+    const out = await enqueueDocumentBuild(admin, { clientId: args.clientId, reportId: args.reportId, runId, requestedBy: args.userId })
+    if (out.status === 'busy') return NextResponse.json({ buildId: out.buildId, inFlight: true }, { status: 409 })
+    return NextResponse.json({ buildId: out.buildId }, { status: 202 })
   } catch (e) {
     console.error('[reports/build] document enqueue failed:', e)
     return NextResponse.json({ error: 'Couldn’t start this build. Try again.' }, { status: 500 })

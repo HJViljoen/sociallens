@@ -1,9 +1,10 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { artifactFilename, logExport, replaceArtifactFile, storeArtifact, type ArtifactRow } from '../artifacts'
-import { sendReportEmail, type EmailAttachment } from '../email'
+import { sendReportEmail, sendReviewEmail, type EmailAttachment } from '../email'
 import { EMAIL_IMAGE_TILES, renderDigestEmail } from '../email/digest'
-import { renderDocumentEmail } from '../email/document-brief'
-import { loadEdits } from '../reports/documents/edits'
+import { documentSubject, renderDocumentEmail } from '../email/document-brief'
+import { applyEdits, loadEdits } from '../reports/documents/edits'
+import { memberEmails } from './members'
 import { renderMany } from '../render/render'
 import { expiryFromDays, mintShareToken } from '../reports/share'
 import { isDocumentData } from '../reports/documents/types'
@@ -47,6 +48,53 @@ export interface DeliverResult {
 }
 
 const EMAIL_FAILED = 'email not sent, provider not configured or the send failed'
+
+/**
+ * The build stands, and a person is asked to look at it: the send row becomes
+ * `ready` with the subject it will carry, and every member of the workspace
+ * gets the review email with the Studio link. Nothing reaches the schedule's
+ * recipients until someone presses Send.
+ *
+ * The row must already name its snapshot (both doors set it before calling).
+ */
+export async function readyForReview(
+  admin: SupabaseClient,
+  a: { sendId: string; baseUrl: string },
+): Promise<{ status: 'ready' | 'failed'; subject?: string; error?: string }> {
+  const { data: sendRow } = await admin.from('report_sends').select('*').eq('id', a.sendId).maybeSingle()
+  const row = sendRow as SendRow | null
+  if (!row?.snapshot_id) return { status: 'failed', error: 'This send did not build, so there is nothing to review.' }
+  const snapRow = await loadSnapshot(admin, row.snapshot_id)
+  if (!snapRow) return { status: 'failed', error: 'The built report is gone.' }
+
+  const { data: scheduleRow } = row.schedule_id ? await admin.from('report_schedules').select('*').eq('id', row.schedule_id).maybeSingle() : { data: null }
+  const schedule = scheduleRow as ScheduleRow | null
+
+  const data = await hydrateSnapshot<ReportSnapshotData>(admin, snapRow)
+  const subject = isDocumentData(data)
+    ? documentSubject(applyEdits(data, await loadEdits(admin, snapRow.id)))
+    : renderDigestEmail({ data, shareUrl: null, appUrl: a.baseUrl, attached: schedule?.attach_pdf ?? false, cadenceWord: schedule?.cadence === 'monthly' ? 'monthly' : 'weekly' }).subject
+
+  await admin
+    .from('report_sends')
+    .update({ status: 'ready', ready_at: new Date().toISOString(), error: null, subject })
+    .eq('id', a.sendId)
+
+  const { data: client } = await admin.from('clients').select('company_name').eq('id', row.client_id).maybeSingle()
+  const members = await memberEmails(admin, row.client_id)
+  const reportId = schedule?.report_id ?? null
+  // The report's own name, not the snapshot's: a snapshot title carries the
+  // company, and the subject already leads with it.
+  const { data: report } = reportId ? await admin.from('reports').select('title').eq('id', reportId).maybeSingle() : { data: null }
+  await sendReviewEmail({
+    to: members,
+    companyName: (client?.company_name as string | undefined) ?? '',
+    reportTitle: (report?.title as string | undefined) ?? snapRow.title,
+    builtOn: new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' }),
+    studioUrl: `${a.baseUrl}/dashboard/studio${reportId ? `?item=${reportId}` : ''}`,
+  })
+  return { status: 'ready', subject }
+}
 
 export async function deliverSend(a: DeliverArgs): Promise<DeliverResult> {
   const t0 = Date.now()
@@ -162,6 +210,10 @@ export async function deliverSend(a: DeliverArgs): Promise<DeliverResult> {
       shareLinkId = (link as { id: string }).id
       shareUrl = `${a.baseUrl}/r/${token}`
     }
+    // Recorded before the email, not after it: a send that the provider
+    // refuses is retried, and a retry must reuse this link and this file
+    // rather than leave a public link behind on every attempt.
+    await admin.from('report_sends').update({ artifact_id: artifact.id, share_link_id: shareLinkId }).eq('id', sendId)
 
     const images: Record<string, string> = {}
     const inline: EmailAttachment[] = []

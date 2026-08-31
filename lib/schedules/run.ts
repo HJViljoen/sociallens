@@ -1,11 +1,17 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { artifactFilename, logExport, storeArtifact } from '../artifacts'
-import { sendReportEmail, sendReviewEmail, type EmailAttachment } from '../email'
+import { sendReportEmail, type EmailAttachment } from '../email'
 import { EMAIL_IMAGE_TILES, renderDigestEmail } from '../email/digest'
 import { renderMany } from '../render/render'
 import { BuildEmptyError, snapshotReport } from '../reports/build'
+import { renderDocumentEmail } from '../email/document-brief'
+import { loadEdits } from '../reports/documents/edits'
+import { enqueueDocumentBuild } from '../reports/documents/enqueue'
+import { isDocumentData } from '../reports/documents/types'
 import { expiryFromDays, mintShareToken } from '../reports/share'
-import { memberEmails } from './members'
+import type { ReportSnapshotData } from '../reports/types'
+import { hydrateSnapshot, loadSnapshot } from '../snapshots'
+import { readyForReview } from './deliver'
 import { resolveScheduleReport } from './resolve'
 import { claimDecision, pruneInlineImages, type ExistingSend } from './claim'
 import type { ScheduleRow } from './types'
@@ -50,7 +56,8 @@ export interface RunScheduleArgs {
 }
 
 export interface RunScheduleResult {
-  status: 'sent' | 'ready' | 'already_sent' | 'skipped' | 'failed' | 'preview'
+  /** 'enqueued': a written report's build has started and will deliver itself. */
+  status: 'sent' | 'ready' | 'enqueued' | 'already_sent' | 'skipped' | 'failed' | 'preview'
   sendId?: string
   snapshotId?: string
   artifactId?: string
@@ -100,6 +107,61 @@ export async function claimSend(admin: SupabaseClient, schedule: Pick<ScheduleRo
   return { status: 'claimed', id: (data as { id: string }).id }
 }
 
+/**
+ * A schedule whose report is written by the agent.
+ *
+ *   'send'    → start the build with this send row on it and answer
+ *               'enqueued'. The row stays claimed until the build's deliver
+ *               step sends it, holds it for review, or fails it; a build that
+ *               dies leaves a stale claim, which the next update takes over.
+ *   'test'    → the email over the last brief this report built, to the
+ *               caller only. A test never writes a brief: that costs money
+ *               and minutes, and a rehearsal should not.
+ *   'preview' → the same email as HTML, nothing sent.
+ */
+async function runDocumentSchedule(
+  a: RunScheduleArgs & { to: string[]; sendId?: string; reportId: string; ms: () => number },
+): Promise<RunScheduleResult> {
+  const { admin, schedule, reportId, ms } = a
+
+  if (a.mode === 'send') {
+    const out = await enqueueDocumentBuild(admin, {
+      clientId: schedule.client_id,
+      reportId,
+      runId: a.runId,
+      requestedBy: null,
+      scheduleId: schedule.id,
+      sendId: a.sendId ?? null,
+    })
+    if (out.status === 'busy') {
+      const why = 'A build was already running for this report; the next update sends.'
+      if (a.sendId) await admin.from('report_sends').update({ status: 'skipped', error: why }).eq('id', a.sendId)
+      return { status: 'skipped', sendId: a.sendId, ms: ms(), error: why }
+    }
+    return { status: 'enqueued', sendId: a.sendId, ms: ms() }
+  }
+
+  // test and preview: over the brief as it stands.
+  const { data: report } = await admin.from('reports').select('latest_snapshot_id').eq('id', reportId).maybeSingle()
+  const snapshotId = (report as { latest_snapshot_id: string | null } | null)?.latest_snapshot_id
+  const row = snapshotId ? await loadSnapshot(admin, snapshotId) : null
+  const data = row ? await hydrateSnapshot<ReportSnapshotData>(admin, row) : null
+  if (!row || !data || !isDocumentData(data)) {
+    const why = 'Nothing built to send yet. Build the brief first, and this sends what you see.'
+    return { status: 'skipped', sendId: a.sendId, ms: ms(), error: why }
+  }
+  const email = renderDocumentEmail({
+    data,
+    edits: await loadEdits(admin, row.id),
+    shareUrl: null,
+    appUrl: a.baseUrl,
+    attached: false,
+    })
+  if (a.mode === 'preview') return { status: 'preview', subject: email.subject, html: email.html, text: email.text, ms: ms() }
+  const { sent } = await sendReportEmail({ to: a.to, subject: email.subject, html: email.html, text: email.text })
+  return { status: sent ? 'sent' : 'failed', subject: email.subject, ms: ms(), ...(sent ? {} : { error: 'email not sent, provider not configured or the send failed' }) }
+}
+
 export async function runSchedule(a: RunScheduleArgs): Promise<RunScheduleResult> {
   const t0 = Date.now()
   const ms = () => Date.now() - t0
@@ -129,6 +191,13 @@ export async function runSchedule(a: RunScheduleArgs): Promise<RunScheduleResult
     if (a.mode !== 'preview' && !to.length) {
       await mark('skipped', 'no recipients')
       return { status: 'skipped', sendId, ms: ms(), error: 'no recipients' }
+    }
+
+    // A written report is not assembled from pages: the agent writes it over
+    // minutes. A due schedule starts that build, carrying this send row, and
+    // the build's own deliver step finishes the job (T9c, 2026-08-31).
+    if (resolved.report.kind === 'document') {
+      return await runDocumentSchedule({ ...a, to, sendId, reportId: resolved.report.id, ms })
     }
 
     let snap
@@ -192,26 +261,18 @@ export async function runSchedule(a: RunScheduleArgs): Promise<RunScheduleResult
     // the workspace's members get the review email, and a member's Send
     // delivers it (deliverSend). Nothing reaches the recipients yet.
     if (reviewing && sendId) {
-      const email = renderDigestEmail({ data: snap.data, shareUrl, appUrl: a.baseUrl, attached: schedule.attach_pdf, cadenceWord })
       const now = new Date().toISOString()
       await admin
         .from('report_sends')
-        .update({
-          status: 'ready',
-          ready_at: now,
-          error: null,
-          subject: email.subject,
-          snapshot_id: snapshotId,
-          artifact_id: artifactId ?? null,
-          share_link_id: shareLinkId,
-        })
+        .update({ snapshot_id: snapshotId, artifact_id: artifactId ?? null, share_link_id: shareLinkId })
         .eq('id', sendId)
       if (schedule.report_id) await admin.from('reports').update({ status: 'built', latest_snapshot_id: snapshotId, updated_at: now }).eq('id', schedule.report_id)
-      const members = await memberEmails(admin, schedule.client_id)
-      const builtOn = new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })
-      const studioUrl = `${a.baseUrl}/dashboard/studio${schedule.report_id ? `?item=${schedule.report_id}` : ''}`
-      await sendReviewEmail({ to: members, companyName: resolved.company, reportTitle: snap.title, builtOn, studioUrl })
-      return { status: 'ready', sendId, snapshotId, artifactId, shareUrl: shareUrl ?? undefined, subject: email.subject, ms: ms() }
+      const ready = await readyForReview(admin, { sendId, baseUrl: a.baseUrl })
+      if (ready.status === 'failed') {
+        await mark('failed', ready.error ?? 'Could not put this out for review.')
+        return { status: 'failed', sendId, snapshotId, artifactId, ms: ms(), error: ready.error }
+      }
+      return { status: 'ready', sendId, snapshotId, artifactId, shareUrl: shareUrl ?? undefined, subject: ready.subject, ms: ms() }
     }
 
     // 5. The email, from the same data the paper was printed from.
