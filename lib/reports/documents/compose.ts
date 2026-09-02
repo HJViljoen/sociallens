@@ -4,7 +4,7 @@ import type { Quote, Slide } from '../../renderables/types'
 import type { FigureTable } from '../types'
 import type { Signals } from './signals'
 import type { ResearchAnswer, ResearchPoint } from './research'
-import { PAGE_TITLE, PERSONAS_PER_PAGE, type DocumentTemplate } from './templates'
+import { ASKED_MAX, CLAIMS_PER_PAGE, PAGE_TITLE, PERSONAS_PER_PAGE, type DocumentTemplate } from './templates'
 import type { DocPageKind } from './types'
 import type { WriterOutput } from './write'
 import { bucketWord, slug } from './write'
@@ -241,8 +241,13 @@ export function composeDocument(a: ComposeArgs): { data: DocumentSnapshotData; w
         id: 'standing', kind: 'standing', title: PAGE_TITLE.standing, blocks: [block],
         // The deck draws the bars from the figures; the names and their order
         // are the composer's, because a figure key is a slug and a name is not
-        // recoverable from it.
-        meta: { parties: parties.join('|') },
+        // recoverable from it. The concerns are the FIELD this update, which
+        // the three findings deliberately do not cover: a director is asking
+        // what the conversation is about, not only what was worth writing up.
+        meta: {
+          parties: parties.join('|'),
+          concerns: s.concerns.slice(0, 5).map((c) => [c.label, String(c.total), c.trajectory || ''].join('~')).join('|'),
+        },
       }]
     },
 
@@ -265,7 +270,10 @@ export function composeDocument(a: ComposeArgs): { data: DocumentSnapshotData; w
         const id = `sh_${slug(entry.you_say).slice(0, 40)}`
         if (blocks.some((b) => b.id === id)) continue
         blocks.push({
-          id, field: 'gap', label: scrubLine(entry.you_say, figures, 160, { allow }).text || entry.you_say,
+          // The claim is PRINTED IN QUOTATION MARKS, so it is scrubbed but not
+          // shortened: a claim cut at a character count is a misquote of the
+          // company. Its length is the pipeline's to bound, not this page's.
+          id, field: 'gap', label: scrubLine(entry.you_say, figures, entry.you_say.length + 1, { allow }).text || entry.you_say,
           text: read,
           // Positional, like a persona card: [0] the pipeline's own verdict
           // word (echoes | contradicts | silent), [1] what the audience says
@@ -275,12 +283,20 @@ export function composeDocument(a: ComposeArgs): { data: DocumentSnapshotData; w
         })
         blocksW.push({ blockId: id, basedOn: ok })
       }
-      return blocks.length ? [{ id: 'say_hear', kind: 'say_hear' as const, title: PAGE_TITLE.say_hear, blocks }] : []
+      // Two a page, like personas. A claim is the company's own sentence and
+      // is printed whole; four of them on one sheet ran off the bottom, and a
+      // claim cut to fit is a misquote (found by rendering, 2026-09-02).
+      const out: DocPage[] = []
+      for (let i = 0; i < blocks.length; i += CLAIMS_PER_PAGE) {
+        const n = Math.floor(i / CLAIMS_PER_PAGE) + 1
+        out.push({ id: `say_hear_${n}`, kind: 'say_hear', title: PAGE_TITLE.say_hear, blocks: blocks.slice(i, i + CLAIMS_PER_PAGE) })
+      }
+      return out
     },
 
     // The questions the conversation puts and nobody settles.
     asked: () => {
-      const items = (w.asked ?? []).map((x) => line(x, figures, cap('asked'))).filter(Boolean).slice(0, 6)
+      const items = (w.asked ?? []).map((x) => line(x, figures, cap('asked'))).filter(Boolean).slice(0, ASKED_MAX)
       if (!items.length) return []
       blocksW.push({ blockId: 'asked.asked', basedOn: [] })
       return [{ id: 'asked', kind: 'asked' as const, title: PAGE_TITLE.asked, blocks: [{ id: 'asked.asked', field: 'asked' as const, text: '', items }] }]
@@ -317,7 +333,7 @@ export function composeDocument(a: ComposeArgs): { data: DocumentSnapshotData; w
 
     method: () => {
       blocksW.push({ blockId: 'method.method', basedOn: [] })
-      return [{ id: 'method', kind: 'method' as const, title: PAGE_TITLE.method, blocks: [{ id: 'method.method', field: 'method' as const, text: '', items: methodItems(s, a.period, thin, s.updatesCount) }] }]
+      return [{ id: 'method', kind: 'method' as const, title: PAGE_TITLE.method, blocks: [{ id: 'method.method', field: 'method' as const, text: '', items: methodItems(s, a.period, thin, s.updatesCount, a.template.skeleton.map((p) => p.kind)) }] }]
     },
   }
 
@@ -385,17 +401,28 @@ const PLATFORM_NAME: Record<string, string> = { tiktok: 'TikTok', instagram: 'In
 /** The report's basis, in code: what was read, how findings are ordered,
  *  how confidence is judged, what was held back. Not evidence per line; the
  *  page a professional report ends on. */
-export function methodItems(s: Signals, period: string, thin: boolean, updatesCount: number): string[] {
+export function methodItems(s: Signals, period: string, thin: boolean, updatesCount: number, kinds: DocPageKind[] = ['competitor', 'personas']): string[] {
   const sources = sourcesOf(s).map((p) => PLATFORM_NAME[p] ?? p)
   const competitors = s.competitors.map((c) => c.name)
+  const has = (k: DocPageKind) => kinds.includes(k)
+  // The third paragraph explains the pages this brief ACTUALLY has. It used
+  // to describe competitor pages and personas unconditionally, which on a
+  // leadership brief (neither) was a method note for a different document.
+  const wherePagesComeFrom = [
+    has('competitor') ? "Competitor pages read each competitor's own videos for what it pitches and its audience's comments for praise and complaint." : '',
+    has('standing') ? 'Standing is measured as share of the tracked video conversation, and movement is called only where the numbers can carry it.' : '',
+    has('say_hear') ? "The claims page sets what the company says in its own videos against what the tracked conversation does with it; a claim it does not take up is recorded as not taken up, never answered on its behalf." : '',
+    has('personas') ? 'Personas come from the consumer profile, which groups the whole conversation by who is speaking and where they are in the journey.' : '',
+    has('asked') ? 'The questions page carries what the conversation asks and does not settle, in the wording the audience uses.' : '',
+  ].filter(Boolean).join(' ')
   return [
     `This brief is written from public conversation around ${s.company}, ${competitors.length ? `${competitors.join(', ')} ` : ''}and the wider category: ${fmtCount(s.run.conversations)} conversations on ${fmtCount(s.run.videos)} videos in the ${period.replace(/^Update/, 'update')}${sources.length ? `, on ${sources.join(', ')}` : ''}. A conversation is one comment or spoken line the analysis cited; the analysis reads what people said in public, not sales calls or surveys.`,
     `Findings are the researcher's readings of that conversation, ordered by the evidence behind them. Each rests on grounded points the analysis extracted and verified; confidence is judged from how many conversations and how many independent strands support the reading (solid, reasonable or thin), never by the writer.${thin ? ' This update was thin, so fewer findings were written rather than stretch the evidence.' : ''}`,
-    `Competitor pages read each competitor's own videos for what it pitches and its audience's comments for praise and complaint. Personas come from the consumer profile, which groups the whole conversation by who is speaking and where they are in the journey.${s.heldBackPhrases ? ` ${fmtCount(s.heldBackPhrases)} phrases in other languages were read for the counts but not quoted.` : ''}`,
+    `${wherePagesComeFrom}${wherePagesComeFrom && s.heldBackPhrases ? ' ' : ''}${s.heldBackPhrases ? `${fmtCount(s.heldBackPhrases)} phrases in other languages were read for the counts but not quoted.` : ''}`,
     updatesCount > 1
       ? `This is update ${updatesCount} for ${s.company}. Where a finding carries from the previous brief it says so; "new this update" means the theme was first seen now. Movement is called only after three updates.`
       : `This is the first update for ${s.company}; there is nothing yet to compare with.`,
-  ]
+  ].filter(Boolean)
 }
 
 /** One slide per page, plus the cover. Pagination decided here, never by the browser. */

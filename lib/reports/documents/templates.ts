@@ -256,6 +256,13 @@ export const PAGE_TITLE: Record<DocPageKind, string> = {
 /** Personas per page. */
 export const PERSONAS_PER_PAGE = 2
 
+/** Claims per page on the say_hear page: a claim is printed whole and four
+ *  of them ran off the sheet. */
+export const CLAIMS_PER_PAGE = 2
+
+/** Questions on the asked page: two columns of four fill the sheet. */
+export const ASKED_MAX = 8
+
 /** Skeleton order, for the eval: a page kind may repeat, but the kinds
  *  themselves must come in the order the template declares. */
 export const skeletonOrder = (t: DocumentTemplate): DocPageKind[] => t.skeleton.map((p) => p.kind)

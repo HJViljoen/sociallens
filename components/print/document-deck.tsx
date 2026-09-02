@@ -353,15 +353,46 @@ function movementLines(data: DocumentSnapshotData): { label: string; value: stri
   return out
 }
 
+/** What the conversation was about this update: the merged concerns with the
+ *  conversations behind them and how long each has been running. The findings
+ *  pick three; this is the field they were picked from. */
+function ConcernField({ meta }: { meta: string }) {
+  const rows = meta.split('|').filter(Boolean).map((r) => {
+    const [label, total, trajectory] = r.split('~')
+    return { label, total: Number(total), trajectory }
+  })
+  if (!rows.length) return null
+  const max = Math.max(...rows.map((r) => r.total), 1)
+  return (
+    <div className="flex flex-col gap-2.5">
+      <Eyebrow>What the conversation was about this update</Eyebrow>
+      <ul className="flex flex-col gap-2">
+        {rows.map((r) => (
+          <li key={r.label} className="flex items-center gap-4">
+            <span className="w-[46px] shrink-0 text-right font-mono text-[14px] tabular-nums text-foreground">{fmtCount(r.total)}</span>
+            <span className="h-[8px] w-[92px] shrink-0 rounded-[3px] bg-neutral-seg"><span className="block h-full rounded-[3px] bg-primary" style={{ width: `${Math.max(6, (r.total / max) * 100)}%` }} /></span>
+            <span className="flex-1 truncate text-[14.5px] text-foreground">{r.label}</span>
+            {r.trajectory && <span className="shrink-0"><Pill tone={r.trajectory.startsWith('new') ? 'new' : 'plain'}>{r.trajectory}</Pill></span>}
+          </li>
+        ))}
+      </ul>
+    </div>
+  )
+}
+
 function StandingPage({ page, data }: { page: DocPage; data: DocumentSnapshotData }) {
   const block = page.blocks.find((b) => b.field === 'standing')
   const parties = (page.meta?.parties ?? '').split('|').filter(Boolean)
   const moved = movementLines(data)
+  const READ = 'text-[17px] leading-[1.55] text-foreground'
   return (
     <div className="grid h-full min-h-0 grid-cols-[7fr_5fr] gap-x-12">
-      <div className="flex min-h-0 flex-col gap-3">
-        <Eyebrow>How it reads</Eyebrow>
-        {block?.text && <BlockSlot block={block} textClass={`max-w-[68ch] ${BODY}`}><Paragraphs text={block.text} figures={data.figures} className={`max-w-[68ch] ${BODY}`} /></BlockSlot>}
+      <div className="flex min-h-0 flex-col gap-6">
+        <div className="flex flex-col gap-3">
+          <Eyebrow>How it reads</Eyebrow>
+          {block?.text && <BlockSlot block={block} textClass={`max-w-[62ch] ${READ}`}><Paragraphs text={block.text} figures={data.figures} className={`max-w-[62ch] ${READ}`} /></BlockSlot>}
+        </div>
+        <ConcernField meta={page.meta?.concerns ?? ''} />
       </div>
       <div className="flex min-h-0 flex-col gap-4">
         <StandingBars data={data} parties={parties} />
@@ -396,22 +427,22 @@ function SayHearPage({ page, figures, company }: { page: DocPage; figures: Figur
   return (
     <div className="flex h-full min-h-0 flex-col gap-4">
       <p className="max-w-[92ch] text-[15px] leading-[1.5] text-secondary-foreground">
-        What {company} says in its own videos, set against what the conversation does with it. The verdict is the analysis&rsquo;s; the reading is the researcher&rsquo;s.
+        {`What ${company} says in its own videos, set against what the conversation does with it. The verdict is the analysis’s; the reading is the researcher’s.`}
       </p>
-      <ul className="grid min-h-0 flex-1 grid-cols-2 content-start gap-5">
-        {page.blocks.slice(0, 4).map((b) => {
+      <ul className="grid min-h-0 grid-cols-2 items-start gap-6">
+        {page.blocks.map((b) => {
           const verdict = VERDICT_WORD[b.items?.[0] ?? ''] ?? null
           const theySay = b.items?.[1] ?? ''
           return (
-            <li key={b.id} className={`${CARD} flex flex-col gap-2.5 px-6 py-4`}>
+            <li key={b.id} className={`${CARD} flex min-h-0 flex-col gap-3 px-7 py-5`}>
               <div className="flex items-start justify-between gap-4">
-                <p className="max-w-[42ch] font-serif text-[16px] italic leading-[1.4] text-foreground">&ldquo;{b.label}&rdquo;</p>
+                <p className="max-w-[40ch] font-serif text-[17px] italic leading-[1.4] text-foreground">&ldquo;{b.label}&rdquo;</p>
                 {verdict && <span className="shrink-0"><Pill tone={verdict.tone}>{verdict.word}</Pill></span>}
               </div>
               {theySay && (
-                <p className="border-l-2 border-border pl-3 text-[13px] leading-[1.45] text-secondary-foreground">{theySay}</p>
+                <p className="border-l-2 border-border pl-3.5 text-[13.5px] leading-[1.45] text-secondary-foreground">{theySay}</p>
               )}
-              {b.text && <BlockSlot block={b} textClass={BODY_SM}><Paragraphs text={b.text} figures={figures} className={BODY_SM} /></BlockSlot>}
+              {b.text && <BlockSlot block={b} textClass={BODY}><Paragraphs text={b.text} figures={figures} className={BODY} /></BlockSlot>}
             </li>
           )
         })}

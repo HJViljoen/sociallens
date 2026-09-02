@@ -3,7 +3,6 @@ import { DOCUMENT_BLOCK_MAX } from '../../config'
 import { CALIBRATED_PROSE_RULE } from '../../pipeline/prose-rules'
 import type { FigureTable } from '../types'
 import type { DocumentTemplate } from './templates'
-import { SALES_BRIEF } from './templates'
 import type { DocumentSettings } from './types'
 import { SELLS_TO } from './types'
 import type { Signals } from './signals'
@@ -21,10 +20,6 @@ import { noDashes } from './scrub'
  * words, never a number, never a person's name. Every block cites the
  * indices it rests on; code resolves them and decides how sure we are.
  */
-
-/** Kept for the one caller that has no template in hand; every build uses
- *  promptVersion(template) instead. */
-export const DOCUMENT_PROMPT_VERSION = 'sales_brief_v1'
 
 export interface PreviousBrief {
   summary: string
@@ -106,14 +101,10 @@ export function writerSchema(t: DocumentTemplate) {
     })).describe('One per claim listed in the inputs, up to four. Skip a claim the conversation says nothing about.')
   }
   if (has('asked')) {
-    shape.asked = z.array(z.string()).describe(`Questions the conversation puts and does not settle, each as "the question: what is behind it". The question in the audience\'s own framing, not the company\'s. Up to six, each under ${cap('asked')} characters.`)
+    shape.asked = z.array(z.string()).describe(`Questions the conversation puts and does not settle, each as "the question: what is behind it". The question in the audience\'s own framing, not the company\'s. Up to eight, each under ${cap('asked')} characters.`)
   }
   return z.object(shape)
 }
-
-/** The reference schema (the Sales brief's), so a caller that only wants the
- *  type has one. Every build uses writerSchema(template). */
-export const WriterSchema = writerSchema(SALES_BRIEF)
 
 /** What the writer may return. A section is absent when the template's
  *  skeleton has no page for it; compose treats absent and empty the same. */
@@ -167,7 +158,7 @@ export function buildWriterPrompts(a: WriterArgs): { system: string; user: strin
       : '- This is the first brief: say so in one clause of the summary, without apology.',
     a.thin ? '- The update was thin (see the summary note). Say so plainly in the summary and write fewer findings rather than stretch the evidence.' : '',
     has('standing') ? '- The standing page: the shares and what moved are printed beside your paragraphs as a table. Read them together and say what position they describe; do not list them back.' : '',
-    has('say_hear') ? `- The claims page: one entry per claim listed in the inputs, the claim copied exactly as given. Say what the audience does with it. Where the company and the audience are not talking about the same thing, name the difference; where the conversation says nothing about a claim, leave that claim out rather than guess.` : '',
+    has('say_hear') ? `- The claims page: one entry per claim listed in the inputs, the claim copied exactly as given. Say what the audience does with it. Where the company and the audience are not talking about the same thing, name the difference. A claim the conversation does not take up at all is worth an entry too: say plainly that it is not coming back, and never invent a response for it.` : '',
     has('asked') ? '- The questions page: real questions the conversation puts and nobody settles, in the audience\'s own framing. Not topics, not headings, not things it would be nice to cover.' : '',
     'Example of the register (a different company, do not reuse its content): headline "Comfort is the criterion long-term users apply, and the adjustable socket is where interest turns concrete"; saw "Long-term users judge a device by whether it can be worn through a whole day. [[g7_conversations]] conversations describe fit changing by evening, sweat and sores, and sock changes as the routine that decides whether a device stays on.\n\nThe adjustable socket shown on the brand\'s videos drew direct requests by name, the one component the audience asked for rather than about."; means "Comfort is not a feature in this market but the test every claim is put to; a buyer who has lived with a poor socket hears a performance claim as a promise about the afternoon."; practice ["Fit through the day is the buyer\'s own measure; it is the question to ask before naming a component."].',
   ].filter(Boolean).join('\n')

@@ -59,7 +59,12 @@ export async function DocumentStudioPage({ report, clientId }: { report: ReportR
         <DocumentBuildControl reportId={report.id} inFlight={inFlight} />
       </PageBar>
       <EditorLayout
-        settings={<SettingsPane reportId={report.id} title={report.title} reader={report.cover?.reader ?? ''} settings={settings} tracked={tracked} />}
+        settings={<SettingsPane
+          reportId={report.id} title={report.title} reader={report.cover?.reader ?? ''} settings={settings} tracked={tracked}
+          readerHint={template?.readerNoun ?? 'the sales team'}
+          competitorsUsed={!!template?.skeleton.some((p) => p.kind === 'competitor') || !!template?.anchors.some((a) => a.perCompetitor)}
+          findingsMax={template?.findingsMax ?? 4}
+        />}
         page={editor ?? (
           <div className="flex flex-1 flex-col items-start justify-center gap-3 px-8">
             <p className="text-[14px] font-medium">{inFlight ? 'Writing the first draft.' : 'Build to write the first draft.'}</p>

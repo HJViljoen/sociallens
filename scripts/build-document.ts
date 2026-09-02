@@ -20,14 +20,13 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { createAdminClient } from '../lib/supabase-admin'
 import { documentSettings, type SellsTo } from '../lib/reports/documents/types'
-import { documentTemplate } from '../lib/reports/documents/templates'
+import { documentTemplate, promptVersion } from '../lib/reports/documents/templates'
 import { loadSignals } from '../lib/reports/documents/signals'
 import { composeQuestions } from '../lib/reports/documents/questions'
 import { runResearch } from '../lib/reports/documents/research'
 import { DOCUMENT_BUILD_BUDGET_USD, DOCUMENT_QUESTIONS_MAX } from '../lib/config'
 import { allowedTokens, composeDocument, documentFigures, thinWeek } from '../lib/reports/documents/compose'
 import { generateDocument, DOCUMENT_WRITER_MODEL } from '../lib/reports/documents/write-model'
-import { DOCUMENT_PROMPT_VERSION } from '../lib/reports/documents/write'
 import { periodOf } from '../lib/reports/documents/build'
 import { buildContext, runBuildInProcess } from '../lib/reports/documents/steps'
 import { insertBuild, latestRunId, loadBuild } from '../lib/reports/documents/builds'
@@ -125,8 +124,8 @@ async function main() {
   console.log(`\nwrite: ${written.ms} ms · $${written.costUsd.toFixed(3)} · ${written.promptTokens}+${written.completionTokens} tok · findings ${written.written.findings.length} · competitors ${written.written.competitors?.length ?? 0} · not sure ${written.written.not_sure_yet.length}`)
   writeFileSync(`${out}/written.json`, JSON.stringify(written.written, null, 2))
   const { data, workings } = composeDocument({
-    template, settings, reportId: '', title: `${signals.company} sales brief`, period, signals, answers: research.answers, written: written.written, figures,
-    model: DOCUMENT_WRITER_MODEL, promptVersion: DOCUMENT_PROMPT_VERSION, costUsd: research.costUsd + written.costUsd, timings: { research: Date.now() - t1, write: Date.now() - t2 },
+    template, settings, reportId: '', title: `${signals.company} ${template.name.toLowerCase()}`, period, signals, answers: research.answers, written: written.written, figures,
+    model: DOCUMENT_WRITER_MODEL, promptVersion: promptVersion(template), costUsd: research.costUsd + written.costUsd, timings: { research: Date.now() - t1, write: Date.now() - t2 },
   })
   console.log(`compose: pages ${data.pages.map((p) => p.kind).join(', ')} · dropped ${workings.dropped.length} · not sure ${data.notSureYet.length} · thin ${data.method.thin}`)
   for (const p of data.pages) {
