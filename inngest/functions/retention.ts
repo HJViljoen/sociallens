@@ -8,7 +8,7 @@ import {
   YOUTUBE_REFRESH_NIGHTLY_CAP,
   YOUTUBE_VIDEO_REFRESH_NIGHTLY_CAP,
 } from '@/lib/config'
-import { refreshYoutubeComments, refreshYoutubeVideos } from '@/lib/retention/youtube-refresh-io'
+import { deleteCommentsProperly, refreshYoutubeComments, refreshYoutubeVideos } from '@/lib/retention/youtube-refresh-io'
 
 // Data retention (Tier 0 T0-9, 2026-08-18; YouTube refresh Tier 1.5,
 // 2026-08-22). Until Tier 0 nothing in the product ever deleted source data:
@@ -36,7 +36,8 @@ import { refreshYoutubeComments, refreshYoutubeVideos } from '@/lib/retention/yo
 //                                   analysis) and its comments deleted.
 //   5. purge-stale-youtube-comments — the BACKSTOP: anything still unrefreshed
 //                                   at 30 days (five failed nights) takes the
-//                                   Tier 0 path — uncited deleted, cited lose
+//                                   shared delete path — uncited deleted (stored
+//                                   exports quoting them staled), cited lose
 //                                   `author`. It should delete nothing on a
 //                                   healthy night; if it does, refresh is failing.
 //
@@ -56,7 +57,7 @@ export const retentionDaily = inngest.createFunction(
     // and forgotten. scripts/retention-dry.ts reports what a sweep would do.
     if (!retentionEnabled()) {
       console.log('[retention] RETENTION_ENABLED is not set; skipping sweep')
-      return { skipped: 'disabled', rawDeleted: 0, bodiesStripped: 0, deleted: 0, pseudonymised: 0 }
+      return { skipped: 'disabled', rawDeleted: 0, bodiesStripped: 0, deleted: 0, pseudonymised: 0, artifactsStaled: 0 }
     }
     const cutoff = (days: number) => new Date(Date.now() - days * 86_400_000).toISOString()
 
@@ -134,13 +135,13 @@ export const retentionDaily = inngest.createFunction(
       const admin = createAdminClient()
       const before = cutoff(YOUTUBE_RETENTION_DAYS)
 
-      const stale = await selectAll<{ id: string }>(() =>
-        admin.from('comments').select('id')
+      const stale = await selectAll<{ id: string; client_id: string; text: string | null }>(() =>
+        admin.from('comments').select('id, client_id, text')
           .eq('platform', 'youtube')
           .or(`and(refreshed_at.is.null,created_at.lt.${before}),refreshed_at.lt.${before}`)
           .order('id', { ascending: true }),
       )
-      if (!stale.length) return { deleted: 0, pseudonymised: 0 }
+      if (!stale.length) return { deleted: 0, pseudonymised: 0, artifactsStaled: 0 }
       console.warn(`[retention] BACKSTOP firing on ${stale.length} unrefreshed YouTube rows — the refresh step has not reached them in ${YOUTUBE_RETENTION_DAYS} days`)
 
       const staleIds = stale.map((c) => c.id)
@@ -156,14 +157,17 @@ export const retentionDaily = inngest.createFunction(
         for (const r of (ls.data ?? []) as { comment_id: string | null }[]) if (r.comment_id) cited.add(r.comment_id)
       }
 
-      const deletable = staleIds.filter((id) => !cited.has(id))
-      let deleted = 0
-      for (let i = 0; i < deletable.length; i += 200) {
-        const chunk = deletable.slice(i, i + 200)
-        const { error } = await admin.from('comments').delete().in('id', chunk)
-        if (error) throw new Error(`purge youtube comments: ${error.message}`)
-        deleted += chunk.length
-      }
+      // Through the shared path, not an inline delete (2026-09-02). The
+      // backstop used to delete comments itself, which meant a stored PDF or
+      // PNG quoting one of these voices was never flagged: the file kept the
+      // words after the row was gone, and no later sweep could find it,
+      // because the refs it would be found by point at rows that no longer
+      // exist. deleteCommentsProperly finds those snapshots BEFORE the delete
+      // and stales their artifacts after it, and nulls hero-quote copies —
+      // the same treatment an erasure request gets.
+      const deletable = stale.filter((c) => !cited.has(c.id))
+      const del = await deleteCommentsProperly(admin, deletable)
+      const deleted = del.deleted
 
       // Cited rows: drop the identity, keep the sentence.
       const citedIds = [...cited]
@@ -177,7 +181,7 @@ export const retentionDaily = inngest.createFunction(
         if (error) throw new Error(`pseudonymise youtube comments: ${error.message}`)
         pseudonymised += chunk.length
       }
-      return { deleted, pseudonymised }
+      return { deleted, pseudonymised, artifactsStaled: del.artifactsStaled }
     })
 
     const summary = { rawDeleted, bodiesStripped, ytComments, ytVideos, ...ytPurged }

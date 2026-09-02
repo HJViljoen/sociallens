@@ -49,7 +49,7 @@ async function main() {
   console.log(`2. strip-ai-call-bodies       ${bodiesDue} row(s) past ${AI_LOG_BODY_RETENTION_DAYS}d with a body → nulled`)
   console.log(`3. refresh-youtube-comments   ${ytDue} row(s) 25d+ since last read → re-fetched (cap ${YOUTUBE_REFRESH_NIGHTLY_CAP} ids/night)`)
   console.log(`4. refresh-youtube-videos     ${ytVideosDue} video(s) 25d+ since last read → stats re-fetched (cap ${YOUTUBE_VIDEO_REFRESH_NIGHTLY_CAP}/night)`)
-  console.log(`5. purge-stale-youtube-comments (BACKSTOP) ${ytBackstop} row(s) unrefreshed at ${YOUTUBE_RETENTION_DAYS}d → uncited deleted, cited lose author`)
+  console.log(`5. purge-stale-youtube-comments (BACKSTOP) ${ytBackstop} row(s) unrefreshed at ${YOUTUBE_RETENTION_DAYS}d → uncited deleted through the shared path (stored exports quoting them staled), cited lose author`)
   if (ytBackstop > 0 && ytDue > 0) console.log('   (expected before the first refresh has run; should be 0 every night after)')
 
   if (sample > 0) {

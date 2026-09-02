@@ -140,9 +140,17 @@ export async function saveSchedule(args: { id?: string | null; input: ScheduleIn
   const s = parsed.data
   const admin = createAdminClient()
   if (s.starterKey && !starterTemplate(s.starterKey)) return { ok: false, message: 'Pick a template.' }
+  const id = args.id ? z.uuid().safeParse(args.id).data ?? null : null
   if (s.reportId) {
     const { data: r } = await admin.from('reports').select('id').eq('id', s.reportId).eq('client_id', clientId).maybeSingle()
     if (!r) return { ok: false, message: 'That template is not in this workspace.' }
+    // One schedule per report: the Studio edits it in place, so a second one
+    // would not be visible there. The unique index says the same thing; this
+    // is here so the person reads a sentence rather than a database error.
+    const { data: already } = await admin.from('report_schedules').select('id').eq('report_id', s.reportId).eq('client_id', clientId).maybeSingle()
+    if (already && (already as { id: string }).id !== id) {
+      return { ok: false, message: 'This report already has a sending. Edit that one rather than adding a second.' }
+    }
   }
   const row = {
     name: s.name,
@@ -156,7 +164,6 @@ export async function saveSchedule(args: { id?: string | null; input: ScheduleIn
     review: s.review,
     updated_at: new Date().toISOString(),
   }
-  const id = args.id ? z.uuid().safeParse(args.id).data ?? null : null
   if (id) {
     const { error } = await admin.from('report_schedules').update(row).eq('id', id).eq('client_id', clientId)
     if (error) return { ok: false, message: 'Could not save that. Try again.' }
