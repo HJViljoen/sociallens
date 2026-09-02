@@ -35,7 +35,7 @@ function evaluate(data: DocumentSnapshotData, workings: DocumentWorkings | null,
   f('every page kind belongs to the skeleton', kinds.every((k) => order.includes(k)), kinds.filter((k) => !order.includes(k)).join(', ') || 'all')
   const ranks = kinds.map((k) => order.indexOf(k))
   f('pages in skeleton order', ranks.every((r, i) => i === 0 || r >= ranks[i - 1]), kinds.join(' · '))
-  f('overview first, method last', kinds[0] === 'in_short' && kinds[kinds.length - 1] === 'method')
+  f('opens and closes on the pages the template opens and closes on', kinds[0] === order[0] && kinds[kinds.length - 1] === order[order.length - 1], `${kinds[0]} … ${kinds[kinds.length - 1]}`)
   const findings = data.pages.filter((p) => p.kind === 'finding')
   const maxFindings = template?.findingsMax ?? 4
   f(`one to ${maxFindings} findings`, findings.length >= 1 && findings.length <= maxFindings, `${findings.length}`)

@@ -108,7 +108,7 @@ export function ScheduleForm({ reportId, reportTitle, schedule, canManage, userE
           </p>
           <p className="text-[12px] leading-[1.45] text-muted-foreground">
             {ready.stalled
-              ? `The report is built and nothing went out. Sending it again picks up where it stopped and goes to ${schedule.recipients.length} ${schedule.recipients.length === 1 ? 'person' : 'people'}. Anyone here can send it.`
+              ? `The report is built, and nothing was recorded as sent. It stopped partway, so it is possible some of the ${schedule.recipients.length} ${schedule.recipients.length === 1 ? 'person' : 'people'} already have it; sending it again goes to all of them. Anyone here can send it.`
               : `${isDocument ? 'Read it, change anything that needs changing, then send it' : 'Read it, then send it'} to ${schedule.recipients.length} ${schedule.recipients.length === 1 ? 'person' : 'people'}. Anyone here can send it.`}
           </p>
           {ready.error && <p className="text-[12px] text-negative">The last attempt did not go: {ready.error}</p>}

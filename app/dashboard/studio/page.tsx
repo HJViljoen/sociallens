@@ -70,10 +70,15 @@ export default async function StudioPage({ searchParams }: { searchParams?: Prom
   // offers it in the same place, saying plainly that it stopped partway.
   // (claimDecision reads the clock itself; this page is force-dynamic, so it
   // is a fresh read on every request.)
+  // The stalled fallback is offered ONLY on the newest send: `claimDecision`
+  // calls a cold claim stale forever, and sends are per (schedule, run), so an
+  // August hand-send that timed out would still be offered in September, after
+  // September's own update had already gone out. Pressing Send would mail last
+  // month's brief to the whole list.
+  const newest = scheduleSends[0] ?? null
   const readySend =
     scheduleSends.find((s) => s.status === 'ready')
-    ?? scheduleSends.find((s) => s.status === 'claimed' && s.snapshot_id != null && claimDecision(s) === 'takeover')
-    ?? null
+    ?? (newest && newest.status === 'claimed' && newest.snapshot_id != null && claimDecision(newest) === 'takeover' ? newest : null)
   const stalled = readySend?.status === 'claimed'
   // Who pressed Send, for the archive line.
   const approverIds = [...new Set(history.map((s) => s.approved_by).filter(Boolean) as string[])]

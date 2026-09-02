@@ -229,6 +229,9 @@ describe('the skeleton walk (2026-09-02)', () => {
     const page = (w: Partial<WriterOutput>) => compose(MARKET_BRIEF, w).data.pages.find((p) => p.kind === 'say_hear')
     // Invented claim: dropped, however plausible it reads.
     expect(page({ say_hear: [{ claim: 'We are the safest knee on the market.', read: 'x', based_on: [] }] })).toBeUndefined()
+    // A fragment too short to identify a claim binds to nothing, rather than
+    // to whichever entry happens to come first.
+    expect(page({ say_hear: [{ claim: 'Terrain', read: 'x', based_on: [] }] })).toBeUndefined()
     const real = page({ say_hear: [{ claim: 'Terrain adaptation adjusts the foot.', read: 'The audience answers with stairs and falls.', based_on: ['G1'] }] })!
     const block = real.blocks[0]
     expect(block.id).toBe('sh1_terrain_adaptation_adjusts_the_foot')
@@ -240,7 +243,10 @@ describe('the skeleton walk (2026-09-02)', () => {
 
   it('the standing page names the parties in order, the company first', () => {
     const page = compose(LEADERSHIP_BRIEF, { standing: 'A small share of a loud category.' }).data.pages.find((p) => p.kind === 'standing')!
-    expect(page.meta?.parties).toBe('Ossur|Ottobock')
+    expect(JSON.parse(page.meta!.parties)).toEqual(['Ossur', 'Ottobock'])
+    // JSON, not a delimiter: a label carrying the separator used to mis-split
+    // into NaN and print a bar of NaN width onto a paid PDF.
+    expect(JSON.parse(page.meta!.concerns)).toEqual([{ label: 'Insurance and Medicare barriers', total: 11, trajectory: 'seen 2 updates running' }])
     expect(page.blocks[0].text).toBe('A small share of a loud category.')
   })
 
@@ -258,6 +264,25 @@ describe('writerSchema', () => {
     expect(keys(LEADERSHIP_BRIEF)).toEqual(['findings', 'in_short', 'not_sure_yet', 'standing'])
     expect(keys(MARKET_BRIEF)).toEqual(['care', 'competitors', 'findings', 'in_short', 'not_sure_yet', 'persona_lines', 'say_hear'])
     expect(keys(CONTENT_BRIEF)).toEqual(['asked', 'care', 'findings', 'in_short', 'not_sure_yet'])
+  })
+
+  // Under strict structured output the model writes the properties in schema
+  // order, so the ORDER is what it thinks in, and reordering it is a change to
+  // a document the owner approved. Asserted unsorted, on purpose: sorting the
+  // keys is exactly what hid this the first time.
+  it('asks for them in the order the brief is printed, findings first, not settled last', () => {
+    const order = (t: DocumentTemplate) => Object.keys(writerSchema(t).shape)
+    expect(order(SALES_BRIEF)).toEqual(['in_short', 'findings', 'competitors', 'persona_lines', 'care', 'not_sure_yet'])
+    expect(order(LEADERSHIP_BRIEF)).toEqual(['in_short', 'findings', 'standing', 'not_sure_yet'])
+    expect(order(MARKET_BRIEF)).toEqual(['in_short', 'findings', 'say_hear', 'competitors', 'persona_lines', 'care', 'not_sure_yet'])
+    expect(order(CONTENT_BRIEF)).toEqual(['in_short', 'findings', 'asked', 'care', 'not_sure_yet'])
+  })
+
+  it('names the reader in the competitor read, not a generic noun', () => {
+    const read = (t: DocumentTemplate) =>
+      ((writerSchema(t).shape.competitors as unknown as { element: { shape: Record<string, { description?: string }> } }).element.shape.read.description ?? '')
+    expect(read(SALES_BRIEF)).toContain('The read for a rep when this competitor comes up')
+    expect(read(MARKET_BRIEF)).toContain('The read for the marketing team when this competitor comes up')
   })
 
   it('names the reader and the lens inside the fields the model reads', () => {

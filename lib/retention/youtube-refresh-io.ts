@@ -66,9 +66,18 @@ export async function deleteCommentsProperly(
     for (const r of (ev.data ?? []) as { id: string; audience_insight_id: string }[]) { insights.add(r.audience_insight_id); evidenceIds.push(r.id) }
     for (const r of (ls.data ?? []) as { id: string }[]) sampleIds.push(r.id)
   }
-  const clientIds = [...new Set(rows.map((r) => r.client_id))]
-  const heroRows = await loadHeroQuotes(admin, clientIds)
-  const heroHits = matchHeroQuotes(heroRows, rows.map((r) => r.text ?? ''))
+  // Hero quotes are matched BY TEXT, so they must be matched per tenant: two
+  // workspaces can hold the same sentence, and pooling every client's rows
+  // into one haystack would null client A's quote because client B's comment
+  // happened to contain it. Erasure only ever passes one client's rows, so
+  // this never showed there; the nightly backstop passes every tenant's at
+  // once (found in review, 2026-09-02).
+  const byClient = new Map<string, string[]>()
+  for (const r of rows) byClient.set(r.client_id, [...(byClient.get(r.client_id) ?? []), r.text ?? ''])
+  const heroRows = await loadHeroQuotes(admin, [...byClient.keys()])
+  const heroByClient = new Map<string, typeof heroRows>()
+  for (const h of heroRows) heroByClient.set(h.clientId, [...(heroByClient.get(h.clientId) ?? []), h])
+  const heroHits = [...byClient.entries()].flatMap(([clientId, texts]) => matchHeroQuotes(heroByClient.get(clientId) ?? [], texts))
   // Exports (Reports & Exports, plan D6): a stored PDF/PNG whose snapshot
   // cited any of these voices has the words baked into a file. Find those
   // snapshots by ref — c:<comment>, e:<evidence row>, h:<table>:<row> — delete

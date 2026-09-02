@@ -131,7 +131,13 @@ export async function deliverSend(a: DeliverArgs): Promise<DeliverResult> {
   // a delivery that died mid-render leaves a `claimed` row a person can still
   // pick up (the Studio offers it once the claim goes cold), and a second
   // failure on it must leave it pickable rather than strand a paid build.
-  const byHand = a.mode === 'review'
+  // Both the door AND the state: `mode === 'review'` is a person pressing
+  // Send, and a row that is already `ready` is a reviewed build waiting for
+  // one. Either way a failure must leave it pickable. (Keying off the door
+  // alone stranded a reviewed build whose schedule had its review flag turned
+  // off between an Inngest retry: the auto door would then mark it failed,
+  // and nothing surfaces a failed row. Found in review, 2026-09-02.)
+  const byHand = a.mode === 'review' || row.status === 'ready'
   if (row.status === 'ready') {
     const { data: taken } = await admin
       .from('report_sends')
@@ -164,7 +170,15 @@ export async function deliverSend(a: DeliverArgs): Promise<DeliverResult> {
   // `ready` — the build stands and Send can be pressed again. A failure on a
   // scheduled send that was never reviewed is a failed send, plainly.
   const failAs = async (error: string): Promise<DeliverResult> => {
-    await admin.from('report_sends').update({ status: byHand ? 'ready' : 'failed', error: error.slice(0, 500) }).eq('id', sendId)
+    // `ready` means "built, waiting for a person", and ready_at is when that
+    // became true. Promoting a row without it left the Studio calling a
+    // non-review schedule "Ready for review" with no built date, and left
+    // readyForReview's idempotence guard (which requires both) able to email
+    // the whole workspace a second time.
+    const patch = byHand
+      ? { status: 'ready' as const, ready_at: row.ready_at ?? new Date().toISOString(), error: error.slice(0, 500) }
+      : { status: 'failed' as const, error: error.slice(0, 500) }
+    await admin.from('report_sends').update(patch).eq('id', sendId)
     return { status: 'failed', ms: ms(), error }
   }
 

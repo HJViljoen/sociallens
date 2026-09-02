@@ -14,6 +14,18 @@ export interface OverviewTile {
   label: string
 }
 
+/** The standing page packs its party names as JSON (a name may carry any
+ *  separator we could have chosen). Anything unparseable degrades to none. */
+function standingParties(raw: string | undefined): string[] {
+  if (!raw) return []
+  try {
+    const v = JSON.parse(raw)
+    return Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : []
+  } catch {
+    return []
+  }
+}
+
 export const slugOf = (name: string) => name.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/(^_|_$)/g, '')
 
 /** The three numbers: conversations read, share of tracked conversation
@@ -27,7 +39,7 @@ export function overviewTiles(data: DocumentSnapshotData): OverviewTile[] {
   // a number without a scale.
   const competitor =
     data.pages.find((p) => p.kind === 'competitor')?.meta?.name
-    ?? (data.pages.find((p) => p.kind === 'standing')?.meta?.parties ?? '').split('|').filter(Boolean)[1]
+    ?? standingParties(data.pages.find((p) => p.kind === 'standing')?.meta?.parties)[1]
   const compKey = competitor ? `${slugOf(competitor)}_share_pct` : null
   return [
     f.conversations && { value: f.conversations.value, label: `conversations read this update${f.videos ? `, on ${f.videos.value} videos` : ''}` },

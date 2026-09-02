@@ -15,8 +15,17 @@ import type { DocBlock, DocumentSnapshotData, DocumentWorkings } from '@/lib/rep
 // workings" puts a count in each block's margin and opens the evidence
 // beside the page.
 
-const PAGE_LABEL: Record<string, string> = { in_short: 'Overview', finding: 'Finding', competitor: 'Competitor', personas: 'Who is buying', language: 'Handle with care', method: 'About this brief' }
-const FIELD_LABEL: Record<string, string> = { summary: 'Executive summary', headline: 'Headline', saw: 'What the conversation shows', means: 'What it means for a sale', practice: 'In practice', pitch: 'What they are pitching', praise: 'What their users praise', hurt: 'Where their users hurt', read: 'When they come up', persona: 'For a sale', care: 'Handle with care', not_sure: 'Not settled this update' }
+const PAGE_LABEL: Record<string, string> = { in_short: 'Overview', finding: 'Finding', competitor: 'Competitor', standing: 'Standing', say_hear: 'Claims', asked: 'What the audience asks', personas: 'Who is buying', language: 'Handle with care', method: 'About this brief' }
+// The two labels that name a finding's consequence come from the document's
+// own LENS, so the editor calls a block what the printed page calls it. A
+// snapshot from before the lens existed is a Sales brief.
+const FIELD_LABEL: Record<string, string> = { summary: 'Executive summary', headline: 'Headline', saw: 'What the conversation shows', practice: 'In practice', pitch: 'What they are pitching', praise: 'What their users praise', hurt: 'Where their users hurt', read: 'When they come up', standing: 'How it reads', gap: 'What comes back', asked: 'The questions', care: 'Handle with care', not_sure: 'Not settled this update' }
+const fieldLabel = (field: string, lens: DocumentSnapshotData['lens']) => {
+  const l = lens ?? { means: 'What it means for a sale', short: 'for a sale' }
+  if (field === 'means') return l.means
+  if (field === 'persona') return l.short.replace(/^./, (c) => c.toUpperCase())
+  return FIELD_LABEL[field] ?? field
+}
 
 export function DocumentEditor({ snapshotId, data, workings, editedIds, deck }: { snapshotId: string; data: DocumentSnapshotData; workings: DocumentWorkings | null; editedIds: string[]; deck: ReactNode }) {
   const router = useRouter()
@@ -44,7 +53,7 @@ export function DocumentEditor({ snapshotId, data, workings, editedIds, deck }: 
       const b = p.blocks.find((x) => x.id === id)
       if (b) {
         const page = p.kind === 'finding' ? `Finding ${p.meta?.n ?? ''}` : p.kind === 'competitor' ? (p.meta?.name ?? 'Competitor') : PAGE_LABEL[p.kind] ?? p.title
-        return `${page} · ${b.label ?? FIELD_LABEL[b.field] ?? b.field}`
+        return `${page} · ${b.label ?? fieldLabel(b.field, data.lens)}`
       }
     }
     return id

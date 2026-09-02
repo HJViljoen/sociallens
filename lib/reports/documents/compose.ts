@@ -244,9 +244,13 @@ export function composeDocument(a: ComposeArgs): { data: DocumentSnapshotData; w
         // recoverable from it. The concerns are the FIELD this update, which
         // the three findings deliberately do not cover: a director is asking
         // what the conversation is about, not only what was worth writing up.
+        //
+        // JSON, not a delimiter: a company or a theme label containing the
+        // separator would mis-split, and the deck would print NaN and a bar of
+        // NaN width into a paid PDF without throwing.
         meta: {
-          parties: parties.join('|'),
-          concerns: s.concerns.slice(0, 5).map((c) => [c.label, String(c.total), c.trajectory || ''].join('~')).join('|'),
+          parties: JSON.stringify(parties),
+          concerns: JSON.stringify(s.concerns.slice(0, 5).map((c) => ({ label: c.label, total: c.total, trajectory: c.trajectory || '' }))),
         },
       }]
     },
@@ -261,9 +265,18 @@ export function composeDocument(a: ComposeArgs): { data: DocumentSnapshotData; w
       for (const written of (w.say_hear ?? []).slice(0, 4)) {
         const claim = written.claim?.trim()
         if (!claim) continue
-        const entry = entries.find((e) => e.you_say.trim().toLowerCase() === claim.toLowerCase())
-          ?? entries.find((e) => e.you_say.toLowerCase().includes(claim.toLowerCase()) || claim.toLowerCase().includes(e.you_say.toLowerCase()))
+        // Exact first; then a prefix long enough to be an identification and
+        // not a coincidence, and only when exactly ONE claim matches it. A
+        // two-way `includes` let a short fragment bind to whichever entry came
+        // first, which attaches a read to the wrong claim in silence.
+        const lower = claim.toLowerCase()
+        let entry = entries.find((e) => e.you_say.trim().toLowerCase() === lower)
+        if (!entry && lower.length >= 30) {
+          const near = entries.filter((e) => e.you_say.toLowerCase().startsWith(lower.slice(0, 30)) || lower.startsWith(e.you_say.toLowerCase().slice(0, 30)))
+          entry = near.length === 1 ? near[0] : undefined
+        }
         if (!entry) continue
+        if (blocks.some((b) => b.label === entry!.you_say)) continue
         const read = prose(written.read ?? '', figures, cap('gap'))
         if (!read) continue
         const { ok } = resolveIndices(written.based_on, known)

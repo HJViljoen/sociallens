@@ -52,9 +52,15 @@ const cap = (field: string) => DOCUMENT_BLOCK_MAX[field] ?? 400
  *
  * Everything the model is asked for is REQUIRED — OpenAI's structured output
  * is strict, so an absent page means an absent key, never an optional one.
+ *
+ * The ORDER of the keys matters and is not cosmetic: under strict structured
+ * output the model writes the properties in schema order, so the order is the
+ * order it thinks in. It is therefore the SKELETON's order, with the overview
+ * and the findings first and "what is not settled" last, which for the Sales
+ * brief reproduces exactly the order it was approved on
+ * (in_short, findings, competitors, persona_lines, care, not_sure_yet).
  */
 export function writerSchema(t: DocumentTemplate) {
-  const has = (kind: string) => t.skeleton.some((p) => p.kind === kind)
   const shape: Record<string, z.ZodTypeAny> = {
     in_short: z.object({
       summary: z.string().describe(`The executive summary: what the conversation shows this update, what changed since the last brief, and what matters ${t.lens.short}, developed in one or two paragraphs (separate paragraphs with a blank line). Under ${cap('summary')} characters. Cite figures by [[key]] only.`),
@@ -69,40 +75,48 @@ export function writerSchema(t: DocumentTemplate) {
       quote_from: z.string().nullable().describe('The one grounded point (G index) whose voice best carries the finding, or null.'),
       continued_from: z.string().nullable().describe("If this finding carries one of the previous brief's headlines, that headline verbatim; else null."),
     })),
-    not_sure_yet: z.array(z.string()).describe(`Questions ${t.readerNoun} would want answered that the conversation could not settle this update, one line each. Up to five, each under ${cap('not_sure')} characters.`),
   }
-  if (has('competitor')) {
-    shape.competitors = z.array(z.object({
-      name: z.string(),
-      pitch: z.string().describe(`What they are pitching in their own videos, as a read not a list. Under ${cap('pitch')} characters.`),
-      praise: z.string().describe(`What their users praise. Under ${cap('praise')} characters.`),
-      hurt: z.string().describe(`Where their users hurt. Under ${cap('hurt')} characters.`),
-      read: z.string().describe(`The read for the reader when this competitor comes up: what to ask about, what not to compare. Under ${cap('read')} characters.`),
-      based_on: z.array(z.string()),
-    }))
+  // The middle of the brief, in the order the skeleton prints it.
+  for (const page of t.skeleton) {
+    switch (page.kind) {
+      case 'competitor':
+        shape.competitors ??= z.array(z.object({
+        name: z.string(),
+        pitch: z.string().describe(`What they are pitching in their own videos, as a read not a list. Under ${cap('pitch')} characters.`),
+        praise: z.string().describe(`What their users praise. Under ${cap('praise')} characters.`),
+        hurt: z.string().describe(`Where their users hurt. Under ${cap('hurt')} characters.`),
+        read: z.string().describe(`The read for ${t.readerNoun} when this competitor comes up: what to ask about, what not to compare. Under ${cap('read')} characters.`),
+        based_on: z.array(z.string()),
+      }))
+        break
+      case 'personas':
+        shape.persona_lines ??= z.array(z.object({
+        name: z.string(),
+        line: z.string().describe(`What this person means ${t.lens.short}: one or two sentences on where they are and what would move them, drawn from the profile. Under ${cap('persona')} characters.`),
+      }))
+        break
+      case 'language':
+        shape.care ??= z.array(z.string()).describe('Words or claims that draw pushback or that the audience contradicts, each as "the words: why". Up to five.')
+        break
+      case 'standing':
+        shape.standing ??= z.string().describe(`Where the company sits in this conversation and why: what the shares and the movement mean read together, in one or two paragraphs (separate paragraphs with a blank line). The numbers are printed beside it, so read them, do not recite them. Under ${cap('standing')} characters.`)
+        break
+      case 'say_hear':
+        shape.say_hear ??= z.array(z.object({
+        claim: z.string().describe('The claim the company makes, in its own words, exactly as it is listed in the inputs.'),
+        read: z.string().describe(`What the audience does with that claim: what comes back, and where the two are not talking about the same thing. Under ${cap('gap')} characters.`),
+        based_on: z.array(z.string()),
+      })).describe('One per claim listed in the inputs, up to four. Skip a claim the conversation says nothing about.')
+        break
+      case 'asked':
+        shape.asked ??= z.array(z.string()).describe(`Questions the conversation puts and does not settle, each as "the question: what is behind it". The question in the audience\'s own framing, not the company\'s. Up to eight, each under ${cap('asked')} characters.`)
+        break
+      default:
+        break
+    }
   }
-  if (has('personas')) {
-    shape.persona_lines = z.array(z.object({
-      name: z.string(),
-      line: z.string().describe(`What this person means ${t.lens.short}: one or two sentences on where they are and what would move them, drawn from the profile. Under ${cap('persona')} characters.`),
-    }))
-  }
-  if (has('language')) {
-    shape.care = z.array(z.string()).describe('Words or claims that draw pushback or that the audience contradicts, each as "the words: why". Up to five.')
-  }
-  if (has('standing')) {
-    shape.standing = z.string().describe(`Where the company sits in this conversation and why: what the shares and the movement mean read together, in one or two paragraphs (separate paragraphs with a blank line). The numbers are printed beside it, so read them, do not recite them. Under ${cap('standing')} characters.`)
-  }
-  if (has('say_hear')) {
-    shape.say_hear = z.array(z.object({
-      claim: z.string().describe('The claim the company makes, in its own words, exactly as it is listed in the inputs.'),
-      read: z.string().describe(`What the audience does with that claim: what comes back, and where the two are not talking about the same thing. Under ${cap('gap')} characters.`),
-      based_on: z.array(z.string()),
-    })).describe('One per claim listed in the inputs, up to four. Skip a claim the conversation says nothing about.')
-  }
-  if (has('asked')) {
-    shape.asked = z.array(z.string()).describe(`Questions the conversation puts and does not settle, each as "the question: what is behind it". The question in the audience\'s own framing, not the company\'s. Up to eight, each under ${cap('asked')} characters.`)
-  }
+  // Last, on every brief: what the update could not settle.
+  shape.not_sure_yet = z.array(z.string()).describe(`Questions ${t.readerNoun} would want answered that the conversation could not settle this update, one line each. Up to five, each under ${cap('not_sure')} characters.`)
   return z.object(shape)
 }
 

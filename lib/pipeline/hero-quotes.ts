@@ -13,7 +13,7 @@ import { selectAll } from '../supabase-admin'
 export const HERO_QUOTE_TABLES = ['recommendations', 'market_insights', 'competitive_insights', 'account_events'] as const
 export type HeroQuoteTable = (typeof HERO_QUOTE_TABLES)[number]
 
-export interface HeroQuoteRow { table: HeroQuoteTable; id: string; hero_quote: string | null }
+export interface HeroQuoteRow { table: HeroQuoteTable; id: string; clientId: string; hero_quote: string | null }
 
 /** Rows whose hero_quote appears (normalised) inside any of the given texts. */
 export function matchHeroQuotes(rows: HeroQuoteRow[], texts: string[]): { table: HeroQuoteTable; id: string }[] {
@@ -37,10 +37,12 @@ export async function loadHeroQuotes(admin: SupabaseClient, clientIds: string[])
   const out: HeroQuoteRow[] = []
   for (const table of HERO_QUOTE_TABLES) {
     // selectAll: these tables accumulate across runs; a bare select caps at 1000.
-    const rows = await selectAll<{ id: string; hero_quote: string | null }>(() =>
-      admin.from(table).select('id, hero_quote').in('client_id', clientIds).not('hero_quote', 'is', null).order('id', { ascending: true }),
+    const rows = await selectAll<{ id: string; client_id: string; hero_quote: string | null }>(() =>
+      admin.from(table).select('id, client_id, hero_quote').in('client_id', clientIds).not('hero_quote', 'is', null).order('id', { ascending: true }),
     )
-    for (const r of rows) out.push({ table, id: r.id, hero_quote: r.hero_quote })
+    // client_id travels with the row: a hero quote may only be matched against
+    // its OWN workspace's comments (matchHeroQuotes compares text).
+    for (const r of rows) out.push({ table, id: r.id, clientId: r.client_id, hero_quote: r.hero_quote })
   }
   return out
 }

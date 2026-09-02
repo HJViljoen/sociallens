@@ -147,8 +147,11 @@ export async function saveSchedule(args: { id?: string | null; input: ScheduleIn
     // One schedule per report: the Studio edits it in place, so a second one
     // would not be visible there. The unique index says the same thing; this
     // is here so the person reads a sentence rather than a database error.
-    const { data: already } = await admin.from('report_schedules').select('id').eq('report_id', s.reportId).eq('client_id', clientId).maybeSingle()
-    if (already && (already as { id: string }).id !== id) {
+    // limit(1), not maybeSingle(): if a report ever did carry two, maybeSingle
+    // errors and the guard falls open into a raw database message.
+    const { data: already } = await admin.from('report_schedules').select('id').eq('report_id', s.reportId).eq('client_id', clientId).limit(1)
+    const other = ((already ?? []) as { id: string }[])[0]
+    if (other && other.id !== id) {
       return { ok: false, message: 'This report already has a sending. Edit that one rather than adding a second.' }
     }
   }

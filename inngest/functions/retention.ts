@@ -7,6 +7,7 @@ import {
   YOUTUBE_RETENTION_DAYS,
   YOUTUBE_REFRESH_NIGHTLY_CAP,
   YOUTUBE_VIDEO_REFRESH_NIGHTLY_CAP,
+  YOUTUBE_BACKSTOP_NIGHTLY_CAP,
 } from '@/lib/config'
 import { deleteCommentsProperly, refreshYoutubeComments, refreshYoutubeVideos } from '@/lib/retention/youtube-refresh-io'
 
@@ -57,7 +58,7 @@ export const retentionDaily = inngest.createFunction(
     // and forgotten. scripts/retention-dry.ts reports what a sweep would do.
     if (!retentionEnabled()) {
       console.log('[retention] RETENTION_ENABLED is not set; skipping sweep')
-      return { skipped: 'disabled', rawDeleted: 0, bodiesStripped: 0, deleted: 0, pseudonymised: 0, artifactsStaled: 0 }
+      return { skipped: 'disabled', rawDeleted: 0, bodiesStripped: 0, deleted: 0, pseudonymised: 0, artifactsStaled: 0, remaining: 0 }
     }
     const cutoff = (days: number) => new Date(Date.now() - days * 86_400_000).toISOString()
 
@@ -135,26 +136,35 @@ export const retentionDaily = inngest.createFunction(
       const admin = createAdminClient()
       const before = cutoff(YOUTUBE_RETENTION_DAYS)
 
-      const stale = await selectAll<{ id: string; client_id: string; text: string | null }>(() =>
+      const found = await selectAll<{ id: string; client_id: string; text: string | null }>(() =>
         admin.from('comments').select('id, client_id, text')
           .eq('platform', 'youtube')
           .or(`and(refreshed_at.is.null,created_at.lt.${before}),refreshed_at.lt.${before}`)
           .order('id', { ascending: true }),
       )
-      if (!stale.length) return { deleted: 0, pseudonymised: 0, artifactsStaled: 0 }
-      console.warn(`[retention] BACKSTOP firing on ${stale.length} unrefreshed YouTube rows — the refresh step has not reached them in ${YOUTUBE_RETENTION_DAYS} days`)
+      if (!found.length) return { deleted: 0, pseudonymised: 0, artifactsStaled: 0, remaining: 0 }
+      // Bounded per night: the shared delete path reads everything it needs
+      // before it deletes anything, so an unbounded set times the step out
+      // having made no progress at all. Ordered by id, so the batch is stable
+      // across a retry and tomorrow's sweep continues rather than repeats.
+      const stale = found.slice(0, YOUTUBE_BACKSTOP_NIGHTLY_CAP)
+      const remaining = found.length - stale.length
+      console.warn(`[retention] BACKSTOP firing on ${stale.length} of ${found.length} unrefreshed YouTube rows — the refresh step has not reached them in ${YOUTUBE_RETENTION_DAYS} days${remaining ? `; ${remaining} left for tomorrow` : ''}`)
 
       const staleIds = stale.map((c) => c.id)
       const cited = new Set<string>()
       // Chunked: ~500 uuids in an `in.()` filter overflows the PostgREST URL cap.
+      // selectAll, not a bare select: one comment can carry several evidence
+      // rows, so 200 comments can be well past the silent 1000-row cap, and a
+      // cited comment missed here is classed uncited and DELETED.
       for (let i = 0; i < staleIds.length; i += 200) {
         const chunk = staleIds.slice(i, i + 200)
         const [ev, ls] = await Promise.all([
-          admin.from('insight_evidence').select('comment_id').in('comment_id', chunk),
-          admin.from('language_samples').select('comment_id').in('comment_id', chunk),
+          selectAll<{ comment_id: string | null }>(() => admin.from('insight_evidence').select('comment_id').in('comment_id', chunk).order('comment_id', { ascending: true })),
+          selectAll<{ comment_id: string | null }>(() => admin.from('language_samples').select('comment_id').in('comment_id', chunk).order('comment_id', { ascending: true })),
         ])
-        for (const r of (ev.data ?? []) as { comment_id: string | null }[]) if (r.comment_id) cited.add(r.comment_id)
-        for (const r of (ls.data ?? []) as { comment_id: string | null }[]) if (r.comment_id) cited.add(r.comment_id)
+        for (const r of ev) if (r.comment_id) cited.add(r.comment_id)
+        for (const r of ls) if (r.comment_id) cited.add(r.comment_id)
       }
 
       // Through the shared path, not an inline delete (2026-09-02). The
@@ -181,7 +191,7 @@ export const retentionDaily = inngest.createFunction(
         if (error) throw new Error(`pseudonymise youtube comments: ${error.message}`)
         pseudonymised += chunk.length
       }
-      return { deleted, pseudonymised, artifactsStaled: del.artifactsStaled }
+      return { deleted, pseudonymised, artifactsStaled: del.artifactsStaled, remaining }
     })
 
     const summary = { rawDeleted, bodiesStripped, ytComments, ytVideos, ...ytPurged }

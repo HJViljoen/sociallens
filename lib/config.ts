@@ -503,6 +503,14 @@ export const YOUTUBE_RETENTION_DAYS = 30
  *  150k YouTube comments before the cap binds. */
 export const YOUTUBE_REFRESH_NIGHTLY_CAP = 5000
 export const YOUTUBE_VIDEO_REFRESH_NIGHTLY_CAP = 1000
+/** The BACKSTOP's nightly ceiling. It only fires when the refresh has failed
+ *  for 30 days, which is exactly when the unrefreshed set is the whole corpus,
+ *  and the shared delete path does all of its reads (evidence, samples, hero
+ *  quotes, the snapshots to stale) BEFORE the first delete. Unbounded, that
+ *  work exceeds the route's 300 s at corpus scale and the step times out
+ *  having deleted nothing, every night, forever. Bounded, each night is
+ *  durable progress. Raise it only with a measurement. */
+export const YOUTUBE_BACKSTOP_NIGHTLY_CAP = 5000
 
 // --- Gather spend ceilings (Tier 0 T0-2, 2026-08-18) -------------------------
 // tracking_configs now carries CHECK ceilings on the individual knobs; these

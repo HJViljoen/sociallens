@@ -290,6 +290,20 @@ function CompetitorPage({ page, figures, data }: { page: DocPage; figures: Figur
   )
 }
 
+/** A page's packed meta. JSON, so a company or a theme label carrying a
+ *  separator cannot mis-split into NaN on paper; a snapshot that somehow does
+ *  not parse degrades to the empty case rather than throwing inside a print
+ *  render, which would fail a paid build. */
+function parseMeta<T>(raw: string | undefined, fallback: T): T {
+  if (!raw) return fallback
+  try {
+    const v = JSON.parse(raw)
+    return Array.isArray(v) ? (v as T) : fallback
+  } catch {
+    return fallback
+  }
+}
+
 // ── standing ───────────────────────────────────────────────────────────────
 // The leadership brief's one page of position: the writer's read on the left,
 // and on the right the shares as bars and what actually moved, both drawn by
@@ -357,10 +371,8 @@ function movementLines(data: DocumentSnapshotData): { label: string; value: stri
  *  conversations behind them and how long each has been running. The findings
  *  pick three; this is the field they were picked from. */
 function ConcernField({ meta }: { meta: string }) {
-  const rows = meta.split('|').filter(Boolean).map((r) => {
-    const [label, total, trajectory] = r.split('~')
-    return { label, total: Number(total), trajectory }
-  })
+  const rows = parseMeta<{ label: string; total: number; trajectory: string }[]>(meta, [])
+    .filter((r) => r && typeof r.label === 'string' && Number.isFinite(r.total))
   if (!rows.length) return null
   const max = Math.max(...rows.map((r) => r.total), 1)
   return (
@@ -382,7 +394,7 @@ function ConcernField({ meta }: { meta: string }) {
 
 function StandingPage({ page, data }: { page: DocPage; data: DocumentSnapshotData }) {
   const block = page.blocks.find((b) => b.field === 'standing')
-  const parties = (page.meta?.parties ?? '').split('|').filter(Boolean)
+  const parties = parseMeta<string[]>(page.meta?.parties, []).filter((x) => typeof x === 'string' && x)
   const moved = movementLines(data)
   const READ = 'text-[17px] leading-[1.55] text-foreground'
   return (
