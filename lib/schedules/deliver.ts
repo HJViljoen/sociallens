@@ -127,7 +127,11 @@ export async function deliverSend(a: DeliverArgs): Promise<DeliverResult> {
   // doors compare-and-set: the review door on `ready` (or on the claimed_at of
   // a stale claim), the automatic one on the claim the runner made — an
   // Inngest step retry that overlaps the first attempt must not send twice.
-  const wasReady = row.status === 'ready'
+  // Which door this came through, not which status the row happened to hold:
+  // a delivery that died mid-render leaves a `claimed` row a person can still
+  // pick up (the Studio offers it once the claim goes cold), and a second
+  // failure on it must leave it pickable rather than strand a paid build.
+  const byHand = a.mode === 'review'
   if (row.status === 'ready') {
     const { data: taken } = await admin
       .from('report_sends')
@@ -160,7 +164,7 @@ export async function deliverSend(a: DeliverArgs): Promise<DeliverResult> {
   // `ready` — the build stands and Send can be pressed again. A failure on a
   // scheduled send that was never reviewed is a failed send, plainly.
   const failAs = async (error: string): Promise<DeliverResult> => {
-    await admin.from('report_sends').update({ status: wasReady ? 'ready' : 'failed', error: error.slice(0, 500) }).eq('id', sendId)
+    await admin.from('report_sends').update({ status: byHand ? 'ready' : 'failed', error: error.slice(0, 500) }).eq('id', sendId)
     return { status: 'failed', ms: ms(), error }
   }
 

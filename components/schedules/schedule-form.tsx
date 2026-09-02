@@ -25,7 +25,9 @@ interface Props {
   /** Whether the workspace has a completed update to send. */
   sendable: boolean
   /** A build waiting for a person: any member may read it and send it. */
-  ready?: { id: string; subject: string | null; readyAt: string | null; error: string | null } | null
+  /** A build waiting for a person. `stalled` = a delivery that died partway
+   *  and whose claim has gone cold; the same Send press picks it up. */
+  ready?: { id: string; subject: string | null; readyAt: string | null; error: string | null; stalled?: boolean } | null
   /** A written report is edited block by block before it goes; an arranged one is not. */
   isDocument?: boolean
 }
@@ -102,10 +104,12 @@ export function ScheduleForm({ reportId, reportTitle, schedule, canManage, userE
       {ready && schedule && (
         <div className="flex flex-col gap-2 rounded-[6px] bg-inner px-4 py-3">
           <p className="text-[13px] font-medium text-foreground">
-            Ready for review{readyOn ? ` · built ${readyOn}` : ''}
+            {ready.stalled ? 'Stopped partway through sending' : `Ready for review${readyOn ? ` · built ${readyOn}` : ''}`}
           </p>
           <p className="text-[12px] leading-[1.45] text-muted-foreground">
-            {isDocument ? 'Read it, change anything that needs changing, then send it' : 'Read it, then send it'} to {schedule.recipients.length} {schedule.recipients.length === 1 ? 'person' : 'people'}. Anyone here can send it.
+            {ready.stalled
+              ? `The report is built and nothing went out. Sending it again picks up where it stopped and goes to ${schedule.recipients.length} ${schedule.recipients.length === 1 ? 'person' : 'people'}. Anyone here can send it.`
+              : `${isDocument ? 'Read it, change anything that needs changing, then send it' : 'Read it, then send it'} to ${schedule.recipients.length} ${schedule.recipients.length === 1 ? 'person' : 'people'}. Anyone here can send it.`}
           </p>
           {ready.error && <p className="text-[12px] text-negative">The last attempt did not go: {ready.error}</p>}
           <div className="mt-1 flex flex-wrap items-center gap-2">

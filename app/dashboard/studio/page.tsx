@@ -17,6 +17,7 @@ import { catalogueTitle } from '@/lib/reports/catalogue'
 import { AUDIENCES, type CoverSpec, type CoverText, type FigureTable, type ReportSection } from '@/lib/reports/types'
 import { CADENCES, type ScheduleRow } from '@/lib/schedules/types'
 import { sendFailureSentence } from '@/lib/schedules/copy'
+import { claimDecision } from '@/lib/schedules/claim'
 import { cn } from '@/lib/utils'
 
 // The Studio (Heinrich, 2026-08-30): your reports down the left, the one you
@@ -33,7 +34,7 @@ const fmtBytes = (n: number) => (n >= 1_000_000 ? `${(n / 1_000_000).toFixed(1)}
 
 interface Report { id: string; kind: ReportKind; template_key: string | null; title: string; audience: string; cover: CoverSpec; status: 'draft' | 'built'; sections: ReportSection[]; latest_snapshot_id: string | null; updated_at: string }
 interface BuildRow { id: string; title: string; created_at: string; cover: CoverText | null; figures: FigureTable | null; artifacts: { id: string; format: string; bytes: number; stale: boolean; rendered_at: string; version: number }[] }
-interface SendRow { id: string; schedule_id: string | null; status: string; subject: string | null; recipients: string[]; sent_at: string | null; claimed_at: string; error: string | null; ready_at: string | null; approved_by: string | null }
+interface SendRow { id: string; schedule_id: string | null; status: string; subject: string | null; recipients: string[]; sent_at: string | null; claimed_at: string; error: string | null; ready_at: string | null; approved_by: string | null; snapshot_id: string | null }
 
 const readerOf = (r: Pick<Report, 'audience' | 'cover'>) => r.cover?.reader?.trim() || AUDIENCES.find((a) => a.key === r.audience)?.label || 'General'
 const pagesOf = (sections: { page: string }[]) => [...new Set(sections.map((s) => catalogueTitle(s.page)))]
@@ -46,7 +47,7 @@ export default async function StudioPage({ searchParams }: { searchParams?: Prom
   const [{ data: reportData }, { data: scheduleData }, { data: sendData }, { data: runData }] = await Promise.all([
     supabase.from('reports').select('id, kind, template_key, title, audience, cover, status, sections, latest_snapshot_id, updated_at').eq('client_id', clientId).order('created_at'),
     supabase.from('report_schedules').select('*').eq('client_id', clientId),
-    supabase.from('report_sends').select('id, schedule_id, status, subject, recipients, sent_at, claimed_at, error, ready_at, approved_by').eq('client_id', clientId).order('claimed_at', { ascending: false }).limit(100),
+    supabase.from('report_sends').select('id, schedule_id, status, subject, recipients, sent_at, claimed_at, error, ready_at, approved_by, snapshot_id').eq('client_id', clientId).order('claimed_at', { ascending: false }).limit(100),
     supabase.from('pipeline_runs').select('id').eq('client_id', clientId).in('status', ['completed', 'partial']).limit(1),
   ])
   const reports = (reportData ?? []) as Report[]
@@ -61,7 +62,17 @@ export default async function StudioPage({ searchParams }: { searchParams?: Prom
   const scheduleSends = schedule ? sends.filter((s) => s.schedule_id === schedule.id) : []
   const history = scheduleSends.slice(0, 6)
   // A build waiting for a person: the newest one, shown to every member.
-  const readySend = scheduleSends.find((s) => s.status === 'ready') ?? null
+  // A delivery that died between the claim and the email (a killed render, a
+  // redeploy) leaves a `claimed` row with a snapshot behind it and no way in:
+  // it is not `ready`, so the block below never appeared, and only the next
+  // update would move it. Past the stale window that claim belongs to nobody,
+  // and deliverSend already takes it over by its timestamp, so the Studio
+  // offers it in the same place, saying plainly that it stopped partway.
+  const readySend =
+    scheduleSends.find((s) => s.status === 'ready')
+    ?? scheduleSends.find((s) => s.status === 'claimed' && s.snapshot_id != null && claimDecision(s, Date.now()) === 'takeover')
+    ?? null
+  const stalled = readySend?.status === 'claimed'
   // Who pressed Send, for the archive line.
   const approverIds = [...new Set(history.map((s) => s.approved_by).filter(Boolean) as string[])]
   let nameOf = new Map<string, string>()
@@ -165,7 +176,7 @@ export default async function StudioPage({ searchParams }: { searchParams?: Prom
                   userEmail={email ?? null}
                   sendable={sendable}
                   isDocument={isDocument}
-                  ready={readySend ? { id: readySend.id, subject: readySend.subject, readyAt: readySend.ready_at, error: readySend.error ? sendFailureSentence(readySend.error) : null } : null}
+                  ready={readySend ? { id: readySend.id, subject: readySend.subject, readyAt: readySend.ready_at, error: readySend.error ? sendFailureSentence(readySend.error) : null, stalled } : null}
                 />
                 {history.length > 0 && (
                   <ul className="mt-4 flex flex-col gap-1.5 border-t border-border/60 pt-3">
