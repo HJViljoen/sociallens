@@ -219,7 +219,11 @@ describe('the skeleton walk (2026-09-02)', () => {
     // Nothing to handle with care, nothing asked, no claim answered.
     expect(compose(SALES_BRIEF, { care: [] }).data.pages.some((p) => p.kind === 'language')).toBe(false)
     expect(compose(CONTENT_BRIEF, { asked: [] }).data.pages.some((p) => p.kind === 'asked')).toBe(false)
-    expect(compose(MARKET_BRIEF, { say_hear: [] }).data.pages.some((p) => p.kind === 'say_hear')).toBe(false)
+    // The claims page is the exception: it drops out when the PIPELINE has no
+    // claims, not when the writer wrote none, because the entries carry their
+    // own reading (see the claims-page test).
+    expect(compose(MARKET_BRIEF, { say_hear: [] }, { ...signals, sayVsHear: [] } as unknown as Signals).data.pages.some((p) => p.kind === 'say_hear')).toBe(false)
+    expect(compose(MARKET_BRIEF, { say_hear: [] }).data.pages.some((p) => p.kind === 'say_hear')).toBe(true)
     // The standing page always prints: a leadership brief that cannot say
     // where the company sits has not been written.
     expect(compose(LEADERSHIP_BRIEF, { standing: '' }).data.pages.some((p) => p.kind === 'standing')).toBe(true)
@@ -227,11 +231,7 @@ describe('the skeleton walk (2026-09-02)', () => {
 
   it('the claims page prints only claims the pipeline actually recorded', () => {
     const page = (w: Partial<WriterOutput>) => compose(MARKET_BRIEF, w).data.pages.find((p) => p.kind === 'say_hear')
-    // Invented claim: dropped, however plausible it reads.
-    expect(page({ say_hear: [{ claim: 'We are the safest knee on the market.', read: 'x', based_on: [] }] })).toBeUndefined()
-    // A fragment too short to identify a claim binds to nothing, rather than
-    // to whichever entry happens to come first.
-    expect(page({ say_hear: [{ claim: 'Terrain', read: 'x', based_on: [] }] })).toBeUndefined()
+
     const real = page({ say_hear: [{ claim: 'Terrain adaptation adjusts the foot.', read: 'The audience answers with stairs and falls.', based_on: ['G1'] }] })!
     const block = real.blocks[0]
     expect(block.id).toBe('sh1_terrain_adaptation_adjusts_the_foot')
@@ -239,6 +239,24 @@ describe('the skeleton walk (2026-09-02)', () => {
     expect(block.text).toBe('The audience answers with stairs and falls.')
     // Positional: verdict, what they say, the gap. Never re-ordered.
     expect(block.items).toEqual(['echoes', 'People talk about stairs and falls.', 'Show the terrain.'])
+
+    // An invented claim never reaches paper: the block that prints is the
+    // pipeline's own entry, with the pipeline's own reading, not the words the
+    // writer put in the company's mouth.
+    const invented = page({ say_hear: [{ claim: 'We are the safest knee on the market.', read: 'A read of a claim nobody made.', based_on: [] }] })!
+    expect(invented.blocks.map((b) => b.label)).toEqual(['Terrain adaptation adjusts the foot.'])
+    expect(invented.blocks[0].text).toBe('Show the terrain.')
+
+    // A fragment too short to identify a claim binds to nothing rather than to
+    // whichever entry came first, and the page still stands: a paraphrase must
+    // not silently cost the market brief the one page that distinguishes it.
+    const fallback = page({ say_hear: [{ claim: 'Terrain', read: 'x', based_on: [] }] })!
+    expect(fallback.blocks[0].label).toBe('Terrain adaptation adjusts the foot.')
+    expect(fallback.blocks[0].text).toBe('Show the terrain.')
+
+    // And the page is not printed at all when the pipeline recorded no claims.
+    const none = compose(MARKET_BRIEF, { say_hear: [] }, { ...signals, sayVsHear: [] } as unknown as Signals)
+    expect(none.data.pages.some((p) => p.kind === 'say_hear')).toBe(false)
   })
 
   it('the standing page names the parties in order, the company first', () => {

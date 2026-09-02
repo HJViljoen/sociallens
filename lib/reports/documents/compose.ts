@@ -4,7 +4,7 @@ import type { Quote, Slide } from '../../renderables/types'
 import type { FigureTable } from '../types'
 import type { Signals } from './signals'
 import type { ResearchAnswer, ResearchPoint } from './research'
-import { ASKED_MAX, CLAIMS_PER_PAGE, PAGE_TITLE, PERSONAS_PER_PAGE, type DocumentTemplate } from './templates'
+import { ASKED_MAX, CLAIMS_PER_PAGE, PAGE_TITLE, PERSONAS_PER_PAGE, SAY_HEAR_MAX, type DocumentTemplate } from './templates'
 import type { DocPageKind } from './types'
 import type { WriterOutput } from './write'
 import { bucketWord, slug } from './write'
@@ -262,7 +262,25 @@ export function composeDocument(a: ComposeArgs): { data: DocumentSnapshotData; w
       const entries = s.sayVsHear
       if (!entries.length) return []
       const blocks: DocBlock[] = []
-      for (const written of (w.say_hear ?? []).slice(0, 4)) {
+      const blockFor = (entry: (typeof entries)[number], read: string): DocBlock => ({
+        // The claim is PRINTED IN QUOTATION MARKS, so it is scrubbed but not
+        // shortened: a claim cut at a character count is a misquote of the
+        // company. Its length is the pipeline's to bound, not this page's.
+        // The index keeps the id unique: two claims that open with the same
+        // forty characters would otherwise collide. The index is the entry's,
+        // not the loop's, so an edit keys to the same block if the writer
+        // reorders them.
+        id: `sh${entries.indexOf(entry) + 1}_${slug(entry.you_say).slice(0, 36)}`,
+        field: 'gap',
+        label: scrubLine(entry.you_say, figures, entry.you_say.length + 1, { allow }).text || entry.you_say,
+        text: read,
+        // Positional, like a persona card: [0] the pipeline's own verdict
+        // word (echoes | contradicts | silent), [1] what the audience says
+        // back, [2] the gap it named. Never filtered, so a missing middle
+        // does not shift the gap into its place.
+        items: [entry.audience, entry.they_say ?? '', entry.gap].map((x) => scrubText(x, figures, 300, { allow }).text),
+      })
+      for (const written of (w.say_hear ?? []).slice(0, SAY_HEAR_MAX)) {
         const claim = written.claim?.trim()
         if (!claim) continue
         // Exact first; then a prefix long enough to be an identification and
@@ -284,22 +302,28 @@ export function composeDocument(a: ComposeArgs): { data: DocumentSnapshotData; w
         // forty characters would otherwise collide, and the second would be
         // dropped without a word. The index is the entry's, not the loop's,
         // so an edit keys to the same block if the writer reorders them.
-        const id = `sh${entries.indexOf(entry) + 1}_${slug(entry.you_say).slice(0, 36)}`
-        if (blocks.some((b) => b.id === id)) continue
-        blocks.push({
-          // The claim is PRINTED IN QUOTATION MARKS, so it is scrubbed but not
-          // shortened: a claim cut at a character count is a misquote of the
-          // company. Its length is the pipeline's to bound, not this page's.
-          id, field: 'gap', label: scrubLine(entry.you_say, figures, entry.you_say.length + 1, { allow }).text || entry.you_say,
-          text: read,
-          // Positional, like a persona card: [0] the pipeline's own verdict
-          // word (echoes | contradicts | silent), [1] what the audience says
-          // back, [2] the gap it named. Never filtered, so a missing middle
-          // does not shift the gap into its place.
-          items: [entry.audience, entry.they_say ?? '', entry.gap].map((x) => scrubText(x, figures, 300, { allow }).text),
-        })
-        blocksW.push({ blockId: id, basedOn: ok })
+        const b = blockFor(entry, read)
+        if (blocks.some((x) => x.id === b.id)) continue
+        blocks.push(b)
+        blocksW.push({ blockId: b.id, basedOn: ok })
       }
+      // A claim the writer did not answer, or answered in words that no longer
+      // identify it, still belongs on the page: the verdict, what the audience
+      // says back and the gap are the PIPELINE's, not the writer's, so the
+      // entry can be printed with the pipeline's own reading in place of a
+      // written one. This is the same fallback the competitor page has always
+      // had, and it is what keeps a paraphrase from silently costing the
+      // market brief the one page that distinguishes it.
+      for (const entry of entries) {
+        if (blocks.length >= SAY_HEAR_MAX) break
+        if (blocks.some((b) => b.id.startsWith(`sh${entries.indexOf(entry) + 1}_`))) continue
+        const read = prose(entry.gap ?? '', figures, cap('gap'))
+        if (!read) continue
+        const b = blockFor(entry, read)
+        blocks.push(b)
+        blocksW.push({ blockId: b.id, basedOn: [] })
+      }
+
       // Two a page, like personas. A claim is the company's own sentence and
       // is printed whole; four of them on one sheet ran off the bottom, and a
       // claim cut to fit is a misquote (found by rendering, 2026-09-02).

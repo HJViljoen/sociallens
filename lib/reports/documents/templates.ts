@@ -270,6 +270,9 @@ export const CLAIMS_PER_PAGE = 2
 /** Questions on the asked page: two columns of four fill the sheet. */
 export const ASKED_MAX = 8
 
+/** Claims on the say_hear page, written or filled in from the signals. */
+export const SAY_HEAR_MAX = 4
+
 /** Skeleton order, for the eval: a page kind may repeat, but the kinds
  *  themselves must come in the order the template declares. */
 export const skeletonOrder = (t: DocumentTemplate): DocPageKind[] => t.skeleton.map((p) => p.kind)
