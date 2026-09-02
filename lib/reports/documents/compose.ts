@@ -267,7 +267,11 @@ export function composeDocument(a: ComposeArgs): { data: DocumentSnapshotData; w
         const read = prose(written.read ?? '', figures, cap('gap'))
         if (!read) continue
         const { ok } = resolveIndices(written.based_on, known)
-        const id = `sh_${slug(entry.you_say).slice(0, 40)}`
+        // The index keeps the id unique: two claims that open with the same
+        // forty characters would otherwise collide, and the second would be
+        // dropped without a word. The index is the entry's, not the loop's,
+        // so an edit keys to the same block if the writer reorders them.
+        const id = `sh${entries.indexOf(entry) + 1}_${slug(entry.you_say).slice(0, 36)}`
         if (blocks.some((b) => b.id === id)) continue
         blocks.push({
           // The claim is PRINTED IN QUOTATION MARKS, so it is scrubbed but not

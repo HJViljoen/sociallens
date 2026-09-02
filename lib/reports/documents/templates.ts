@@ -60,6 +60,9 @@ export interface DocumentTemplate {
   lens: Lens
   /** The reader, as the writer's rules name them: "a rep", "a director". */
   readerNoun: string
+  /** The reader as a person would write them into "Written for", and the
+   *  placeholder that field is prompted with. */
+  writtenFor: string
   skeleton: SkeletonPage[]
   anchors: AnchorQuestion[]
   /** Findings pages the skeleton prints when settings allow; the writer may fill fewer. */
@@ -98,6 +101,7 @@ export const SALES_BRIEF: DocumentTemplate = {
     rule: 'What it means for a sale: the implication, developed in one paragraph, about the buyer and the market rather than about the rep.',
   },
   readerNoun: 'a rep',
+  writtenFor: 'the sales team',
   skeleton: [
     { kind: 'in_short' },
     { kind: 'finding', repeat: 'findings' },
@@ -136,6 +140,7 @@ export const LEADERSHIP_BRIEF: DocumentTemplate = {
     rule: 'What it means for the business: the implication, developed in one paragraph, about demand, reputation or where the company sits, rather than about what anyone should do next.',
   },
   readerNoun: 'a director',
+  writtenFor: 'the executive team',
   skeleton: [
     { kind: 'in_short' },
     { kind: 'finding', repeat: 'findings' },
@@ -169,6 +174,7 @@ export const MARKET_BRIEF: DocumentTemplate = {
     rule: 'What it means for the message: the implication, developed in one paragraph, about what the audience already hears and believes, rather than about what to write.',
   },
   readerNoun: 'the marketing team',
+  writtenFor: 'the marketing team',
   skeleton: [
     { kind: 'in_short' },
     { kind: 'finding', repeat: 'findings' },
@@ -205,6 +211,7 @@ export const CONTENT_BRIEF: DocumentTemplate = {
     rule: 'What it means for what to make: the implication, developed in one paragraph, about what the audience is asking to be shown, rather than about one video.',
   },
   readerNoun: 'the content team',
+  writtenFor: 'the people who make the content',
   skeleton: [
     { kind: 'in_short' },
     { kind: 'finding', repeat: 'findings' },

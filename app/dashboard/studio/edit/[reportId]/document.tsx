@@ -61,7 +61,7 @@ export async function DocumentStudioPage({ report, clientId }: { report: ReportR
       <EditorLayout
         settings={<SettingsPane
           reportId={report.id} title={report.title} reader={report.cover?.reader ?? ''} settings={settings} tracked={tracked}
-          readerHint={template?.readerNoun ?? 'the sales team'}
+          readerHint={template?.writtenFor ?? 'the sales team'}
           competitorsUsed={!!template?.skeleton.some((p) => p.kind === 'competitor') || !!template?.anchors.some((a) => a.perCompetitor)}
           findingsMax={template?.findingsMax ?? 4}
         />}

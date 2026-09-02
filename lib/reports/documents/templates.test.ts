@@ -87,13 +87,14 @@ describe('every document template', () => {
       expect(t.lens.means, t.key).toMatch(/^What it means for /)
       expect(t.lens.rule, t.key).toContain(t.lens.means)
       expect(t.readerNoun, t.key).toBeTruthy()
+      expect(t.writtenFor, t.key).toBeTruthy()
       expect([3, 4], t.key).toContain(t.findingsMax)
     }
   })
 
   it('writes no dashes between clauses, in any copy a model or a reader sees', () => {
     for (const t of DOCUMENT_TEMPLATES) {
-      const copy = [t.name, t.description, t.role, t.brief, t.lens.means, t.lens.short, t.lens.rule, ...t.anchors.map((a) => a.text)].join(' ')
+      const copy = [t.name, t.description, t.role, t.brief, t.lens.means, t.lens.short, t.lens.rule, t.readerNoun, t.writtenFor, ...t.anchors.map((a) => a.text)].join(' ')
       expect(copy, t.key).not.toMatch(/[—–]/)
     }
   })

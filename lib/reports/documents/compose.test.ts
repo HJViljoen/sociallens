@@ -231,6 +231,7 @@ describe('the skeleton walk (2026-09-02)', () => {
     expect(page({ say_hear: [{ claim: 'We are the safest knee on the market.', read: 'x', based_on: [] }] })).toBeUndefined()
     const real = page({ say_hear: [{ claim: 'Terrain adaptation adjusts the foot.', read: 'The audience answers with stairs and falls.', based_on: ['G1'] }] })!
     const block = real.blocks[0]
+    expect(block.id).toBe('sh1_terrain_adaptation_adjusts_the_foot')
     expect(block.label).toBe('Terrain adaptation adjusts the foot.')
     expect(block.text).toBe('The audience answers with stairs and falls.')
     // Positional: verdict, what they say, the gap. Never re-ordered.
