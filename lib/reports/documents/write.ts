@@ -3,6 +3,7 @@ import { DOCUMENT_BLOCK_MAX } from '../../config'
 import { CALIBRATED_PROSE_RULE } from '../../pipeline/prose-rules'
 import type { FigureTable } from '../types'
 import type { DocumentTemplate } from './templates'
+import { SALES_BRIEF } from './templates'
 import type { DocumentSettings } from './types'
 import { SELLS_TO } from './types'
 import type { Signals } from './signals'
@@ -21,6 +22,8 @@ import { noDashes } from './scrub'
  * indices it rests on; code resolves them and decides how sure we are.
  */
 
+/** Kept for the one caller that has no template in hand; every build uses
+ *  promptVersion(template) instead. */
 export const DOCUMENT_PROMPT_VERSION = 'sales_brief_v1'
 
 export interface PreviousBrief {
@@ -45,37 +48,95 @@ export interface WriterArgs {
 
 const cap = (field: string) => DOCUMENT_BLOCK_MAX[field] ?? 400
 
-export const WriterSchema = z.object({
-  in_short: z.object({
-    summary: z.string().describe(`The executive summary: what the conversation shows this update, what changed since the last brief, and what matters for a sale, developed in one or two paragraphs (separate paragraphs with a blank line). Under ${cap('summary')} characters. Cite figures by [[key]] only.`),
-  }),
-  findings: z.array(z.object({
-    headline: z.string().describe(`The argument in one line, a claim not a topic. Under ${cap('headline')} characters, no full stop.`),
-    saw: z.string().describe(`What the conversation shows: the observation developed across sources in two or three paragraphs (separate paragraphs with a blank line), in the analytical third person, citing counts by [[key]] where a count carries the point. Under ${cap('saw')} characters.`),
-    means: z.string().describe(`What it means for a sale: the implication, developed in one paragraph, about the buyer and the market rather than about the rep. Under ${cap('means')} characters.`),
-    practice: z.array(z.string()).describe(`In practice: at most two lines a rep can act on, each resting on a grounded point. May be empty. Each under ${cap('practice')} characters.`),
-    sure_note: z.string().describe(`One or two sentences on the basis of the reading: what supports it and what is thin. Under ${cap('sure')} characters.`),
-    based_on: z.array(z.string()).describe('The grounded point indices (G3) and concern indices (S1) this finding rests on. At least one G.'),
-    quote_from: z.string().nullable().describe('The one grounded point (G index) whose voice best carries the finding, or null.'),
-    continued_from: z.string().nullable().describe('If this finding carries one of the previous brief\'s headlines, that headline verbatim; else null.'),
-  })),
-  competitors: z.array(z.object({
-    name: z.string(),
-    pitch: z.string().describe(`What they are pitching in their own videos, as a read not a list. Under ${cap('pitch')} characters.`),
-    praise: z.string().describe(`What their users praise. Under ${cap('praise')} characters.`),
-    hurt: z.string().describe(`Where their users hurt. Under ${cap('hurt')} characters.`),
-    read: z.string().describe(`The read for a rep when this competitor comes up: what to ask about, what not to compare. Under ${cap('read')} characters.`),
-    based_on: z.array(z.string()),
-  })),
-  persona_lines: z.array(z.object({
-    name: z.string(),
-    line: z.string().describe(`What this person means for a sale: one or two sentences on where they are and what would move them, drawn from the profile. Under ${cap('persona')} characters.`),
-  })),
-  care: z.array(z.string()).describe('Words or claims that draw pushback or that the audience contradicts, each as "the words: why". Up to five.'),
-  not_sure_yet: z.array(z.string()).describe(`Questions a rep would want answered that the conversation could not settle this update, one line each. Up to five, each under ${cap('not_sure')} characters.`),
-})
+/**
+ * The schema is built from the template's SKELETON: a brief with no competitor
+ * page is never asked for competitor blocks, and the model is never handed a
+ * field whose page will not be printed. The three constants below are on every
+ * document (the overview, the findings, what is not settled); the rest appear
+ * only when the skeleton asks for the page.
+ *
+ * Everything the model is asked for is REQUIRED — OpenAI's structured output
+ * is strict, so an absent page means an absent key, never an optional one.
+ */
+export function writerSchema(t: DocumentTemplate) {
+  const has = (kind: string) => t.skeleton.some((p) => p.kind === kind)
+  const shape: Record<string, z.ZodTypeAny> = {
+    in_short: z.object({
+      summary: z.string().describe(`The executive summary: what the conversation shows this update, what changed since the last brief, and what matters ${t.lens.short}, developed in one or two paragraphs (separate paragraphs with a blank line). Under ${cap('summary')} characters. Cite figures by [[key]] only.`),
+    }),
+    findings: z.array(z.object({
+      headline: z.string().describe(`The argument in one line, a claim not a topic. Under ${cap('headline')} characters, no full stop.`),
+      saw: z.string().describe(`What the conversation shows: the observation developed across sources in two or three paragraphs (separate paragraphs with a blank line), in the analytical third person, citing counts by [[key]] where a count carries the point. Under ${cap('saw')} characters.`),
+      means: z.string().describe(`${t.lens.rule} Under ${cap('means')} characters.`),
+      practice: z.array(z.string()).describe(`In practice: at most two lines ${t.readerNoun} can act on, each resting on a grounded point. May be empty. Each under ${cap('practice')} characters.`),
+      sure_note: z.string().describe(`One or two sentences on the basis of the reading: what supports it and what is thin. Under ${cap('sure')} characters.`),
+      based_on: z.array(z.string()).describe('The grounded point indices (G3) and concern indices (S1) this finding rests on. At least one G.'),
+      quote_from: z.string().nullable().describe('The one grounded point (G index) whose voice best carries the finding, or null.'),
+      continued_from: z.string().nullable().describe("If this finding carries one of the previous brief's headlines, that headline verbatim; else null."),
+    })),
+    not_sure_yet: z.array(z.string()).describe(`Questions ${t.readerNoun} would want answered that the conversation could not settle this update, one line each. Up to five, each under ${cap('not_sure')} characters.`),
+  }
+  if (has('competitor')) {
+    shape.competitors = z.array(z.object({
+      name: z.string(),
+      pitch: z.string().describe(`What they are pitching in their own videos, as a read not a list. Under ${cap('pitch')} characters.`),
+      praise: z.string().describe(`What their users praise. Under ${cap('praise')} characters.`),
+      hurt: z.string().describe(`Where their users hurt. Under ${cap('hurt')} characters.`),
+      read: z.string().describe(`The read for the reader when this competitor comes up: what to ask about, what not to compare. Under ${cap('read')} characters.`),
+      based_on: z.array(z.string()),
+    }))
+  }
+  if (has('personas')) {
+    shape.persona_lines = z.array(z.object({
+      name: z.string(),
+      line: z.string().describe(`What this person means ${t.lens.short}: one or two sentences on where they are and what would move them, drawn from the profile. Under ${cap('persona')} characters.`),
+    }))
+  }
+  if (has('language')) {
+    shape.care = z.array(z.string()).describe('Words or claims that draw pushback or that the audience contradicts, each as "the words: why". Up to five.')
+  }
+  if (has('standing')) {
+    shape.standing = z.string().describe(`Where the company sits in this conversation and why: what the shares and the movement mean read together, in one or two paragraphs (separate paragraphs with a blank line). The numbers are printed beside it, so read them, do not recite them. Under ${cap('standing')} characters.`)
+  }
+  if (has('say_hear')) {
+    shape.say_hear = z.array(z.object({
+      claim: z.string().describe('The claim the company makes, in its own words, exactly as it is listed in the inputs.'),
+      read: z.string().describe(`What the audience does with that claim: what comes back, and where the two are not talking about the same thing. Under ${cap('gap')} characters.`),
+      based_on: z.array(z.string()),
+    })).describe('One per claim listed in the inputs, up to four. Skip a claim the conversation says nothing about.')
+  }
+  if (has('asked')) {
+    shape.asked = z.array(z.string()).describe(`Questions the conversation puts and does not settle, each as "the question: what is behind it". The question in the audience\'s own framing, not the company\'s. Up to six, each under ${cap('asked')} characters.`)
+  }
+  return z.object(shape)
+}
 
-export type WriterOutput = z.infer<typeof WriterSchema>
+/** The reference schema (the Sales brief's), so a caller that only wants the
+ *  type has one. Every build uses writerSchema(template). */
+export const WriterSchema = writerSchema(SALES_BRIEF)
+
+/** What the writer may return. A section is absent when the template's
+ *  skeleton has no page for it; compose treats absent and empty the same. */
+export interface WriterOutput {
+  in_short: { summary: string }
+  findings: {
+    headline: string
+    saw: string
+    means: string
+    practice: string[]
+    sure_note: string
+    based_on: string[]
+    quote_from: string | null
+    continued_from: string | null
+  }[]
+  not_sure_yet: string[]
+  competitors?: { name: string; pitch: string; praise: string; hurt: string; read: string; based_on: string[] }[]
+  persona_lines?: { name: string; line: string }[]
+  care?: string[]
+  standing?: string
+  say_hear?: { claim: string; read: string; based_on: string[] }[]
+  asked?: string[]
+}
 
 const registerLine = (s: DocumentSettings) => {
   const r = SELLS_TO.find((x) => x.key === s.sellsTo)
@@ -84,7 +145,8 @@ const registerLine = (s: DocumentSettings) => {
 
 export function buildWriterPrompts(a: WriterArgs): { system: string; user: string } {
   const t = a.template
-  const findingsMax = a.thin ? Math.min(a.settings.findings, 3) : a.settings.findings
+  const has = (kind: string) => t.skeleton.some((p) => p.kind === kind)
+  const findingsMax = a.thin ? Math.min(Math.min(a.settings.findings, t.findingsMax), 3) : Math.min(a.settings.findings, t.findingsMax)
   const system = [
     t.role,
     t.brief,
@@ -92,7 +154,7 @@ export function buildWriterPrompts(a: WriterArgs): { system: string; user: strin
     'House style:',
     '- A research report, not a memo: the analytical third person ("the conversation shows", "buyers describe", "owners report"), developed paragraphs, plain English. Never "we", "our" or "you"; never address the reader; no headings, no bullet points inside a field, no exclamation marks, no greeting, no sign-off.',
     '- A headline is a claim about the market or the buyer ("The sale is decided at the clinic, not on the knee"), never a topic ("Clinic relationships") and never an instruction ("Answer with use cases").',
-    '- Weight: what the conversation shows carries the finding; what it means for a sale interprets it; in practice is at most two short lines and may be empty. Do not turn a finding into advice.',
+    `- Weight: what the conversation shows carries the finding; what it means ${t.lens.short} interprets it; in practice is at most two short lines and may be empty. Do not turn a finding into advice.`,
     '- Name competitors, products and themes plainly. Never name a person. Do not name the tool, the model, or "AI"; do not say "this brief" or "this report".',
     '- You have NO numbers. Where a count or a share belongs, write its placeholder exactly as listed, e.g. "[[g3_conversations]] conversations". Never type a digit. Never invent a figure not in the list. A placeholder means exactly what its label says. Cite at most two counts in a paragraph and none in a headline; a paragraph is a reading, not a tally.',
     a.allow?.length ? `- Product names that carry digits may be written exactly as they appear here: ${a.allow.slice(0, 30).join(', ')}.` : '',
@@ -104,6 +166,9 @@ export function buildWriterPrompts(a: WriterArgs): { system: string; user: strin
       ? '- Continuity: the previous brief\'s headlines are listed. When a finding still holds, keep its headline (put it in continued_from) and say what is still true and what moved since last time. Mark only what is new as new.'
       : '- This is the first brief: say so in one clause of the summary, without apology.',
     a.thin ? '- The update was thin (see the summary note). Say so plainly in the summary and write fewer findings rather than stretch the evidence.' : '',
+    has('standing') ? '- The standing page: the shares and what moved are printed beside your paragraphs as a table. Read them together and say what position they describe; do not list them back.' : '',
+    has('say_hear') ? `- The claims page: one entry per claim listed in the inputs, the claim copied exactly as given. Say what the audience does with it. Where the company and the audience are not talking about the same thing, name the difference; where the conversation says nothing about a claim, leave that claim out rather than guess.` : '',
+    has('asked') ? '- The questions page: real questions the conversation puts and nobody settles, in the audience\'s own framing. Not topics, not headings, not things it would be nice to cover.' : '',
     'Example of the register (a different company, do not reuse its content): headline "Comfort is the criterion long-term users apply, and the adjustable socket is where interest turns concrete"; saw "Long-term users judge a device by whether it can be worn through a whole day. [[g7_conversations]] conversations describe fit changing by evening, sweat and sores, and sock changes as the routine that decides whether a device stays on.\n\nThe adjustable socket shown on the brand\'s videos drew direct requests by name, the one component the audience asked for rather than about."; means "Comfort is not a feature in this market but the test every claim is put to; a buyer who has lived with a poor socket hears a performance claim as a promise about the afternoon."; practice ["Fit through the day is the buyer\'s own measure; it is the question to ask before naming a component."].',
   ].filter(Boolean).join('\n')
 
@@ -133,7 +198,11 @@ export function buildWriterPrompts(a: WriterArgs): { system: string; user: strin
     c.asks.length ? `  What their users ask:\n${c.asks.map((t) => `  - ${t.label}: ${t.description}`).join('\n')}` : '',
   ].filter(Boolean).join('\n'))
 
-  const sayHear = s.sayVsHear.map((e) => `- ${s.company} says "${e.you_say}". The audience ${e.audience}${e.they_say ? `: ${e.they_say}` : ''}. ${e.gap}`)
+  // The claims list is the say_hear page's own input when the template has
+  // that page: the claim must come back verbatim, so it is numbered here and
+  // the writer is told to copy it.
+  const sayHear = s.sayVsHear.map((e, i) =>
+    `${has('say_hear') ? `A${i + 1}. ` : '- '}${s.company} says "${e.you_say}". The audience ${e.audience}${e.they_say ? `: ${e.they_say}` : ''}. ${e.gap}`)
   const ci = s.ciSummary
   const ciLines = ci ? [
     ci.top_buying_triggers?.length ? `Buying triggers: ${ci.top_buying_triggers.join(' · ')}` : '',

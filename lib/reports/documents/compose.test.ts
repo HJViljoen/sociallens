@@ -1,7 +1,8 @@
 import { describe, it, expect } from 'vitest'
 import { composeDocument, documentFigures, documentSlides, heardLine, pickQuote, thinWeek } from './compose'
-import { buildWriterPrompts, deltaInWords, type WriterOutput } from './write'
-import { SALES_BRIEF } from './templates'
+import { buildWriterPrompts, deltaInWords, writerSchema, type WriterOutput } from './write'
+import { CONTENT_BRIEF, LEADERSHIP_BRIEF, MARKET_BRIEF, SALES_BRIEF, type DocumentTemplate } from './templates'
+import { overviewTiles } from './overview'
 import { DEFAULT_DOCUMENT_SETTINGS } from './types'
 import { freezeQuotes } from '../../renderables/quotes-freeze'
 import type { Signals } from './signals'
@@ -181,5 +182,112 @@ describe('pickQuote and thinWeek', () => {
     expect(thinWeek(signals)).toBe(false)
     expect(thinWeek({ ...signals, runStatus: 'partial' })).toBe(true)
     expect(thinWeek({ ...signals, run: { ...signals.run, conversations: 120 } })).toBe(true)
+  })
+})
+
+describe('the skeleton walk (2026-09-02)', () => {
+  const compose = (template: DocumentTemplate, w: Partial<WriterOutput> = {}, s: Signals = signals) =>
+    composeDocument({
+      template, settings: DEFAULT_DOCUMENT_SETTINGS, reportId: 'rep', title: 't', period: 'Update of 30 Aug 2026',
+      signals: s, answers, written: { ...written, ...w }, figures: documentFigures(s, answers), model: 'm', promptVersion: 'v', costUsd: 0, timings: {},
+    })
+
+  it('prints the pages the template asks for and no others', () => {
+    const kinds = (t: DocumentTemplate, w: Partial<WriterOutput> = {}) => [...new Set(compose(t, w).data.pages.map((p) => p.kind))]
+    expect(kinds(SALES_BRIEF)).toEqual(['in_short', 'finding', 'competitor', 'personas', 'language', 'method'])
+    expect(kinds(LEADERSHIP_BRIEF, { standing: 'The company holds a small share of a loud category.' }))
+      .toEqual(['in_short', 'finding', 'standing', 'method'])
+    expect(kinds(MARKET_BRIEF, { say_hear: [{ claim: 'Terrain adaptation adjusts the foot.', read: 'The audience answers with stairs.', based_on: ['G1'] }] }))
+      .toEqual(['in_short', 'finding', 'say_hear', 'competitor', 'personas', 'language', 'method'])
+    expect(kinds(CONTENT_BRIEF, { asked: ['Does it work on stairs: people ask before anything else.'] }))
+      .toEqual(['in_short', 'finding', 'asked', 'language', 'method'])
+  })
+
+  it('holds each template to its own finding count', () => {
+    // The writer offered three; the leadership brief takes three, and one of
+    // ours is dropped by the floor, so it lands on two.
+    expect(compose(SALES_BRIEF).data.pages.filter((p) => p.kind === 'finding')).toHaveLength(2)
+    expect(compose(LEADERSHIP_BRIEF, { standing: 'x' }).data.pages.filter((p) => p.kind === 'finding').length).toBeLessThanOrEqual(3)
+  })
+
+  it('freezes the lens, so the deck never has to look a template up', () => {
+    expect(compose(SALES_BRIEF).data.lens).toEqual({ means: 'What it means for a sale', short: 'for a sale' })
+    expect(compose(CONTENT_BRIEF, { asked: ['A: b.'] }).data.lens?.short).toBe('for what to make')
+  })
+
+  it('a page with no material does not print an empty sheet', () => {
+    // Nothing to handle with care, nothing asked, no claim answered.
+    expect(compose(SALES_BRIEF, { care: [] }).data.pages.some((p) => p.kind === 'language')).toBe(false)
+    expect(compose(CONTENT_BRIEF, { asked: [] }).data.pages.some((p) => p.kind === 'asked')).toBe(false)
+    expect(compose(MARKET_BRIEF, { say_hear: [] }).data.pages.some((p) => p.kind === 'say_hear')).toBe(false)
+    // The standing page always prints: a leadership brief that cannot say
+    // where the company sits has not been written.
+    expect(compose(LEADERSHIP_BRIEF, { standing: '' }).data.pages.some((p) => p.kind === 'standing')).toBe(true)
+  })
+
+  it('the claims page prints only claims the pipeline actually recorded', () => {
+    const page = (w: Partial<WriterOutput>) => compose(MARKET_BRIEF, w).data.pages.find((p) => p.kind === 'say_hear')
+    // Invented claim: dropped, however plausible it reads.
+    expect(page({ say_hear: [{ claim: 'We are the safest knee on the market.', read: 'x', based_on: [] }] })).toBeUndefined()
+    const real = page({ say_hear: [{ claim: 'Terrain adaptation adjusts the foot.', read: 'The audience answers with stairs and falls.', based_on: ['G1'] }] })!
+    const block = real.blocks[0]
+    expect(block.label).toBe('Terrain adaptation adjusts the foot.')
+    expect(block.text).toBe('The audience answers with stairs and falls.')
+    // Positional: verdict, what they say, the gap. Never re-ordered.
+    expect(block.items).toEqual(['echoes', 'People talk about stairs and falls.', 'Show the terrain.'])
+  })
+
+  it('the standing page names the parties in order, the company first', () => {
+    const page = compose(LEADERSHIP_BRIEF, { standing: 'A small share of a loud category.' }).data.pages.find((p) => p.kind === 'standing')!
+    expect(page.meta?.parties).toBe('Ossur|Ottobock')
+    expect(page.blocks[0].text).toBe('A small share of a loud category.')
+  })
+
+  it('a leadership brief still names a competitor beside its share', () => {
+    const data = compose(LEADERSHIP_BRIEF, { standing: 'x' }).data
+    expect(overviewTiles(data)[1].label).toContain('Ottobock')
+  })
+})
+
+describe('writerSchema', () => {
+  const keys = (t: DocumentTemplate) => Object.keys(writerSchema(t).shape).sort()
+
+  it('asks only for the pages the template prints', () => {
+    expect(keys(SALES_BRIEF)).toEqual(['care', 'competitors', 'findings', 'in_short', 'not_sure_yet', 'persona_lines'])
+    expect(keys(LEADERSHIP_BRIEF)).toEqual(['findings', 'in_short', 'not_sure_yet', 'standing'])
+    expect(keys(MARKET_BRIEF)).toEqual(['care', 'competitors', 'findings', 'in_short', 'not_sure_yet', 'persona_lines', 'say_hear'])
+    expect(keys(CONTENT_BRIEF)).toEqual(['asked', 'care', 'findings', 'in_short', 'not_sure_yet'])
+  })
+
+  it('names the reader and the lens inside the fields the model reads', () => {
+    const describe_ = (t: DocumentTemplate, field: string) =>
+      (writerSchema(t).shape.findings as unknown as { element: { shape: Record<string, { description?: string }> } }).element.shape[field].description ?? ''
+    expect(describe_(SALES_BRIEF, 'means')).toContain('What it means for a sale')
+    expect(describe_(SALES_BRIEF, 'practice')).toContain('a rep')
+    expect(describe_(LEADERSHIP_BRIEF, 'means')).toContain('What it means for the business')
+    expect(describe_(CONTENT_BRIEF, 'practice')).toContain('the content team')
+  })
+
+  it('tells the writer about a page only when that page exists', () => {
+    const system = (t: DocumentTemplate) => buildWriterPrompts({
+      template: t, settings: DEFAULT_DOCUMENT_SETTINGS, company: 'Ossur', period: 'p', reader: null,
+      figures: documentFigures(signals, answers), signals, answers, previous: null, thin: false,
+    }).system
+    expect(system(LEADERSHIP_BRIEF)).toContain('The standing page')
+    expect(system(LEADERSHIP_BRIEF)).not.toContain('The questions page')
+    expect(system(CONTENT_BRIEF)).toContain('The questions page')
+    expect(system(MARKET_BRIEF)).toContain('The claims page')
+    expect(system(SALES_BRIEF)).not.toContain('The claims page')
+    // The lens travels into the house rules, not only into the schema.
+    expect(system(CONTENT_BRIEF)).toContain('what it means for what to make interprets it')
+  })
+
+  it('numbers the claims for the page that has to copy them back', () => {
+    const user = (t: DocumentTemplate) => buildWriterPrompts({
+      template: t, settings: DEFAULT_DOCUMENT_SETTINGS, company: 'Ossur', period: 'p', reader: null,
+      figures: documentFigures(signals, answers), signals, answers, previous: null, thin: false,
+    }).user
+    expect(user(MARKET_BRIEF)).toContain('A1. Ossur says "Terrain adaptation adjusts the foot."')
+    expect(user(SALES_BRIEF)).toContain('- Ossur says "Terrain adaptation adjusts the foot."')
   })
 })

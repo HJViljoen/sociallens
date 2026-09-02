@@ -870,5 +870,7 @@ export const DOCUMENT_EDIT_MAX = 4000
 export const DOCUMENT_BLOCK_MAX: Record<string, number> = {
   summary: 1000, headline: 90, saw: 1050, heard: 260, means: 480, practice: 180, sure: 220,
   pitch: 520, praise: 520, hurt: 520, read: 420, persona: 260, not_sure: 180, care: 220,
+  // The pages the leadership, market and content briefs add (2026-09-02).
+  standing: 900, gap: 330, asked: 220,
 }
 

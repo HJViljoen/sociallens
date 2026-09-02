@@ -11,7 +11,8 @@
 
 import { createAdminClient } from '../lib/supabase-admin'
 import { DOCUMENT_BLOCK_MAX } from '../lib/config'
-import { isDocumentData, type DocumentSnapshotData, type DocumentWorkings } from '../lib/reports/documents/types'
+import { isDocumentData, type DocPageKind, type DocumentSnapshotData, type DocumentWorkings } from '../lib/reports/documents/types'
+import { documentTemplate, skeletonOrder } from '../lib/reports/documents/templates'
 import { FIGURE_KEY_RE } from '../lib/reports/cover'
 import { collectQuoteRefs } from '../lib/renderables/quotes-freeze'
 
@@ -25,12 +26,19 @@ function evaluate(data: DocumentSnapshotData, workings: DocumentWorkings | null,
   const out: Finding[] = []
   const f = (name: string, ok: boolean, note?: string) => out.push({ name, ok, note })
   const kinds = data.pages.map((p) => p.kind)
-  const order = ['in_short', 'finding', 'competitor', 'personas', 'language', 'method']
+  // The order is the TEMPLATE's own skeleton, not one hard-coded list: a
+  // leadership brief prints a standing page where a sales brief prints
+  // competitors, and both are in order.
+  const template = documentTemplate(data.template)
+  f('the template is one we know', template != null, data.template)
+  const order = template ? skeletonOrder(template) : (['in_short', 'finding', 'competitor', 'personas', 'language', 'method'] as DocPageKind[])
+  f('every page kind belongs to the skeleton', kinds.every((k) => order.includes(k)), kinds.filter((k) => !order.includes(k)).join(', ') || 'all')
   const ranks = kinds.map((k) => order.indexOf(k))
   f('pages in skeleton order', ranks.every((r, i) => i === 0 || r >= ranks[i - 1]), kinds.join(' · '))
   f('overview first, method last', kinds[0] === 'in_short' && kinds[kinds.length - 1] === 'method')
   const findings = data.pages.filter((p) => p.kind === 'finding')
-  f('one to four findings', findings.length >= 1 && findings.length <= 4, `${findings.length}`)
+  const maxFindings = template?.findingsMax ?? 4
+  f(`one to ${maxFindings} findings`, findings.length >= 1 && findings.length <= maxFindings, `${findings.length}`)
   const digitRe = /\d/
   let digits = 0, dashes = 0, unresolved = 0, quotesWithText = 0, overCap = 0
   const over: string[] = []

@@ -122,7 +122,7 @@ async function main() {
         clientId, runId: signals.runId, template, settings, company: signals.company, period, reader: flag('reader') ?? null,
         figures, signals, answers: research.answers, previous: null, thin: thinWeek(signals), allow: allowedTokens(signals, research.answers),
       })
-  console.log(`\nwrite: ${written.ms} ms · $${written.costUsd.toFixed(3)} · ${written.promptTokens}+${written.completionTokens} tok · findings ${written.written.findings.length} · competitors ${written.written.competitors.length} · not sure ${written.written.not_sure_yet.length}`)
+  console.log(`\nwrite: ${written.ms} ms · $${written.costUsd.toFixed(3)} · ${written.promptTokens}+${written.completionTokens} tok · findings ${written.written.findings.length} · competitors ${written.written.competitors?.length ?? 0} · not sure ${written.written.not_sure_yet.length}`)
   writeFileSync(`${out}/written.json`, JSON.stringify(written.written, null, 2))
   const { data, workings } = composeDocument({
     template, settings, reportId: '', title: `${signals.company} sales brief`, period, signals, answers: research.answers, written: written.written, figures,

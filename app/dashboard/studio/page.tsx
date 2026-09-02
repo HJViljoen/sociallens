@@ -68,9 +68,11 @@ export default async function StudioPage({ searchParams }: { searchParams?: Prom
   // update would move it. Past the stale window that claim belongs to nobody,
   // and deliverSend already takes it over by its timestamp, so the Studio
   // offers it in the same place, saying plainly that it stopped partway.
+  // (claimDecision reads the clock itself; this page is force-dynamic, so it
+  // is a fresh read on every request.)
   const readySend =
     scheduleSends.find((s) => s.status === 'ready')
-    ?? scheduleSends.find((s) => s.status === 'claimed' && s.snapshot_id != null && claimDecision(s, Date.now()) === 'takeover')
+    ?? scheduleSends.find((s) => s.status === 'claimed' && s.snapshot_id != null && claimDecision(s) === 'takeover')
     ?? null
   const stalled = readySend?.status === 'claimed'
   // Who pressed Send, for the archive line.

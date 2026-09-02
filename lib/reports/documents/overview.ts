@@ -21,7 +21,13 @@ export const slugOf = (name: string) => name.toLowerCase().replace(/[^a-z0-9]+/g
  *  A number the run could not measure is simply absent. */
 export function overviewTiles(data: DocumentSnapshotData): OverviewTile[] {
   const f = data.figures
-  const competitor = data.pages.find((p) => p.kind === 'competitor')?.meta?.name
+  // The name to set the share against: the first competitor with a page, or,
+  // for a template that prints none (the leadership brief's standing page),
+  // the first one the standing page lists. A share with nothing beside it is
+  // a number without a scale.
+  const competitor =
+    data.pages.find((p) => p.kind === 'competitor')?.meta?.name
+    ?? (data.pages.find((p) => p.kind === 'standing')?.meta?.parties ?? '').split('|').filter(Boolean)[1]
   const compKey = competitor ? `${slugOf(competitor)}_share_pct` : null
   return [
     f.conversations && { value: f.conversations.value, label: `conversations read this update${f.videos ? `, on ${f.videos.value} videos` : ''}` },

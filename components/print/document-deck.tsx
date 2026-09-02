@@ -5,7 +5,7 @@ import { Slide } from '@/components/print/slide'
 import { substituteFigures } from '@/lib/reports/cover'
 import { documentSlides } from '@/lib/reports/documents/compose'
 import { findingHeadlines, overviewTiles, slugOf } from '@/lib/reports/documents/overview'
-import type { DocBlock, DocPage, DocumentSnapshotData } from '@/lib/reports/documents/types'
+import type { DocBlock, DocLens, DocPage, DocumentSnapshotData } from '@/lib/reports/documents/types'
 import type { FigureTable } from '@/lib/reports/types'
 
 // A document's deck from its (hydrated) snapshot data: the cover, then one
@@ -165,7 +165,7 @@ function ConfidenceDots({ sure }: { sure: string }) {
   )
 }
 
-function FindingPage({ page, figures, company }: { page: DocPage; figures: FigureTable; company: string }) {
+function FindingPage({ page, figures, company, lens }: { page: DocPage; figures: FigureTable; company: string; lens: DocLens }) {
   const b = (field: string) => page.blocks.find((x) => x.field === field)
   const headline = b('headline')
   const saw = b('saw')
@@ -200,7 +200,7 @@ function FindingPage({ page, figures, company }: { page: DocPage; figures: Figur
           </p>
           {means?.text && (
             <div className="flex flex-col gap-2">
-              <Eyebrow>What it means for a sale</Eyebrow>
+              <Eyebrow>{lens.means}</Eyebrow>
               <BlockSlot block={means} textClass={BODY_SM}><Paragraphs text={means.text} figures={figures} className={BODY_SM} /></BlockSlot>
             </div>
           )}
@@ -290,11 +290,176 @@ function CompetitorPage({ page, figures, data }: { page: DocPage; figures: Figur
   )
 }
 
+// ── standing ───────────────────────────────────────────────────────────────
+// The leadership brief's one page of position: the writer's read on the left,
+// and on the right the shares as bars and what actually moved, both drawn by
+// code from the frozen figures and delta. The verdicts are the pipeline's own
+// (T0-8): a change the data cannot carry prints as "about where it was", not
+// as a number.
+
+function StandingBars({ data, parties }: { data: DocumentSnapshotData; parties: string[] }) {
+  const f = data.figures
+  const rows = parties
+    .map((name, i) => {
+      const key = i === 0 ? 'client_share_pct' : `${slugOf(name)}_share_pct`
+      const pct = f[key] ? parseFloat(f[key].value) : NaN
+      return Number.isNaN(pct) ? null : { name, pct, you: i === 0 }
+    })
+    .filter(Boolean) as { name: string; pct: number; you: boolean }[]
+  if (!rows.length) return null
+  const max = Math.max(...rows.map((r) => r.pct), 1)
+  return (
+    <div className={`${CARD} px-6 py-5`}>
+      <Eyebrow className="mb-3">Share of tracked conversation this update</Eyebrow>
+      <div className="flex flex-col gap-2.5">
+        {rows.map((r) => (
+          <div key={r.name} className="flex items-center gap-3">
+            <span className="w-[120px] shrink-0 truncate text-[13.5px] text-foreground">{r.name}</span>
+            <span className="h-[11px] flex-1"><span className={`block h-full rounded-[3px] ${r.you ? 'bg-you' : 'bg-comp'}`} style={{ width: `${Math.max(2, (r.pct / max) * 100)}%` }} /></span>
+            <span className="w-[54px] text-right font-mono text-[13.5px] tabular-nums text-foreground">{r.pct}%</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+/** What moved, in the delta's own verdicts. A metric the update could not
+ *  judge says so rather than showing a number that means nothing. */
+function movementLines(data: DocumentSnapshotData): { label: string; value: string }[] {
+  const d = data.delta
+  if (!d) return [{ label: 'Movement', value: 'No earlier update to compare with.' }]
+  const out: { label: string; value: string }[] = []
+  if (d.sentiment) {
+    const dir = d.sentiment.now > d.sentiment.prev ? 'up' : d.sentiment.now < d.sentiment.prev ? 'down' : 'level'
+    out.push({
+      label: 'Tone',
+      value: d.sentiment.verdict.state === 'moved' ? `Moved ${dir}, ${Math.round(d.sentiment.prev * 10) / 10}% to ${Math.round(d.sentiment.now * 10) / 10}% positive`
+        : d.sentiment.verdict.state === 'too_little_data' ? 'Too few judged conversations to say'
+        : 'About where it was',
+    })
+  }
+  if (d.share) {
+    const dir = d.share.now.client > d.share.prev.client ? 'up' : d.share.now.client < d.share.prev.client ? 'down' : 'level'
+    out.push({
+      label: 'Share',
+      value: d.share.verdict.state === 'moved' ? `Moved ${dir}, ${Math.round(d.share.prev.client * 10) / 10}% to ${Math.round(d.share.now.client * 10) / 10}%`
+        : d.share.verdict.state === 'too_little_data' ? 'Too few videos to say'
+        : 'About where it was',
+    })
+  }
+  if (d.newThemes) out.push({ label: 'New', value: d.newThemes.count ? `${fmtCount(d.newThemes.count)} new: ${d.newThemes.labels.slice(0, 3).join(', ')}` : 'Nothing confirmed new this update' })
+  if (d.conversations) out.push({ label: 'Volume', value: `${fmtCount(d.conversations.now)} conversations, against ${fmtCount(d.conversations.prev)} last update` })
+  return out
+}
+
+function StandingPage({ page, data }: { page: DocPage; data: DocumentSnapshotData }) {
+  const block = page.blocks.find((b) => b.field === 'standing')
+  const parties = (page.meta?.parties ?? '').split('|').filter(Boolean)
+  const moved = movementLines(data)
+  return (
+    <div className="grid h-full min-h-0 grid-cols-[7fr_5fr] gap-x-12">
+      <div className="flex min-h-0 flex-col gap-3">
+        <Eyebrow>How it reads</Eyebrow>
+        {block?.text && <BlockSlot block={block} textClass={`max-w-[68ch] ${BODY}`}><Paragraphs text={block.text} figures={data.figures} className={`max-w-[68ch] ${BODY}`} /></BlockSlot>}
+      </div>
+      <div className="flex min-h-0 flex-col gap-4">
+        <StandingBars data={data} parties={parties} />
+        <div className={`${CARD} px-6 py-5`}>
+          <Eyebrow className="mb-3">What moved since the previous update</Eyebrow>
+          <dl className="grid grid-cols-[64px_1fr] gap-x-4 gap-y-2.5">
+            {moved.map((m) => (
+              <Fragment key={m.label}>
+                <dt className="pt-[2px] font-mono text-[11px] uppercase tracking-[0.06em] text-muted-foreground">{m.label}</dt>
+                <dd className="text-[13.5px] leading-[1.4] text-foreground">{m.value}</dd>
+              </Fragment>
+            ))}
+          </dl>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ── what is claimed and what comes back ────────────────────────────────────
+// The market brief's own page. One card per claim the company makes in its
+// videos: the claim as it was made, the verdict the analysis reached, what
+// the audience says back, and the researcher's read of the difference.
+
+const VERDICT_WORD: Record<string, { word: string; tone: 'you' | 'comp' | 'new' | 'plain' }> = {
+  echoes: { word: 'the audience says it too', tone: 'you' },
+  contradicts: { word: 'the audience says otherwise', tone: 'new' },
+  silent: { word: 'the audience does not take it up', tone: 'plain' },
+}
+
+function SayHearPage({ page, figures, company }: { page: DocPage; figures: FigureTable; company: string }) {
+  return (
+    <div className="flex h-full min-h-0 flex-col gap-4">
+      <p className="max-w-[92ch] text-[15px] leading-[1.5] text-secondary-foreground">
+        What {company} says in its own videos, set against what the conversation does with it. The verdict is the analysis&rsquo;s; the reading is the researcher&rsquo;s.
+      </p>
+      <ul className="grid min-h-0 flex-1 grid-cols-2 content-start gap-5">
+        {page.blocks.slice(0, 4).map((b) => {
+          const verdict = VERDICT_WORD[b.items?.[0] ?? ''] ?? null
+          const theySay = b.items?.[1] ?? ''
+          return (
+            <li key={b.id} className={`${CARD} flex flex-col gap-2.5 px-6 py-4`}>
+              <div className="flex items-start justify-between gap-4">
+                <p className="max-w-[42ch] font-serif text-[16px] italic leading-[1.4] text-foreground">&ldquo;{b.label}&rdquo;</p>
+                {verdict && <span className="shrink-0"><Pill tone={verdict.tone}>{verdict.word}</Pill></span>}
+              </div>
+              {theySay && (
+                <p className="border-l-2 border-border pl-3 text-[13px] leading-[1.45] text-secondary-foreground">{theySay}</p>
+              )}
+              {b.text && <BlockSlot block={b} textClass={BODY_SM}><Paragraphs text={b.text} figures={figures} className={BODY_SM} /></BlockSlot>}
+            </li>
+          )
+        })}
+      </ul>
+    </div>
+  )
+}
+
+// ── what the audience asks ─────────────────────────────────────────────────
+// The content brief's page: the questions the conversation puts and nobody
+// settles, in the audience's own framing. Written as "the question: what is
+// behind it", split the way the language page splits its own lines.
+
+function AskedPage({ page }: { page: DocPage }) {
+  const block = page.blocks.find((b) => b.field === 'asked')
+  const items = block?.items ?? []
+  return (
+    <div className="flex h-full min-h-0 flex-col gap-5">
+      <p className="max-w-[86ch] text-[16px] leading-[1.5] text-secondary-foreground">
+        Questions the conversation puts and does not settle. Each is asked in the audience&rsquo;s own framing, not the company&rsquo;s; the note says what is behind it.
+      </p>
+      {block && (
+        <BlockSlot block={block} textClass={BODY_SM}>
+          <ol className="grid grid-cols-2 gap-x-8 gap-y-4">
+            {items.map((x, i) => {
+              const m = /^["“]?([^:"”]+)["”]?:\s*(.+)$/.exec(x)
+              return (
+                <li key={i} className="flex gap-4">
+                  <span className="w-5 shrink-0 pt-[3px] font-mono text-[13px] tabular-nums text-primary">{i + 1}</span>
+                  <div className="flex flex-col gap-1">
+                    <p className="text-[16.5px] font-medium leading-[1.35] text-foreground">{m ? `${m[1].trim()}?`.replace(/\?\?$/, '?') : x}</p>
+                    {m && <p className={BODY_SM}>{m[2].replace(/^./, (c) => c.toUpperCase())}</p>}
+                  </div>
+                </li>
+              )
+            })}
+          </ol>
+        </BlockSlot>
+      )}
+    </div>
+  )
+}
+
 // ── personas ───────────────────────────────────────────────────────────────
 
 const PERSONA_LABELS = ['Who they are', 'What they want', 'What stops them', 'What moves them']
 
-function PersonaCard({ block, figures }: { block: DocBlock; figures: FigureTable }) {
+function PersonaCard({ block, figures, lens }: { block: DocBlock; figures: FigureTable; lens: DocLens }) {
   const [one, ...rest] = block.items ?? []
   return (
     <div className={`${CARD} flex min-h-0 flex-col gap-3 px-7 py-5`}>
@@ -311,7 +476,7 @@ function PersonaCard({ block, figures }: { block: DocBlock; figures: FigureTable
         ))}
         {block.text && (
           <div className="flex gap-4 border-t border-border pt-3">
-            <p className="w-[104px] shrink-0 pt-[3px] font-mono text-[11px] uppercase tracking-[0.08em] text-primary">For a sale</p>
+            <p className="w-[104px] shrink-0 pt-[3px] font-mono text-[11px] uppercase tracking-[0.08em] text-primary">{lens.short}</p>
             <BlockSlot block={block} textClass="text-[13.5px] font-medium leading-[1.45] text-foreground"><p className="text-[13.5px] font-medium leading-[1.45] text-foreground"><Figured text={block.text} figures={figures} /></p></BlockSlot>
           </div>
         )}
@@ -320,10 +485,10 @@ function PersonaCard({ block, figures }: { block: DocBlock; figures: FigureTable
   )
 }
 
-function PersonasPage({ page, figures }: { page: DocPage; figures: FigureTable }) {
+function PersonasPage({ page, figures, lens }: { page: DocPage; figures: FigureTable; lens: DocLens }) {
   return (
     <div className="grid h-full min-h-0 grid-cols-2 items-start gap-x-8">
-      {page.blocks.map((b) => <PersonaCard key={b.id} block={b} figures={figures} />)}
+      {page.blocks.map((b) => <PersonaCard key={b.id} block={b} figures={figures} lens={lens} />)}
     </div>
   )
 }
@@ -392,13 +557,21 @@ function MethodPage({ page, data }: { page: DocPage; data: DocumentSnapshotData 
 
 // ── deck ───────────────────────────────────────────────────────────────────
 
+/** The lens the document was written under. Older snapshots (before
+ *  2026-09-02) carry none: they are all Sales briefs. */
+const lensOf = (data: DocumentSnapshotData): DocLens => data.lens ?? { means: 'What it means for a sale', short: 'for a sale' }
+
 function PageBody({ page, data }: { page: DocPage; data: DocumentSnapshotData }) {
   const figures = data.figures
+  const lens = lensOf(data)
   switch (page.kind) {
     case 'in_short': return <OverviewPage page={page} data={data} />
-    case 'finding': return <FindingPage page={page} figures={figures} company={data.company} />
+    case 'finding': return <FindingPage page={page} figures={figures} company={data.company} lens={lens} />
     case 'competitor': return <CompetitorPage page={page} figures={figures} data={data} />
-    case 'personas': return <PersonasPage page={page} figures={figures} />
+    case 'personas': return <PersonasPage page={page} figures={figures} lens={lens} />
+    case 'standing': return <StandingPage page={page} data={data} />
+    case 'say_hear': return <SayHearPage page={page} figures={figures} company={data.company} />
+    case 'asked': return <AskedPage page={page} />
     case 'language': return <LanguagePage page={page} />
     case 'method': return <MethodPage page={page} data={data} />
     default: return null

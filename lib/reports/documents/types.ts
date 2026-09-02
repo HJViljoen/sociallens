@@ -55,7 +55,7 @@ export function documentSettings(raw: Partial<DocumentSettings> | null | undefin
 
 // ── the document ──────────────────────────────────────────────────────────
 
-export type DocPageKind = 'in_short' | 'finding' | 'competitor' | 'personas' | 'language' | 'method'
+export type DocPageKind = 'in_short' | 'finding' | 'competitor' | 'standing' | 'say_hear' | 'asked' | 'personas' | 'language' | 'method'
 
 /** Every field a block may carry; the skeleton says which page has which. */
 export type DocField =
@@ -71,7 +71,10 @@ export type DocField =
   | 'praise'    // competitor: what their users praise
   | 'hurt'      // competitor: where their users hurt
   | 'read'      // competitor: the read, when both names come up
-  | 'persona'   // personas: one block per persona (label = name; items = who, wants, stuck on, moves when; text = what it means for a sale)
+  | 'standing'  // standing: the read on where the company sits in the conversation
+  | 'gap'       // say_hear: one block per claim (label = the claim; items = [verdict word, what they say, the gap] by code; text = the read)
+  | 'asked'     // asked: the questions the conversation puts and does not settle (items)
+  | 'persona'   // personas: one block per persona (label = name; items = who, wants, stuck on, moves when; text = what it means for this reader)
   | 'care'      // language: words that draw pushback (items)
   | 'not_sure'  // the "not settled this update" list (items)
   | 'method'    // method: one paragraph per item (items, code)
@@ -98,6 +101,14 @@ export interface DocPage {
   blocks: DocBlock[]
   /** finding: `sure` word; competitor: the competitor's name; personas: names. */
   meta?: Record<string, string>
+}
+
+/** What a finding's consequence is called on paper: "What it means for a
+ *  sale" and its short form. The template's own (templates.ts Lens), frozen
+ *  into the snapshot so the deck never has to look a template up. */
+export interface DocLens {
+  means: string
+  short: string
 }
 
 export interface DocumentMethod {
@@ -127,6 +138,10 @@ export interface DocumentSnapshotData {
   figures: FigureTable
   delta: RunDelta | null
   pages: DocPage[]
+  /** How this template names a finding's consequence, frozen with the
+   *  document so the deck and the email read the snapshot rather than a
+   *  template that may have been renamed since (templates.ts Lens). */
+  lens?: DocLens
   method: DocumentMethod
   /** Questions the corpus could not answer this update, said plainly. */
   notSureYet: string[]

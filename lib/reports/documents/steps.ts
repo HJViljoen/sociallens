@@ -5,14 +5,14 @@ import { collectQuoteRefs, freezeQuotes, resolveQuotes } from '../../renderables
 import { fetchQuoteTextsByRefs } from '../../quotes'
 import type { ReportRow } from '../types'
 import { finishBuild } from '../build'
-import { documentTemplate, type DocumentTemplate } from './templates'
+import { documentTemplate, promptVersion, type DocumentTemplate } from './templates'
 import { documentSettings, isDocumentData, type DocumentSettings } from './types'
 import { loadSignals } from './signals'
 import { composeQuestions, type ResearchQuestion } from './questions'
 import { BuildBlockedError, runResearch, type ResearchAnswer } from './research'
 import { allowedTokens, composeDocument, documentFigures, thinWeek } from './compose'
 import { generateDocument, DOCUMENT_WRITER_MODEL, WriteFailedError } from './write-model'
-import { DOCUMENT_PROMPT_VERSION, type PreviousBrief, type WriterOutput } from './write'
+import { type PreviousBrief, type WriterOutput } from './write'
 import { checkDocument, type FindingVerdict } from './check'
 import { completeBuild, failBuild, latestRunId, loadBuild, setBuildCost, setBuildStatus } from './builds'
 
@@ -169,7 +169,7 @@ export async function freezeStep(
     : null
   const { data, workings } = composeDocument({
     template: ctx.template, settings: ctx.settings, reportId: ctx.report.id, title, period, signals, answers, written: args.written, figures,
-    model: DOCUMENT_WRITER_MODEL, promptVersion: DOCUMENT_PROMPT_VERSION, costUsd: args.costUsd, timings: args.timings, check,
+    model: DOCUMENT_WRITER_MODEL, promptVersion: promptVersion(ctx.template), costUsd: args.costUsd, timings: args.timings, check,
   })
   const fullTitle = `${title} · ${signals.company}`
   const snap = await createSnapshot(admin, {

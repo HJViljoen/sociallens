@@ -5,6 +5,7 @@ import type { FigureTable } from '../types'
 import type { Signals } from './signals'
 import type { ResearchAnswer, ResearchPoint } from './research'
 import { PAGE_TITLE, PERSONAS_PER_PAGE, type DocumentTemplate } from './templates'
+import type { DocPageKind } from './types'
 import type { WriterOutput } from './write'
 import { bucketWord, slug } from './write'
 import { SURE_WORDS, calibrateSure, productTokens, resolveIndices, scrubLine, scrubText, singularise } from './scrub'
@@ -12,6 +13,12 @@ import type { BlockWorkings, DocBlock, DocPage, DocumentSettings, DocumentSnapsh
 
 /**
  * From the writer's output and the signals to the frozen document (pure).
+ *
+ * The page ORDER is the template's skeleton, walked in order (2026-09-02):
+ * a template without a competitor page prints none, and a page whose only
+ * material is missing (no claims to answer, nothing held back) drops out
+ * rather than printing an empty sheet. Findings are resolved before the walk
+ * because the overview lists them.
  * Code owns what code can own: the figure table and every number, the order
  * of the findings (by the evidence behind them), where each was heard, how
  * sure the reading is, which quote leads a finding, the finding floor and
@@ -143,7 +150,8 @@ export function composeDocument(a: ComposeArgs): { data: DocumentSnapshotData; w
   const usedQuotes = new Set<string>()
 
   // Findings: resolve, floor, order by evidence, cap.
-  const findingsMax = thin ? Math.min(a.settings.findings, 3) : a.settings.findings
+  const perTemplate = Math.min(a.settings.findings, a.template.findingsMax)
+  const findingsMax = thin ? Math.min(perTemplate, 3) : perTemplate
   const candidates = (w.findings ?? []).map((f) => {
     const { ok } = resolveIndices(f.based_on, known)
     const gs = ok.filter((i) => i.startsWith('G')).map((i) => points.get(i)!).filter(Boolean)
@@ -184,64 +192,143 @@ export function composeDocument(a: ComposeArgs): { data: DocumentSnapshotData; w
     }
   })
 
-  // Overview: the executive summary, the findings listed, what is not settled.
-  const summary = prose(w.in_short?.summary ?? '', figures, cap('summary'))
+  // The overview's own list: what is not settled, written and derived.
   const notSureYet = [...(w.not_sure_yet ?? []).map((x) => line(x, figures, cap('not_sure'))).filter(Boolean), ...notSure].slice(0, 6)
-  pages.push({
-    id: 'in_short', kind: 'in_short', title: PAGE_TITLE.in_short,
-    blocks: [
-      { id: 'in_short.summary', field: 'summary', text: summary },
-      { id: 'in_short.findings', field: 'findings', text: '', items: findingPages.map((p) => p.blocks.find((b) => b.field === 'headline')?.text ?? '').filter(Boolean) },
-      { id: 'in_short.not_sure', field: 'not_sure', text: '', items: notSureYet },
-    ],
-  })
-  blocksW.push({ blockId: 'in_short.summary', basedOn: [] }, { blockId: 'in_short.findings', basedOn: [] }, { blockId: 'in_short.not_sure', basedOn: [] })
-  pages.push(...findingPages)
 
-  // Competitors: one page each, from the writer where it wrote one, else from the signals.
-  for (const c of s.competitors) {
-    const id = `c_${slug(c.name)}`
-    const wc = (w.competitors ?? []).find((x) => x.name.trim().toLowerCase() === c.name.toLowerCase())
-    const { ok } = resolveIndices(wc?.based_on, known)
-    const text = (field: 'pitch' | 'praise' | 'hurt' | 'read', fallback: string) => prose(wc?.[field] || fallback, figures, cap(field))
-    const blocks: DocBlock[] = [
-      { id: `${id}.pitch`, field: 'pitch', text: text('pitch', c.claims.length ? c.claims.slice(0, 4).map((cl) => cl.claim).join(' ') : 'Nothing from their own videos was captured this update.') },
-      { id: `${id}.praise`, field: 'praise', text: text('praise', c.praise.length ? c.praise.slice(0, 4).map((t) => `${t.label}: ${t.description}`).join(' ') : 'Nothing their users praised was captured this update.') },
-      { id: `${id}.hurt`, field: 'hurt', text: text('hurt', c.hurt.length ? c.hurt.slice(0, 4).map((t) => `${t.label}: ${t.description}`).join(' ') : 'Nothing their users complained about was captured this update.') },
-      { id: `${id}.read`, field: 'read', text: text('read', '') },
-    ]
-    pages.push({ id, kind: 'competitor', title: PAGE_TITLE.competitor, blocks, meta: { name: c.name, thin: String(c.thin) } })
-    for (const b of blocks) blocksW.push({ blockId: b.id, basedOn: ok })
+  // ── one builder per page kind; the skeleton decides which run ───────────
+  // A builder returns the pages it has material for. Returning none is a
+  // legitimate answer (no claims to answer, nothing to handle with care) and
+  // the page simply does not exist in that issue.
+  const build: Record<DocPageKind, () => DocPage[]> = {
+    in_short: () => {
+      const summary = prose(w.in_short?.summary ?? '', figures, cap('summary'))
+      const blocks: DocBlock[] = [
+        { id: 'in_short.summary', field: 'summary', text: summary },
+        { id: 'in_short.findings', field: 'findings', text: '', items: findingPages.map((p) => p.blocks.find((b) => b.field === 'headline')?.text ?? '').filter(Boolean) },
+        { id: 'in_short.not_sure', field: 'not_sure', text: '', items: notSureYet },
+      ]
+      for (const b of blocks) blocksW.push({ blockId: b.id, basedOn: [] })
+      return [{ id: 'in_short', kind: 'in_short', title: PAGE_TITLE.in_short, blocks }]
+    },
+
+    finding: () => findingPages,
+
+    // One page per included competitor, from the writer where it wrote one,
+    // else from the signals.
+    competitor: () => s.competitors.map((c) => {
+      const id = `c_${slug(c.name)}`
+      const wc = (w.competitors ?? []).find((x) => x.name.trim().toLowerCase() === c.name.toLowerCase())
+      const { ok } = resolveIndices(wc?.based_on, known)
+      const text = (field: 'pitch' | 'praise' | 'hurt' | 'read', fallback: string) => prose(wc?.[field] || fallback, figures, cap(field))
+      const blocks: DocBlock[] = [
+        { id: `${id}.pitch`, field: 'pitch', text: text('pitch', c.claims.length ? c.claims.slice(0, 4).map((cl) => cl.claim).join(' ') : 'Nothing from their own videos was captured this update.') },
+        { id: `${id}.praise`, field: 'praise', text: text('praise', c.praise.length ? c.praise.slice(0, 4).map((t) => `${t.label}: ${t.description}`).join(' ') : 'Nothing their users praised was captured this update.') },
+        { id: `${id}.hurt`, field: 'hurt', text: text('hurt', c.hurt.length ? c.hurt.slice(0, 4).map((t) => `${t.label}: ${t.description}`).join(' ') : 'Nothing their users complained about was captured this update.') },
+        { id: `${id}.read`, field: 'read', text: text('read', '') },
+      ]
+      for (const b of blocks) blocksW.push({ blockId: b.id, basedOn: ok })
+      return { id, kind: 'competitor' as const, title: PAGE_TITLE.competitor, blocks, meta: { name: c.name, thin: String(c.thin) } }
+    }),
+
+    // Where the company stands: the writer's read, printed beside a table the
+    // deck draws from the figures and the delta. One page, always, because a
+    // leadership brief that cannot say where the company sits has failed.
+    standing: () => {
+      const block: DocBlock = { id: 'standing.standing', field: 'standing', text: prose(w.standing ?? '', figures, cap('standing')) }
+      blocksW.push({ blockId: block.id, basedOn: [] })
+      const parties = [s.company, ...s.competitors.map((c) => c.name)]
+      return [{
+        id: 'standing', kind: 'standing', title: PAGE_TITLE.standing, blocks: [block],
+        // The deck draws the bars from the figures; the names and their order
+        // are the composer's, because a figure key is a slug and a name is not
+        // recoverable from it.
+        meta: { parties: parties.join('|') },
+      }]
+    },
+
+    // What the company claims against what comes back. One block per claim
+    // the writer answered, the claim matched back to the pipeline's own
+    // say-vs-hear entry so the page cannot print a claim nobody made.
+    say_hear: () => {
+      const entries = s.sayVsHear
+      if (!entries.length) return []
+      const blocks: DocBlock[] = []
+      for (const written of (w.say_hear ?? []).slice(0, 4)) {
+        const claim = written.claim?.trim()
+        if (!claim) continue
+        const entry = entries.find((e) => e.you_say.trim().toLowerCase() === claim.toLowerCase())
+          ?? entries.find((e) => e.you_say.toLowerCase().includes(claim.toLowerCase()) || claim.toLowerCase().includes(e.you_say.toLowerCase()))
+        if (!entry) continue
+        const read = prose(written.read ?? '', figures, cap('gap'))
+        if (!read) continue
+        const { ok } = resolveIndices(written.based_on, known)
+        const id = `sh_${slug(entry.you_say).slice(0, 40)}`
+        if (blocks.some((b) => b.id === id)) continue
+        blocks.push({
+          id, field: 'gap', label: scrubLine(entry.you_say, figures, 160, { allow }).text || entry.you_say,
+          text: read,
+          // Positional, like a persona card: [0] the pipeline's own verdict
+          // word (echoes | contradicts | silent), [1] what the audience says
+          // back, [2] the gap it named. Never filtered, so a missing middle
+          // does not shift the gap into its place.
+          items: [entry.audience, entry.they_say ?? '', entry.gap].map((x) => scrubText(x, figures, 300, { allow }).text),
+        })
+        blocksW.push({ blockId: id, basedOn: ok })
+      }
+      return blocks.length ? [{ id: 'say_hear', kind: 'say_hear' as const, title: PAGE_TITLE.say_hear, blocks }] : []
+    },
+
+    // The questions the conversation puts and nobody settles.
+    asked: () => {
+      const items = (w.asked ?? []).map((x) => line(x, figures, cap('asked'))).filter(Boolean).slice(0, 6)
+      if (!items.length) return []
+      blocksW.push({ blockId: 'asked.asked', basedOn: [] })
+      return [{ id: 'asked', kind: 'asked' as const, title: PAGE_TITLE.asked, blocks: [{ id: 'asked.asked', field: 'asked' as const, text: '', items }] }]
+    },
+
+    // Who is in the conversation: the profile's own words in full, two a
+    // page, and the writer's line on what each means for this reader.
+    personas: () => {
+      const personaBlocks: DocBlock[] = s.personas.slice(0, 6).map((p) => {
+        const wl = (w.persona_lines ?? []).find((x) => x.name.trim().toLowerCase() === p.name.toLowerCase())
+        return {
+          id: `p_${slug(p.key || p.name)}`,
+          field: 'persona' as const,
+          label: p.name,
+          text: prose(wl?.line ?? '', figures, cap('persona')),
+          items: [p.oneLiner, p.wants, p.blockers, p.triggers].map((x) => scrubText(x, figures, 300, { allow }).text),
+        }
+      })
+      for (const b of personaBlocks) blocksW.push({ blockId: b.id, basedOn: [] })
+      const out: DocPage[] = []
+      for (let i = 0; i < personaBlocks.length; i += PERSONAS_PER_PAGE) {
+        const n = Math.floor(i / PERSONAS_PER_PAGE) + 1
+        out.push({ id: `personas_${n}`, kind: 'personas', title: PAGE_TITLE.personas, blocks: personaBlocks.slice(i, i + PERSONAS_PER_PAGE) })
+      }
+      return out
+    },
+
+    language: () => {
+      const care = (w.care ?? []).map((x) => line(x, figures, cap('care'))).filter(Boolean).slice(0, 6)
+      if (!care.length) return []
+      blocksW.push({ blockId: 'language.care', basedOn: [] })
+      return [{ id: 'language', kind: 'language' as const, title: PAGE_TITLE.language, blocks: [{ id: 'language.care', field: 'care' as const, text: '', items: care }] }]
+    },
+
+    method: () => {
+      blocksW.push({ blockId: 'method.method', basedOn: [] })
+      return [{ id: 'method', kind: 'method' as const, title: PAGE_TITLE.method, blocks: [{ id: 'method.method', field: 'method' as const, text: '', items: methodItems(s, a.period, thin, s.updatesCount) }] }]
+    },
   }
 
-  // Who is buying: the profile's own words in full, two personas a page, and
-  // the writer's line on what each means for a sale.
-  const personaBlocks: DocBlock[] = s.personas.slice(0, 6).map((p) => {
-    const wl = (w.persona_lines ?? []).find((x) => x.name.trim().toLowerCase() === p.name.toLowerCase())
-    return {
-      id: `p_${slug(p.key || p.name)}`,
-      field: 'persona' as const,
-      label: p.name,
-      text: prose(wl?.line ?? '', figures, cap('persona')),
-      items: [p.oneLiner, p.wants, p.blockers, p.triggers].map((x) => scrubText(x, figures, 300, { allow }).text),
-    }
-  })
-  for (let i = 0; i < personaBlocks.length; i += PERSONAS_PER_PAGE) {
-    const n = Math.floor(i / PERSONAS_PER_PAGE) + 1
-    pages.push({ id: `personas_${n}`, kind: 'personas', title: PAGE_TITLE.personas, blocks: personaBlocks.slice(i, i + PERSONAS_PER_PAGE) })
+  // The walk. A kind that repeats is emitted once by its builder, which
+  // returns every page of that kind; a kind listed twice is built once.
+  const done = new Set<DocPageKind>()
+  for (const page of a.template.skeleton) {
+    if (done.has(page.kind)) continue
+    done.add(page.kind)
+    pages.push(...build[page.kind]())
   }
-  for (const b of personaBlocks) blocksW.push({ blockId: b.id, basedOn: [] })
-
-  // Language to handle with care (the writer, scrubbed).
-  const care = (w.care ?? []).map((x) => line(x, figures, cap('care'))).filter(Boolean).slice(0, 6)
-  if (care.length) {
-    pages.push({ id: 'language', kind: 'language', title: PAGE_TITLE.language, blocks: [{ id: 'language.care', field: 'care', text: '', items: care }] })
-    blocksW.push({ blockId: 'language.care', basedOn: [] })
-  }
-
-  // About this brief (code).
-  pages.push({ id: 'method', kind: 'method', title: PAGE_TITLE.method, blocks: [{ id: 'method.method', field: 'method', text: '', items: methodItems(s, a.period, thin, s.updatesCount) }] })
-  blocksW.push({ blockId: 'method.method', basedOn: [] })
 
   const data: DocumentSnapshotData = {
     version: 1,
@@ -256,6 +343,7 @@ export function composeDocument(a: ComposeArgs): { data: DocumentSnapshotData; w
     figures,
     delta: s.delta,
     pages,
+    lens: { means: a.template.lens.means, short: a.template.lens.short },
     method: {
       conversations: s.run.conversations,
       videos: s.run.videos,
