@@ -4,7 +4,7 @@ import type { Metadata } from 'next'
 import { SiteNav } from '../../_components/site-nav'
 import { LeadForm } from '../../lead-form'
 import { PlaybookPanel, PlaybookStepVisual, SendOnVisual } from '../../_components/playbook-visual'
-import { playbooks } from '../../_data/playbooks'
+import { playbooks, USE_CASES_PUBLIC } from '../../_data/playbooks'
 
 const surfaceLabel: Record<string, string> = {
   market: 'Market page',
@@ -38,7 +38,7 @@ export async function generateMetadata({ params }: { params: Promise<{ slug: str
 export default async function UseCaseArticle({ params }: { params: Promise<{ slug: string }> }) {
   const { slug } = await params
   const index = playbooks.findIndex((p) => p.slug === slug)
-  if (index === -1) notFound()
+  if (!USE_CASES_PUBLIC || index === -1) notFound()
   const pb = playbooks[index]
   const prev = playbooks[(index - 1 + playbooks.length) % playbooks.length]
   const next = playbooks[(index + 1) % playbooks.length]

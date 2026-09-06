@@ -1,5 +1,5 @@
 import type { MetadataRoute } from 'next'
-import { playbooks } from './site/_data/playbooks'
+import { playbooks, USE_CASES_PUBLIC } from './site/_data/playbooks'
 
 // The marketing site's sitemap, served at the apex (verbatimintel.com/sitemap.xml).
 // proxy.ts rewrites every apex path to /site/<path> EXCEPT a path with a file
@@ -10,8 +10,8 @@ import { playbooks } from './site/_data/playbooks'
 const BASE = 'https://verbatimintel.com'
 
 export default function sitemap(): MetadataRoute.Sitemap {
-  const staticPaths = ['', '/how-it-works', '/use-cases', '/privacy', '/terms']
-  const playbookPaths = playbooks.map((pb) => `/use-cases/${pb.slug}`)
+  const staticPaths = ['', '/how-it-works', ...(USE_CASES_PUBLIC ? ['/use-cases'] : []), '/privacy', '/terms']
+  const playbookPaths = USE_CASES_PUBLIC ? playbooks.map((pb) => `/use-cases/${pb.slug}`) : []
   const lastModified = new Date()
   return [...staticPaths, ...playbookPaths].map((path) => ({
     url: `${BASE}${path}`,

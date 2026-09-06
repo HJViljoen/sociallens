@@ -10,6 +10,10 @@
 // prose, never invented.
 import { themes, faceOff, personas, streamQuotes, type StreamQuote } from './sample'
 
+/** Hidden in production for now (Heinrich, 2026-09-06): the routes 404, the nav,
+ *  footer and sitemap omit them. Visible in dev. Flip to `true` to publish. */
+export const USE_CASES_PUBLIC = process.env.NODE_ENV !== 'production'
+
 // ─────────────────────────── small shared mocks ───────────────────────────
 // Not part of the home page; built for the playbooks only.
 

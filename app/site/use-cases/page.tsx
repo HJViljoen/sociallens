@@ -2,7 +2,8 @@ import Link from 'next/link'
 import type { Metadata } from 'next'
 import { SiteNav } from '../_components/site-nav'
 import { LeadForm } from '../lead-form'
-import { playbooks } from '../_data/playbooks'
+import { notFound } from 'next/navigation'
+import { playbooks, USE_CASES_PUBLIC } from '../_data/playbooks'
 
 const surfaceLabel: Record<string, string> = {
   market: 'Market page',
@@ -31,6 +32,7 @@ export const metadata: Metadata = {
 // The use-cases index: rows, not cards (plan §4). A light sticky nav, a short
 // header, five rows in read order, then the standard closing band.
 export default function UseCasesIndex() {
+  if (!USE_CASES_PUBLIC) notFound()
   return (
     <>
       <SiteNav variant="light" current="use-cases" />

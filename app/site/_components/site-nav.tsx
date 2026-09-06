@@ -1,4 +1,5 @@
 import Link from 'next/link'
+import { USE_CASES_PUBLIC } from '../_data/playbooks'
 
 const APP_URL = 'https://app.verbatimintel.com'
 
@@ -17,9 +18,11 @@ export function SiteNav({ variant, current }: { variant: 'dark' | 'light'; curre
           <Link href="/how-it-works" className={current === 'how-it-works' ? 'here' : undefined}>
             How it works
           </Link>
-          <Link href="/use-cases" className={current === 'use-cases' ? 'here' : undefined}>
+          {USE_CASES_PUBLIC && (
+            <Link href="/use-cases" className={current === 'use-cases' ? 'here' : undefined}>
             Use cases
           </Link>
+          )}
           <a href={`${APP_URL}/login`}>Sign in</a>
           <a className="btn btn-green" href="#early-access">
             Get early access
