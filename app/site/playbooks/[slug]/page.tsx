@@ -10,7 +10,7 @@ const surfaceLabel: Record<string, string> = {
   market: 'Market page',
   content: 'Content page',
   competitive: 'Competitive page',
-  analyst: 'Analyst',
+  analyst: 'Analyst page',
   studio: 'Studio',
   voice: 'Voice page',
 }

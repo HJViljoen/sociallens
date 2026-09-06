@@ -108,8 +108,8 @@ export function PlaybookPanel({ panel }: { panel: PanelKind }) {
       return (
         <div className="panel">
           <div className="panel-title">
-            <b>{p.name}</b>
-            <span>{p.share}% of the conversation</span>
+            <b>Who&rsquo;s in your market</b>
+            <span>One of three profiles from this week&rsquo;s conversation</span>
           </div>
           <PersonaCard persona={p} staticReveal />
         </div>
