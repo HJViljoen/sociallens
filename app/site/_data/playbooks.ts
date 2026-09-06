@@ -1,3 +1,5 @@
+// Public name: "Use cases" (routes /use-cases). The internal name stayed
+// "playbooks" so the data, visuals and CSS prefixes did not churn.
 // The five playbooks: task-shaped articles that walk a reader through doing
 // one job on one Verbatim surface, step by step, ending in early access.
 // Spine and copy contract: /Users/heinrichviljoen/.claude/plans/verbatim-playbooks-plan.md

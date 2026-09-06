@@ -23,7 +23,7 @@ export async function generateMetadata({ params }: { params: Promise<{ slug: str
   const { slug } = await params
   const pb = playbooks.find((p) => p.slug === slug)
   if (!pb) return {}
-  const url = `https://verbatimintel.com/playbooks/${pb.slug}`
+  const url = `https://verbatimintel.com/use-cases/${pb.slug}`
   return {
     title: pb.title,
     description: pb.summary,
@@ -32,10 +32,10 @@ export async function generateMetadata({ params }: { params: Promise<{ slug: str
   }
 }
 
-// One playbook article, following the spine in the plan (§1): the job, how it
+// One use-case article, following the spine in the plan (§1): the job, how it
 // usually goes, what you're looking at, the steps, what you send on, where
 // the ask. A reading page — no dark hero, no part numbers.
-export default async function PlaybookArticle({ params }: { params: Promise<{ slug: string }> }) {
+export default async function UseCaseArticle({ params }: { params: Promise<{ slug: string }> }) {
   const { slug } = await params
   const index = playbooks.findIndex((p) => p.slug === slug)
   if (index === -1) notFound()
@@ -45,7 +45,7 @@ export default async function PlaybookArticle({ params }: { params: Promise<{ sl
 
   return (
     <>
-      <SiteNav variant="light" current="playbooks" />
+      <SiteNav variant="light" current="use-cases" />
       <article className="pb">
         <header className="pb-head" id="content" tabIndex={-1}>
           <div className="wrap">
@@ -101,11 +101,11 @@ export default async function PlaybookArticle({ params }: { params: Promise<{ sl
           </div>
         </section>
 
-        <section aria-label="More playbooks">
+        <section aria-label="More use cases">
           <div className="wrap">
-            <nav className="pb-nav" aria-label="More playbooks">
-              <Link href={`/playbooks/${prev.slug}`} className="prev">← {prev.title}</Link>
-              <Link href={`/playbooks/${next.slug}`} className="next">{next.title} →</Link>
+            <nav className="pb-nav" aria-label="More use cases">
+              <Link href={`/use-cases/${prev.slug}`} className="prev">← {prev.title}</Link>
+              <Link href={`/use-cases/${next.slug}`} className="next">{next.title} →</Link>
             </nav>
           </div>
         </section>

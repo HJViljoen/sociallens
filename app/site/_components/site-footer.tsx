@@ -10,7 +10,7 @@ export function SiteFooter() {
         </span>
         <span className="links">
           <Link href="/how-it-works">How it works</Link>
-          <Link href="/playbooks">Playbooks</Link>
+          <Link href="/use-cases">Use cases</Link>
           <Link href="/privacy">Privacy</Link>
           <Link href="/terms">Terms</Link>
           <a href="mailto:hello@verbatimintel.com">hello@verbatimintel.com</a>

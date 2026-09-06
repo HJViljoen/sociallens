@@ -10,8 +10,8 @@ import { playbooks } from './site/_data/playbooks'
 const BASE = 'https://verbatimintel.com'
 
 export default function sitemap(): MetadataRoute.Sitemap {
-  const staticPaths = ['', '/how-it-works', '/playbooks', '/privacy', '/terms']
-  const playbookPaths = playbooks.map((pb) => `/playbooks/${pb.slug}`)
+  const staticPaths = ['', '/how-it-works', '/use-cases', '/privacy', '/terms']
+  const playbookPaths = playbooks.map((pb) => `/use-cases/${pb.slug}`)
   const lastModified = new Date()
   return [...staticPaths, ...playbookPaths].map((path) => ({
     url: `${BASE}${path}`,

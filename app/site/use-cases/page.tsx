@@ -17,23 +17,23 @@ const description =
   'Five things to do with Verbatim this week: task-shaped walkthroughs for planning a campaign, a week of content, a leadership meeting, checking a brief and writing sales objections.'
 
 export const metadata: Metadata = {
-  title: 'Playbooks',
+  title: 'Use cases',
   description,
   openGraph: {
-    title: 'Playbooks',
+    title: 'Use cases',
     description,
-    url: 'https://verbatimintel.com/playbooks',
+    url: 'https://verbatimintel.com/use-cases',
     type: 'website',
   },
-  alternates: { canonical: 'https://verbatimintel.com/playbooks' },
+  alternates: { canonical: 'https://verbatimintel.com/use-cases' },
 }
 
-// The playbooks index: rows, not cards (plan §4). A light sticky nav, a short
+// The use-cases index: rows, not cards (plan §4). A light sticky nav, a short
 // header, five rows in read order, then the standard closing band.
-export default function PlaybooksIndex() {
+export default function UseCasesIndex() {
   return (
     <>
-      <SiteNav variant="light" current="playbooks" />
+      <SiteNav variant="light" current="use-cases" />
       <header className="hiw-head" id="content" tabIndex={-1}>
         <div className="wrap">
           <h1>Five things to do with it this week.</h1>
@@ -42,11 +42,11 @@ export default function PlaybooksIndex() {
       </header>
 
       <section className="s-tight" aria-labelledby="index-h">
-        <h2 id="index-h" className="sr-only">Playbooks</h2>
+        <h2 id="index-h" className="sr-only">Use cases</h2>
         <div className="wrap">
           <div className="pb-index">
             {playbooks.map((pb) => (
-              <Link href={`/playbooks/${pb.slug}`} className="pb-row" key={pb.slug}>
+              <Link href={`/use-cases/${pb.slug}`} className="pb-row" key={pb.slug}>
                 <span className="pb-job">{pb.title}</span>
                 <span className="pb-surface">{surfaceLabel[pb.surface]}</span>
                 <span className="pb-summary">{pb.summary}</span>
