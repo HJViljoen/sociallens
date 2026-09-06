@@ -142,21 +142,38 @@ export function PlaybookPanel({ panel }: { panel: PanelKind }) {
   }
 }
 
-function renderStepVisual(show: StepVisual): ReactNode {
+// `.demo .row` / `.demo .kv` / `.demo .chip` (How it works' static scaffold
+// classes) and `.face .row` (the face-off mock's own layout, from the home
+// page) both style a bare `.row`. Nesting the face-off mock inside a `.demo`
+// wrapper lets the (later-defined, equal-specificity) `.demo .row` rule win
+// the cascade and collapse the bars to 0 width. So faceOffRows/faceOffOwns
+// render their own `.face`-only wrapper below, never inside `.demo`; every
+// other variant is free to nest inside `.demo`.
+const STEP_SPACING = { marginTop: 24 }
+
+/** The "what you'll see" visual beneath one step (`.pb-step .demo` in
+ * site.css gives the usual case its spacing under the step body). */
+export function PlaybookStepVisual({ show }: { show: StepVisual }): ReactNode {
   switch (show.kind) {
     case 'brief':
       return (
-        <div className="brief">
-          {show.lines.map((idx) => (
-            <BriefRow key={idx} line={brief[idx]} />
-          ))}
+        <div className="demo">
+          <div className="brief">
+            {show.lines.map((idx) => (
+              <BriefRow key={idx} line={brief[idx]} />
+            ))}
+          </div>
         </div>
       )
     case 'quote':
-      return <QuoteCard q={show.quote} />
+      return (
+        <div className="demo">
+          <QuoteCard q={show.quote} />
+        </div>
+      )
     case 'sayHear':
       return (
-        <>
+        <div className="demo">
           {show.rows.map((r, i) => (
             <div key={i}>
               <div className="kv">
@@ -171,30 +188,30 @@ function renderStepVisual(show: StepVisual): ReactNode {
               </div>
             </div>
           ))}
-        </>
+        </div>
       )
     case 'inboxRows':
       return (
-        <>
+        <div className="demo">
           {show.rows.map((i) => (
             <InboxRow key={i} row={replyInboxRows[i]} />
           ))}
-        </>
+        </div>
       )
     case 'formatRows':
       return (
-        <>
+        <div className="demo">
           {formatRows.map((f) => (
             <div className="row" key={f.format}>
               <span>{f.format}</span>
               <span className="chip">{f.conversations} conversations</span>
             </div>
           ))}
-        </>
+        </div>
       )
     case 'contentPlan':
       return (
-        <>
+        <div className="demo">
           {contentPlan.map((c, i) => (
             <div className="kv" key={c.post}>
               <span className="k">{i + 1}</span>
@@ -203,22 +220,22 @@ function renderStepVisual(show: StepVisual): ReactNode {
               </span>
             </div>
           ))}
-        </>
+        </div>
       )
     case 'objectionSheet':
       return (
-        <>
+        <div className="demo">
           {objectionSheet.map((o) => (
             <div className="kv" key={o.objection}>
               <span className="k">{o.objection}</span>
               <span>{o.answer}</span>
             </div>
           ))}
-        </>
+        </div>
       )
     case 'standings':
       return (
-        <>
+        <div className="demo">
           <div className="row">
             <span>Northline</span>
             <span className="chip g">You</span>
@@ -231,17 +248,17 @@ function renderStepVisual(show: StepVisual): ReactNode {
             <span>Trailform, Cairnline</span>
             <span className="chip">Rest of the category</span>
           </div>
-        </>
+        </div>
       )
     case 'faceOffRows':
       return (
-        <div className="face">
+        <div className="face" style={STEP_SPACING}>
           <FaceOffLegendRows staticReveal />
         </div>
       )
     case 'faceOffOwns':
       return (
-        <div className="face">
+        <div className="face" style={STEP_SPACING}>
           <FaceOffOwnsBlock />
         </div>
       )
@@ -249,7 +266,7 @@ function renderStepVisual(show: StepVisual): ReactNode {
       const q = analyst[show.item] as Question
       const e = q.evidence[show.evidence]
       return (
-        <>
+        <div className="demo">
           <p className="body">{q.answer}</p>
           <div className="row">
             <div>
@@ -257,32 +274,36 @@ function renderStepVisual(show: StepVisual): ReactNode {
               <div className="k">{e.src}</div>
             </div>
           </div>
-        </>
+        </div>
       )
     }
     case 'claimRow': {
       const c = (analyst[2] as DocumentCheck).claims[show.claim]
       const chipClass = c.k === 'ok' ? ' g' : c.k === 'no' ? ' r' : ''
       return (
-        <div className="row">
-          <span>{c.t}</span>
-          <span className={`chip${chipClass}`}>{c.b}</span>
+        <div className="demo">
+          <div className="row">
+            <span>{c.t}</span>
+            <span className={`chip${chipClass}`}>{c.b}</span>
+          </div>
         </div>
       )
     }
     case 'fileChip': {
       const doc = analyst[2] as DocumentCheck
       return (
-        <div className="row">
-          <span className="voice">{doc.file}</span>
-          <span className="chip">{doc.meta}</span>
+        <div className="demo">
+          <div className="row">
+            <span className="voice">{doc.file}</span>
+            <span className="chip">{doc.meta}</span>
+          </div>
         </div>
       )
     }
     case 'profile': {
       const p = personas[show.persona]
       return (
-        <div className="panel">
+        <div className="demo">
           <PersonaCard persona={p} staticReveal />
         </div>
       )
@@ -290,7 +311,7 @@ function renderStepVisual(show: StepVisual): ReactNode {
     case 'phrasesAndQuote': {
       const p = personas[show.persona]
       return (
-        <>
+        <div className="demo">
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
             {p.talk.map((t) => (
               <span key={t} className="chip voice">
@@ -299,27 +320,27 @@ function renderStepVisual(show: StepVisual): ReactNode {
             ))}
           </div>
           <QuoteCard q={show.quote} />
-        </>
+        </div>
       )
     }
     case 'reportCover':
-      return <ReportCoverMock index={show.cover} />
+      return (
+        <div className="demo">
+          <ReportCoverMock index={show.cover} />
+        </div>
+      )
     case 'reportCoverLink':
       return (
-        <div style={{ display: 'grid', gap: 16, maxWidth: 320 }}>
-          <ReportCoverMock index={show.cover} />
-          <LinkMock />
+        <div className="demo">
+          <div style={{ display: 'grid', gap: 16, maxWidth: 320 }}>
+            <ReportCoverMock index={show.cover} />
+            <LinkMock />
+          </div>
         </div>
       )
     default:
       return assertNever(show)
   }
-}
-
-/** The "what you'll see" visual beneath one step. Always wrapped in `.demo`
- * (`.pb-step .demo` in site.css gives it its spacing under the step body). */
-export function PlaybookStepVisual({ show }: { show: StepVisual }) {
-  return <div className="demo">{renderStepVisual(show)}</div>
 }
 
 /** The "what you send on" artefact: the named report cover (+ link mock for a
