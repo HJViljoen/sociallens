@@ -34,7 +34,7 @@ export async function generateMetadata({ params }: { params: Promise<{ slug: str
 
 // One playbook article, following the spine in the plan (§1): the job, how it
 // usually goes, what you're looking at, the steps, what you send on, where
-// this goes wrong, the ask. A reading page — no dark hero, no part numbers.
+// the ask. A reading page — no dark hero, no part numbers.
 export default async function PlaybookArticle({ params }: { params: Promise<{ slug: string }> }) {
   const { slug } = await params
   const index = playbooks.findIndex((p) => p.slug === slug)
@@ -101,14 +101,8 @@ export default async function PlaybookArticle({ params }: { params: Promise<{ sl
           </div>
         </section>
 
-        <section aria-labelledby="limits-h">
+        <section aria-label="More playbooks">
           <div className="wrap">
-            <h2 id="limits-h">Where this goes wrong.</h2>
-            <ul className="pb-limits">
-              {pb.limits.map((l, i) => (
-                <li key={i}>{l}</li>
-              ))}
-            </ul>
             <nav className="pb-nav" aria-label="More playbooks">
               <Link href={`/playbooks/${prev.slug}`} className="prev">← {prev.title}</Link>
               <Link href={`/playbooks/${next.slug}`} className="next">{next.title} →</Link>

@@ -533,10 +533,6 @@
   .pb-send .panel-title { margin-bottom: 18px; }
   .pb-send p { margin-top: 14px; font-size: 16.5px; line-height: 1.5; color: var(--ink-2); max-width: 62ch; }
 
-  /* where this goes wrong: a plain bulleted list, no chrome */
-  .pb-limits { display: grid; gap: 12px; margin-top: 8px; }
-  .pb-limits li { font-size: 16.5px; line-height: 1.5; color: var(--ink-2); padding-left: 20px; position: relative; max-width: 62ch; }
-  .pb-limits li::before { content: ""; position: absolute; left: 0; top: 10px; width: 8px; height: 2px; background: var(--green); }
 
   /* previous / next, before the closing band */
   .pb-nav { display: flex; justify-content: space-between; gap: 24px; padding-top: 32px; margin-top: 32px; border-top: 1px solid var(--hair); font-size: 15px; }

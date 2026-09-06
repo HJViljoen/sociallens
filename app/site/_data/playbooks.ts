@@ -126,7 +126,6 @@ export interface Playbook {
   panelCaption: string
   steps: { verb: string; body: string; show: StepVisual }[] // 3–5
   sendOn: { kind: 'report' | 'link' | 'answer'; title: string; body: string; template?: string }
-  limits: string[] // 2–3 bullets
   askLine: string // one line above the closing band
 }
 
@@ -179,11 +178,6 @@ export const playbooks: Playbook[] = [
       body: 'Schedule it for the first update of the month, so the campaign gets re-checked against the market while it’s running, not after.',
       template: 'Monthly marketing review',
     },
-    limits: [
-      'A theme below the evidence floor is an early signal, not a campaign brief.',
-      'The market is what people said in public, not a panel you can query on demand.',
-      'If the conversation is silent on your message, the say-vs-hear row says so, and that silence is the answer.',
-    ],
     askLine: 'Run this on your own category before the next campaign brief.',
   },
 
@@ -234,11 +228,6 @@ export const playbooks: Playbook[] = [
       body: 'The plan travels as the report, every update, to the content team, with the quotes behind each post attached.',
       template: 'Content: what to make next',
     },
-    limits: [
-      'The inbox is what people asked in public, not what they said in a DM.',
-      'Replies are yours to write. Verbatim drafts nothing in your name.',
-      'A format that worked once isn’t a rule yet. Wait for it to repeat.',
-    ],
     askLine: 'Plan next week from what your audience actually asked.',
   },
 
@@ -289,11 +278,6 @@ export const playbooks: Playbook[] = [
       body: 'One page, and the evidence popovers still work in the link. It expires in thirty days, and revoking it is one click.',
       template: 'Leadership one-pager',
     },
-    limits: [
-      'Share is share of tracked videos, not of the whole web.',
-      'Sentiment is how the audience received each video, never a survey score.',
-      'A change only counts once it clears a band, so one quiet week isn’t a trend.',
-    ],
     askLine: 'Bring the market to the next meeting instead of the deck.',
   },
 
@@ -343,11 +327,6 @@ export const playbooks: Playbook[] = [
       title: 'The checked brief',
       body: 'Export the checked brief as a PDF, marks and all, with the evidence behind every claim, and send it to whoever wrote it.',
     },
-    limits: [
-      'A claim the conversation doesn’t speak to stays unmarked. That’s the point, not a gap.',
-      'The analyst never invents a quote to fill a silent row.',
-      'It reads the conversation around your category, not your sales data.',
-    ],
     askLine: 'Check your next brief against your own market.',
   },
 
@@ -398,11 +377,6 @@ export const playbooks: Playbook[] = [
       body: 'The sheet goes out as your own work, with the quotes behind every objection attached underneath.',
       template: 'Sales: objections and competitors',
     },
-    limits: [
-      'These are public conversations, not your own lost deals.',
-      'A phrase needs enough independent people behind it before it earns a place on the sheet.',
-      'Verbatim gives the words. The answers are still yours to write.',
-    ],
     askLine: 'Give sales the market’s words before the next call.',
   },
 ]
