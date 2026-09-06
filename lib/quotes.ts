@@ -33,8 +33,38 @@ const ENGLISH_WORDS = new Set([
   'with', 'have', 'has', 'had', 'do', 'does', 'did', 'get', 'got', 'can', 'could', 'will', 'would',
   'need', 'want', 'so', 'not', 'no', 'on', 'in', 'at', 'as', 'if', 'just', 'really', 'still', 'more', 'than', 'about',
 ])
-const wordsOf = (s: string) => s.toLowerCase().match(/[a-z']+/g) ?? []
+// Accents are folded BEFORE tokenising, or the split is the bug: `[a-z']+`
+// breaks an accented word at its own diacritic, and the stubs land on the
+// English list. "doía" became `do` + `a` — two hits, neither a word anyone
+// wrote — which is how a Portuguese comment led an English brief's finding
+// (2026-09-05). The corpus's biggest non-English languages are the most
+// accented, so the test scored them as the most English.
+const foldAccents = (s: string) => s.normalize('NFD').replace(/\p{M}+/gu, '')
+const wordsOf = (s: string) => foldAccents(s.toLowerCase()).match(/[a-z']+/g) ?? []
 export const englishHits = (q: string) => wordsOf(q).reduce((n, w) => n + (ENGLISH_WORDS.has(w) ? 1 : 0), 0)
+
+// Counting English words alone cannot separate the corpus: Spanish and
+// Portuguese carry English function words of their own — `me`, `a`, `no`,
+// `so`, `do`, `as` — so a real Romance comment scores 2 or 3, exactly where
+// short real English lands ("Waiting for my new leg." = 2). Measured over 212
+// card-length quotes from Össur's own corpus, the count is not separable in
+// that band. What does separate them is a word only one of the languages has,
+// so these vote against English and the majority decides.
+const ROMANCE_WORDS = new Set([
+  // articles, pronouns, possessives
+  'el', 'la', 'los', 'las', 'lo', 'un', 'una', 'uns', 'unas', 'um', 'uma', 'os', 'ao', 'aos',
+  'yo', 'tu', 'vc', 'voce', 'eu', 'ele', 'ela', 'nos', 'ellos', 'elas', 'te', 'lhe', 'seu', 'sua', 'meu', 'minha', 'mi', 'mis', 'nuestro',
+  // verbs that carry a sentence
+  'es', 'esta', 'estan', 'son', 'ser', 'sou', 'sao', 'tem', 'tengo', 'tenho', 'tiene', 'tinha', 'tenia', 'hay', 'hace', 'fue', 'foi', 'era', 'esta', 'estou', 'quiero', 'quero', 'puedo', 'posso', 'sabe', 'conhece', 'segue', 'ajudem', 'adquirir', 'conseguir',
+  // conjunctions, prepositions, adverbs
+  'que', 'porque', 'pero', 'mas', 'mais', 'muy', 'muito', 'tambien', 'tambem', 'nao', 'sim', 'como', 'cuando', 'quando', 'donde', 'onde', 'para', 'por', 'con', 'com', 'sem', 'sin', 'sobre', 'desde', 'entre', 'hasta', 'ate', 'del', 'da', 'do', 'das', 'dos', 'na', 'no', 'em', 'ya', 'ja', 'aqui', 'ali', 'ahora', 'agora', 'siempre', 'sempre', 'nunca', 'todo', 'toda', 'todos', 'todas', 'otro', 'outra', 'outro', 'mismo', 'esa', 'ese', 'esta', 'este', 'isso', 'essa', 'esse', 'aquele', 'pues', 'entonces', 'entao',
+  // the politeness that opens a comment
+  'favor', 'gracias', 'obrigado', 'obrigada', 'saludos', 'amigo', 'irma', 'irmao', 'hermano', 'dios', 'deus',
+])
+// `no` and `do` are on BOTH lists — Spanish "no", Portuguese "do" against
+// English "no"/"do" — so they cancel rather than deciding, which is the
+// honest reading of a token that tells us nothing.
+const romanceHits = (q: string) => wordsOf(q).reduce((n, w) => n + (ROMANCE_WORDS.has(w) && !ENGLISH_WORDS.has(w) ? 1 : 0), 0)
 
 /** Whether a verbatim can carry a card as its lead quote — in card-length range
  *  and reads as English (the corpus is heavily multilingual; "Yo quiero 🙌🙌"
@@ -43,7 +73,7 @@ export const englishHits = (q: string) => wordsOf(q).reduce((n, w) => n + (ENGLI
  *  being offered first. */
 export const readsAsHeroQuote = (q: string): boolean => {
   const c = cleanQuote(q)
-  return c.length >= 18 && c.length <= 170 && englishHits(c) >= 2
+  return c.length >= 18 && c.length <= 170 && englishHits(c) >= 2 && englishHits(c) > romanceHits(c)
 }
 
 /** Content keywords of a claim, for scoring how on-topic a quote is. */

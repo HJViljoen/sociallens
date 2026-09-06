@@ -5,6 +5,7 @@ import {
   scopeToClientVoices,
   scopeToCompetitor,
   readsAsHeroQuote,
+  englishHits,
   createQuotePicker,
   type QuoteRow,
 } from './quotes'
@@ -59,6 +60,17 @@ describe('readsAsHeroQuote', () => {
   it('accepts a clear English customer voice', () => {
     expect(readsAsHeroQuote('It gets really heavy to carry on your back')).toBe(true)
     expect(readsAsHeroQuote('Hiii does ur shoulders hurt mine hurt after awhile carrying it')).toBe(true)
+  })
+
+  // An accented word must not be scored as English by breaking at its own
+  // diacritic: this comment led finding 1 of Össur's leadership brief, on
+  // `do` + `a` (from "doía") and the Portuguese article "a" — three "English
+  // hits", no English word. The method page promises other languages are read
+  // for the counts but not quoted; before this it was quoting them.
+  it('rejects accented non-English, which the tokeniser used to score as English', () => {
+    expect(readsAsHeroQuote('porem meu pé doía mto ficando nessa posição, tipo não aguentava fica mais de 2h com a prótese, tinha q ficar tirando para movimentar o pé!')).toBe(false)
+    expect(readsAsHeroQuote('Hola, quiero saber cuánto cuesta la prótesis y dónde puedo conseguirla en mi país')).toBe(false)
+    expect(englishHits('doía')).toBe(0)
   })
 })
 
