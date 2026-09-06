@@ -51,7 +51,7 @@ export interface ContentPlanRow {
 
 export const contentPlan: ContentPlanRow[] = [
   { post: 'Sizing answer', note: 'Answer torso length in the first comment under every fit video.' },
-  { post: 'Hip belt', note: `${themes[1].conversations} conversations, none of them under your own videos.` },
+  { post: 'Hip belt', note: '41 conversations, none of them under your own videos.' },
   { post: 'Zip fix statement', note: `${themes[5].conversations} conversations this week, emerging.` },
   { post: 'Ten-day comparison', note: 'The format the category already watches before buying.' },
   { post: 'Warranty story', note: 'One replacement, told straight.' },
