@@ -29,7 +29,7 @@ export default function PrivacyPage() {
       <h2>What we collect</h2>
       <ul>
         <li>
-          <strong>Public posts and comments.</strong> Videos, captions, comment text, like and
+          <strong>Public posts and comments. </strong>Videos, captions, comment text, like and
           comment counts, post dates, the account names that posted them, and the display name or
           handle attached to a public comment, from TikTok, YouTube, Instagram and Reddit. We
           collect this through third-party scraping and platform APIs, for content matching a
@@ -37,17 +37,17 @@ export default function PrivacyPage() {
           the product or in the emails we send.
         </li>
         <li>
-          <strong>Transcripts.</strong> Captions where a platform publishes them, or speech-to-text
+          <strong>Transcripts. </strong>Captions where a platform publishes them, or speech-to-text
           for videos that carry speech.
         </li>
         <li>
-          <strong>News about the brands and categories we track.</strong> Headlines, publisher
+          <strong>News about the brands and categories we track. </strong>Headlines, publisher
           names, links and publication dates, from Google News RSS searches for a customer&rsquo;s
           brand, competitors and category. We keep the headline and the link. We do not fetch or
           store the article itself.
         </li>
         <li>
-          <strong>Account data for our customers.</strong> Name, work email, workspace membership
+          <strong>Account data for our customers. </strong>Name, work email, workspace membership
           and role, and billing status.
         </li>
       </ul>

@@ -1,112 +1,107 @@
 # Verbatim — Design System (marketing surfaces)
 
-> The design contract for `verbatimintel.com` (app/site/*). Consult BEFORE styling
-> anything. The app (`app.verbatimintel.com`) still runs the 2026-07-01 green
-> refresh (see `## App tokens` below); the marketing evolution here is intended
-> to flow back into the app later, deliberately, not by drift.
+> The design contract for `verbatimintel.com` (`app/site/*`). Consult BEFORE
+> styling anything on the marketing site. The app (`app.verbatimintel.com`)
+> runs its own identity (`design-system/verbatim/MASTER.md`); the two share the
+> Verbatim green and the charcoal ink and deliberately nothing else. Rewritten
+> 2026-09-06 for the site that replaced the August "Annotated transcript" page.
 
-## Direction — "Annotated transcript"
+## Direction — "The murmur"
 
-Verbatim's world is qualitative research: transcripts, verbatim quotes, marker
-highlights, theme codes, margin notes, evidence counts. The design speaks that
-language. One idea carries the page: **raw conversation, marked up by a
-researcher who knows what matters.**
+Verbatim's raw material is speech: thousands of overlapping voices in comment
+threads, Reddit threads and videos. The site's one idea is **that murmur
+resolving into a model of the market.** The hero is a dark room full of voices
+drifting behind the headline; then the light comes on and the analysis appears
+on white. All the boldness goes there. Everything else stays quiet.
 
-**Signature element (spend all boldness here):** the marker-highlight system.
-The hero headline carries a drawn marker sweep; key quotes render as transcript
-excerpts (serif italic body, mono metadata line); theme labels look like a
-researcher's codes. Everything else stays quiet and disciplined.
+**Signature element (spend all boldness here):** the murmur, and the moments
+that show scale honestly: the 18,440-mark count, the streaming quotes, the
+analyst stage that answers on its own. Product surfaces are drawn faithfully
+from the app's real shapes (profiles, theme map, face-off, brief) so the page
+shows the product rather than describing it.
 
 ## Palette (marketing)
 
 | Token | Hex | Role |
 |---|---|---|
-| Paper | `#F1F2EC` | Background — sage-cast paper, cooler than the app's cream |
-| Ink | `#0D2117` | Text — green-black, never pure black |
-| Verbatim Green | `#14503A` | Primary — buttons, links, brand mark (unchanged from app) |
-| Pine | `#0B2E20` | Dark bands, footer fields |
-| Marker | `#F7D046` | The highlighter. FUNCTIONAL only: highlight sweeps, marked phrases. Never buttons, never borders, never decoration |
-| Moss | `#5C685C` | Secondary text on paper |
+| Room | `#0F1F19` | The dark band: hero, closing band. Green-tinted ink, never black |
+| Paper | `#FFFFFF` | Page background |
+| Paper 2 | `#F4F6F5` | Alternate section ground and inner blocks |
+| Ink | `#26292C` | Text (charcoal, shared with the app) |
+| Ink 2 / Muted | `#45494D` / `#5F656B` | Secondary text. Muted passes AA on Paper 2 |
+| Hair | `#DCDFE3` | Rules inside panels only |
+| Verbatim green | `#0E8A5F` | Buttons, "you", gaining, citation badges. The only signal colour on light |
+| Green dark | `#3DBF8C` | The green on the dark band |
+| Green tint | `#DDF3E9` | Highlight in quotes, the "you" tile, supported claims |
+| Competitor / amber / red | `#F0742B` / `#E6B03C` / `#DB3B2E` | Data only: competitor bars, contradicted, fading |
 
-Ratio ≈ 60 paper/ink · 30 green · 10 marker. Tint neutrals, never pure #FFF/#000.
+Tokens live in `app/globals.css` under `.site-theme`, **below the drift-guard
+marker**, so `scripts/check-design-drift.sh` never scans them. Component rules
+live in `app/site/site.css`, every rule nested under `.site-theme`.
 
-**Anti-list (aware and deliberate):** AI-generated design currently clusters on
-(1) warm cream + serif display + terracotta, (2) near-black + acid green,
-(3) broadsheet hairlines. We sit near (1) by brand history — we diverge via the
-sage-cast neutrals, the functional marker accent (not decorative terracotta),
-and the annotation motif. Never: purple/indigo anything, gradient text, glass
-blur on marketing, flat 1px gray card borders, colored left-border strips.
+**Anti-list (aware and deliberate):** no cream, no terracotta, no marker
+yellow, no pure black, no gradient washes, no glass blur, no all-caps eyebrow
+labels, no mono metadata strings joined with middle dots, no single accented
+word in a headline, no identical card grids, no text shadow on light headings.
+The dark band is charcoal-green, not near-black plus acid green.
 
 ## Typography
 
 | Role | Face | Notes |
 |---|---|---|
-| Display | **Newsreader** (opsz) | Editorial voice. Weights 500–600. Italic is reserved for actual quotes — semantic, never a decorative accent word |
-| Body / UI | **Plus Jakarta Sans** | Continuity with the app. 16–17px body minimum |
-| Data / meta | **JetBrains Mono** | Transcript metadata (@handle · platform · date), counts, tags. Small doses |
+| Everything a person did not say | **Bricolage Grotesque** (variable, `opsz` axis) | Display and body. Display at opsz 96, weights 600–700, tight tracking (−0.035 to −0.045em). Loaded in `app/site/layout.tsx` via `next/font`, var `--font-bricolage` |
+| Everything a person did say | **IBM Plex Serif italic** | Quotes, voice fragments, the phrases in profiles. Loaded by the root layout, var `--font-plex-serif`. Italic is semantic, never decorative |
 
-Scale: big jumps (hero `clamp(2.75rem, 6vw, 4.75rem)`), not 1.25× increments.
-All-caps mono eyebrows: max ONE per page — everywhere else, use theme-code
-chips or nothing.
+Scale: big jumps. Hero `clamp(56px, 9.2vw, 148px)`, statements `clamp(44px,
+6.6vw, 104px)`, section leads `clamp(38px, 4.6vw, 68px)`, surface headings
+`clamp(30px, 3vw, 44px)`. Body 19px on leads, 17–18px elsewhere, 15px for the
+quiet line under a panel. No mono anywhere on the marketing site.
 
 ## Layout
 
-- Asymmetric, editorial. Left-weighted hero; sections vary rhythm — no two
-  consecutive bands with the same internal structure.
-- Separation = whitespace first, then a 3–5% background lightness shift, then
-  soft elevation. A border only if all three fail — and never flat gray.
-- No uniform card grids ("three equal boxes with icons" is the template
-  answer). Steps may be numbered ONLY where order is real information.
-- Quotes are artifacts, not decoration: serif italic, marker where the insight
-  lives, mono attribution line. Max one marker highlight per viewport.
-- Crowd line-art (`crowd.svg` / `crowd-live.svg`) is the ambient layer — ours,
-  keep it. Bottom-anchored, masked, ≤0.25 opacity.
+- Left-weighted, 1320px content width, 72px section rhythm at 140px vertical.
+- Sections alternate Paper and Paper 2; the dark Room band opens and closes
+  the page. Separation is whitespace first, ground shift second, elevation
+  third. No flat 1px borders between sections.
+- Panels carry the ambient shadow (`--shadow-lg`); inner blocks are flat
+  Paper 2, never bordered. Radius 6 on controls and tiles, 8 on panels.
+- Subsections within a part must not repeat one layout: alternate text-left,
+  text-right, full-width and dark blocks.
 
 ## Motion
 
-- ONE orchestrated moment: hero load — staggered text reveal, then the marker
-  sweep draws itself (~500ms, after text settles). Ambient crowd sway continues.
-- Everything else micro and purposeful: link underlines, button `:active`
-  scale(0.97). Durations 150–400ms. Ease-out `cubic-bezier(0.23, 1, 0.32, 1)`.
-  Never bounce, never ease-in, never identical fade-ins on every section.
-- `prefers-reduced-motion` always respected.
+- One orchestrated moment per section, triggered on first sight, then still.
+  The murmur drifts continuously (one rAF loop, idle off-screen). The count
+  draws once. Bars and tiles reveal once via `is-on` (CSS transitions). The
+  analyst stage cycles on its own until a visitor picks a chip, then stops.
+  The report covers cycle until hover, then stop.
+- No hover transitions on every card. No fade-and-slide on every section.
+- `prefers-reduced-motion`: everything visible and static, streams unrolled,
+  cyclers off. Every effect has a cleanup; nothing runs after unmount.
+- No animation dependency. CSS transitions plus two small rAF loops.
 
 ## Copy rules
 
-**The full copy contract lives in `.agents/product-marketing.md`** — positioning,
-VoC bank, voice, banned words, review loop. Read it before writing ANY marketing
-copy. (Also see `lib/calibration.ts` — client-facing vocabulary is a contract.)
-- Specific and falsifiable over clever. No hedging ("can help", "may enable").
-- Claims match shipped code: comments + video transcripts YES; news = roadmap
-  framing only; never scene/vision analysis; no comprehensiveness claims.
-- No fabricated testimonials, logos, or numbers — leave the section out.
-- Errors never apologize; buttons say what happens ("Request early access").
+Copy contract: `.agents/product-marketing.md`. On the site specifically:
+- The home page stops people, makes them curious, moves them on. Specifics
+  live on `/how-it-works`, in three parts: gather, analyse, deliver.
+- No em-dashes. No comprehensiveness claims ("every comment", "whole market").
+  One "it isn't X, it's Y" per page at most. No rule-of-three on autopilot.
+- Sample data is one illustrative market (backpacks, fictional brands) from
+  `app/site/_data/sample.ts`; every number must read the same everywhere.
+- Quotes use typographic quotes and apostrophes. Anything a person said is
+  set in the voice face.
 
 ## Quality floor (non-negotiable, never announced)
 
-Responsive to 375px · visible keyboard focus · reduced motion · semantic HTML ·
-APCA-legible contrast (marker yellow is never a text color on paper) ·
-`cursor-pointer` on interactive elements · every state designed (hover, focus,
-disabled, loading, error, empty).
+Responsive to 390px with no horizontal scroll. Visible focus on every control.
+Muted text at AA contrast on the ground it sits on. Screen readers never hear
+the analyst typing or the duplicate stream cards. Keyboard reaches every chip
+and cover. Lead form: name, work email, brand, optional question; honeypot;
+honest failure message.
 
 ## Review loop
 
-After any visual change: screenshot at 1440 / 768 / 375 (headless Chrome:
-`"/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" --headless
---screenshot=out.png --window-size=W,H --hide-scrollbars
---virtual-time-budget=6000 URL` — the virtual-time budget lets load animations
-and web fonts finish; without it you screenshot the page mid-reveal), critique
-against this file, iterate 2–3×.
-
-Mobile captures: bare `--window-size=375,H` does NOT emulate a mobile viewport
-(Chrome lays out at ~455px and crops — false overflow "bugs"). Use the Chrome
-DevTools MCP with device emulation, or puppeteer-core with
-`setViewport({ width: 375, isMobile: true })`, and verify
-`document.scrollingElement.scrollWidth === clientWidth` before trusting pixels. Ship gate: the design-reviewer agent
-(`.claude/agents/design-reviewer.md`).
-
-## App tokens (current, for reference)
-
-Warm cream `#F6F1E7` · deep green `#14503A` · glass cards · radius 0.3rem tiered
-· Plus Jakarta Sans + JetBrains Mono · full tokens in `app/globals.css`.
-Migration of the app toward this document is a future, explicit decision.
+Fresh-eyes design and copy review against this file and the copy contract;
+a fact check of every mechanism against the code; mobile at 390px; then
+Heinrich signs off. Merge and deploy are his call.
