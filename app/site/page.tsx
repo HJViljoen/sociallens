@@ -5,34 +5,16 @@ import { Reveal } from './_components/reveal'
 import { AnalystStage } from './_components/analyst-stage'
 import { ReportCovers } from './_components/report-covers'
 import { LeadForm } from './lead-form'
-import { streamQuotes, personas, themes, faceOff, faceOffOwns, brief, type StreamQuote } from './_data/sample'
+import { QuoteCard, BriefRow, ThemeMapGrid, FaceOffPanel, PersonaCard } from './_components/mocks'
+import { streamQuotes, personas, brief } from './_data/sample'
 
 // The marketing home page. Design contract: DESIGN.md ("The murmur"). Copy
 // contract: .agents/product-marketing.md. The page has one job per screen:
 // stop them, make them curious, move them on. Specifics live on /how-it-works.
 // Sample data (an illustrative backpack market) comes from _data/sample.ts so
-// every number reads the same everywhere it appears.
-
-function Quote({ q, dup }: { q: StreamQuote; dup?: boolean }) {
-  const body = q.mark
-    ? (() => {
-        const i = q.text.indexOf(q.mark)
-        return (
-          <>
-            {q.text.slice(0, i)}
-            <mark>{q.mark}</mark>
-            {q.text.slice(i + q.mark.length)}
-          </>
-        )
-      })()
-    : q.text
-  return (
-    <div className={`q${dup ? ' dup' : ''}`} aria-hidden={dup ? 'true' : undefined}>
-      <p className="voice">“{body}”</p>
-      <p className="src">{q.src}</p>
-    </div>
-  )
-}
+// every number reads the same everywhere it appears. Shared surface markup
+// (theme map, face-off, brief rows, persona cards, quote cards) lives in
+// _components/mocks.tsx, reused by the playbook articles.
 
 export default function MarketingHome() {
   const colA = streamQuotes.filter((_, i) => i % 2 === 0)
@@ -90,12 +72,12 @@ export default function MarketingHome() {
           </div>
           <div className="stream">
             <div className="col a">
-              {colA.map((q) => <Quote key={q.text} q={q} />)}
-              {colA.map((q) => <Quote key={`d-${q.text}`} q={q} dup />)}
+              {colA.map((q) => <QuoteCard key={q.text} q={q} />)}
+              {colA.map((q) => <QuoteCard key={`d-${q.text}`} q={q} dup />)}
             </div>
             <div className="col b">
-              {colB.map((q) => <Quote key={q.text} q={q} />)}
-              {colB.map((q) => <Quote key={`d-${q.text}`} q={q} dup />)}
+              {colB.map((q) => <QuoteCard key={q.text} q={q} />)}
+              {colB.map((q) => <QuoteCard key={`d-${q.text}`} q={q} dup />)}
             </div>
           </div>
         </div>
@@ -123,17 +105,7 @@ export default function MarketingHome() {
             <div className="panel-title"><b>Who&rsquo;s in your market</b><span>Three profiles from this week&rsquo;s conversation</span></div>
             <div className="personas">
               {personas.map((p, i) => (
-                <div className="persona" key={p.name}>
-                  <div className="name">{p.name}</div>
-                  <div className="share"><i style={{ ['--w' as string]: `${p.share}%`, ['--i' as string]: i }} /></div>
-                  <div className="pct">{p.share}% of the conversation</div>
-                  <dl>
-                    <dt>Wants</dt><dd>{p.wants}</dd>
-                    <dt>Stops them</dt><dd>{p.stops}</dd>
-                    <dt>Tips them</dt><dd>{p.tips}</dd>
-                  </dl>
-                  <div className="talk">{p.talk.map((t) => <span key={t}>{t}</span>)}</div>
-                </div>
+                <PersonaCard key={p.name} persona={p} index={i} />
               ))}
             </div>
           </Reveal>
@@ -145,21 +117,7 @@ export default function MarketingHome() {
         <div className="wrap">
           <Reveal className="panel">
             <div className="panel-title"><b>What your market talks about</b><span>Sized by conversations this week</span></div>
-            <div className="tmap">
-              {themes.map((t, i) => (
-                <div
-                  key={t.label}
-                  className={`t${t.big ? ' big' : ''}${t.you ? ' you' : ''}`}
-                  style={{ gridColumn: `span ${t.col}`, gridRow: `span ${t.row}`, ['--i' as string]: i }}
-                >
-                  <b>{t.label}</b>
-                  <small>
-                    <span>{t.conversations}{i === 0 ? ' conversations' : ''}</span>
-                    {t.movement && <span className={t.movement === 'fading' ? 'down' : 'up'}>{t.movement}</span>}
-                  </small>
-                </div>
-              ))}
-            </div>
+            <ThemeMapGrid />
           </Reveal>
           <div className="text">
             <h3 id="what-h">What they talk about.</h3>
@@ -177,30 +135,7 @@ export default function MarketingHome() {
           </div>
           <Reveal className="panel">
             <div className="panel-title"><b>The face-off</b><span>This week, against your closest competitor</span></div>
-            <div className="face">
-              <div className="head">
-                <span />
-                <span className="legend">
-                  <span><i style={{ background: 'var(--green)' }} />You</span>
-                  <span><i style={{ background: 'var(--orange)' }} />Competitor</span>
-                  <span><i style={{ background: '#C5CBD1' }} />Whole category</span>
-                </span>
-              </div>
-              {faceOff.map((row, ri) => (
-                <div className="row" key={row.label}>
-                  <span className="lbl">{row.label}</span>
-                  <div className="bars">
-                    <div className="bar you"><i style={{ ['--w' as string]: `${row.you.pct}%`, ['--i' as string]: ri * 3 }} /><em>{row.you.text}</em></div>
-                    <div className="bar them"><i style={{ ['--w' as string]: `${row.them.pct}%`, ['--i' as string]: ri * 3 + 1 }} /><em>{row.them.text}</em></div>
-                    {row.cat && <div className="bar cat"><i style={{ ['--w' as string]: `${row.cat.pct}%`, ['--i' as string]: ri * 3 + 2 }} /><em>{row.cat.text}</em></div>}
-                  </div>
-                </div>
-              ))}
-              <div className="owns">
-                <div className="own"><b>{faceOffOwns.them.title}</b><span className="voice">“{faceOffOwns.them.quote}”</span></div>
-                <div className="own"><b>{faceOffOwns.you.title}</b><span className="voice">“{faceOffOwns.you.quote}”</span></div>
-              </div>
-            </div>
+            <FaceOffPanel />
           </Reveal>
         </div>
       </section>
@@ -212,14 +147,11 @@ export default function MarketingHome() {
             <div className="h"><b>Your market this week</b><span>Week 36. Ten minutes.</span></div>
             <hr />
             {brief.filter((l) => l.kind !== 'do').map((l, i) => (
-              <div className="d" key={i}>
-                <i className={l.kind === 'up' ? 'up' : l.kind === 'down' ? 'down' : undefined}>{l.kind === 'up' ? '↑' : l.kind === 'down' ? '↓' : '+'}</i>
-                <span>{l.parts.map((p, j) => (typeof p === 'string' ? p : <u key={j}>{p.u}</u>))}</span>
-              </div>
+              <BriefRow key={i} line={l} />
             ))}
             <hr />
             {brief.filter((l) => l.kind === 'do').map((l, i) => (
-              <div className="d" key={`do-${i}`}><i /><span>{l.parts.map((p) => (typeof p === 'string' ? p : p.u))}</span></div>
+              <BriefRow key={`do-${i}`} line={l} />
             ))}
           </div>
           <div className="text">
