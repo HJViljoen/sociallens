@@ -1,398 +1,264 @@
+import { SiteNav } from './_components/site-nav'
+import { Murmur } from './_components/murmur'
+import { DotField } from './_components/dot-field'
+import { Reveal } from './_components/reveal'
+import { AnalystStage } from './_components/analyst-stage'
+import { ReportCovers } from './_components/report-covers'
 import { LeadForm } from './lead-form'
+import { streamQuotes, personas, themes, faceOff, faceOffOwns, brief, type StreamQuote } from './_data/sample'
 
-// The marketing one-pager. Design contract: DESIGN.md ("Annotated transcript").
-// Copy contract: .agents/product-marketing.md — positioning, capability map,
-// VoC bank, voice, banned list. Three hard rules worth repeating here: no
-// em-dashes in copy (the arrow in the funnel strip is data notation, not
-// prose), no comprehensiveness claims (we sample, and the filtering story is
-// the stronger one anyway), and anything unshipped is labelled "in
-// development" rather than written in present tense.
+// The marketing home page. Design contract: DESIGN.md ("The murmur"). Copy
+// contract: .agents/product-marketing.md. The page has one job per screen:
+// stop them, make them curious, move them on. Specifics live on /how-it-works.
+// Sample data (an illustrative backpack market) comes from _data/sample.ts so
+// every number reads the same everywhere it appears.
+
+function Quote({ q, dup }: { q: StreamQuote; dup?: boolean }) {
+  const body = q.mark
+    ? (() => {
+        const i = q.text.indexOf(q.mark)
+        return (
+          <>
+            {q.text.slice(0, i)}
+            <mark>{q.mark}</mark>
+            {q.text.slice(i + q.mark.length)}
+          </>
+        )
+      })()
+    : q.text
+  return (
+    <div className={`q${dup ? ' dup' : ''}`} aria-hidden={dup ? 'true' : undefined}>
+      <p className="voice">“{body}”</p>
+      <p className="src">{q.src}</p>
+    </div>
+  )
+}
 
 export default function MarketingHome() {
+  const colA = streamQuotes.filter((_, i) => i % 2 === 0)
+  const colB = streamQuotes.filter((_, i) => i % 2 === 1)
+
   return (
     <>
-      {/* ── Hero — use case up front, marker on the pain ──────────────── */}
-      <section className="relative overflow-hidden">
-        <div className="crowd-bg crowd-bg--live" aria-hidden />
-        <div className="relative z-10 mx-auto w-full max-w-6xl px-5 pb-24 pt-20 sm:pb-32 sm:pt-28">
-          <h1 className="animate-in fade-in slide-in-from-bottom-4 duration-700 motion-reduce:animate-none max-w-3xl font-heading text-[clamp(2.2rem,5.6vw,4.5rem)] font-medium leading-[1.08] tracking-tight">
-            Know what your market is saying, without reading{' '}
-            <span className="marker marker--draw">ten thousand comments.</span>
-          </h1>
-          <p className="animate-in fade-in slide-in-from-bottom-4 fill-mode-backwards duration-700 delay-300 motion-reduce:animate-none mt-7 max-w-xl text-lg leading-relaxed text-muted-foreground">
-            Verbatim reads the public conversation around your brand, your competitors and the wider
-            category, then sends you one weekly report: what people are saying, what changed, and
-            what to do about it.
+      {/* Beat 1: the room */}
+      <header className="hero" id="top">
+        <SiteNav variant="dark" />
+        <Murmur />
+        <div className="wrap">
+          <h1>Stop listening for your name.</h1>
+          <p className="sub">
+            Your name is <b className="num">0.02%</b> of the conversation. Verbatim is built for the other{' '}
+            <b className="num">99.98%</b>.
           </p>
-          <div className="animate-in fade-in slide-in-from-bottom-4 fill-mode-backwards duration-700 delay-500 motion-reduce:animate-none mt-9 flex flex-wrap items-center gap-3">
-            <a
-              href="#early-access"
-              className="flex h-12 items-center rounded-lg bg-primary px-6 text-sm font-semibold text-primary-foreground transition duration-200 ease-site hover:brightness-110 active:scale-[0.97]"
-            >
-              Get early access
-            </a>
-            <a
-              href="#what"
-              className="flex h-12 items-center rounded-lg px-6 text-sm font-semibold text-foreground/80 underline decoration-border underline-offset-4 transition-colors duration-200 ease-site hover:text-foreground hover:decoration-foreground/50"
-            >
-              See a sample insight
-            </a>
+          <div className="cta">
+            <a className="btn btn-green" href="#early-access">Get early access</a>
+            <a className="btn btn-ghost" href="#model">See how it works</a>
           </div>
-          <p className="animate-in fade-in fill-mode-backwards duration-700 delay-700 motion-reduce:animate-none mt-10 font-mono text-xs text-muted-foreground">
-            tiktok · instagram · youtube
-          </p>
+          <p className="from">Read from TikTok, Instagram, YouTube and Reddit. Comments, threads, and what people say to camera.</p>
         </div>
-      </section>
+      </header>
 
-      {/* ── Premise: prose beside a marked-up transcript artifact ─────── */}
-      <section className="border-t border-border">
-        <div className="mx-auto grid w-full max-w-6xl gap-12 px-5 py-16 sm:py-24 lg:grid-cols-[1.1fr_1fr] lg:gap-16">
-          <div>
-            <h2 className="font-heading text-3xl font-medium tracking-tight sm:text-4xl">
-              Your market is already talking
-            </h2>
-            <p className="mt-5 leading-relaxed text-muted-foreground">
-              Around every brand there&rsquo;s a running conversation: what people love, what annoys
-              them, what they wish existed, how they compare you to the alternatives. Thousands of
-              comments a week. Nobody was asked and nobody was paid, which makes it the most honest
-              read on a market that exists.
-            </p>
-            <p className="mt-4 leading-relaxed text-muted-foreground">
-              Almost nobody uses it. It&rsquo;s too much to read, it sits across several platforms,
-              and most of it happens somewhere other than your own posts. So brands stay blind on
-              the exact channel where their buyers say what they want. Verbatim reads it every week
-              and marks what matters.
-            </p>
-          </div>
-
-          {/* Transcript excerpt — quotes as artifacts, one marked. */}
-          <figure className="self-center">
-            <div className="rounded-xl bg-card p-6 shadow-[0_16px_40px_-20px_rgba(13,33,23,0.25)] ring-1 ring-black/[0.04] sm:p-7">
-              <div className="space-y-5">
-                <div>
-                  <blockquote className="font-heading text-lg italic leading-snug">
-                    &ldquo;love this bag but <span className="marker">the strap absolutely digs in
-                    by hour six</span>&rdquo;
-                  </blockquote>
-                  <p className="mt-1.5 font-mono text-xs text-muted-foreground">
-                    @packlight.kay · instagram · 3d
-                  </p>
-                </div>
-                <div>
-                  <blockquote className="font-heading text-lg italic leading-snug text-foreground/80">
-                    &ldquo;same, the padding on mine wore flat within a month&rdquo;
-                  </blockquote>
-                  <p className="mt-1.5 font-mono text-xs text-muted-foreground">
-                    reply · instagram · 3d
-                  </p>
-                </div>
-                <div>
-                  <blockquote className="font-heading text-lg italic leading-snug text-foreground/80">
-                    &ldquo;is the new strap any better? deciding between this and two others&rdquo;
-                  </blockquote>
-                  <p className="mt-1.5 font-mono text-xs text-muted-foreground">
-                    @tomas.runs · tiktok · 1d
-                  </p>
-                </div>
-              </div>
-              <div className="mt-6 flex flex-wrap items-center gap-x-2 gap-y-1.5 border-t border-border pt-4">
-                <span className="rounded bg-secondary px-2 py-1 font-mono text-[11px] text-secondary-foreground">
-                  theme: strap comfort
-                </span>
-                <span className="font-mono text-[11px] text-muted-foreground">
-                  47 conversations · growing
-                </span>
-              </div>
-            </div>
-            <figcaption className="mt-3 text-center font-mono text-[11px] text-muted-foreground">
-              illustrative example
-            </figcaption>
-          </figure>
-        </div>
-      </section>
-
-      {/* ── Scope: three audiences across the top, then the data layer ── */}
-      <section id="scope" className="scroll-mt-16 border-t border-border">
-        <div className="mx-auto w-full max-w-6xl px-5 py-16 sm:py-24">
-          <div className="max-w-2xl">
-            <h2 className="font-heading text-3xl font-medium tracking-tight sm:text-4xl">
-              Three conversations at once
-            </h2>
-            <p className="mt-5 leading-relaxed text-muted-foreground">
-              Most tools watch your own mentions. The useful signal usually sits everywhere else: in
-              your rivals&rsquo; comment sections, and in the category conversation where nobody has
-              picked a brand yet.
-            </p>
-          </div>
-
-          <dl className="mt-12 grid gap-x-10 gap-y-8 md:grid-cols-3">
-            <div>
-              <dt className="font-semibold">Your brand</dt>
-              <dd className="mt-1.5 text-sm leading-relaxed text-muted-foreground">
-                What people say about you, wherever they say it. Including your own accounts: your
-                posts, the replies under them, and how your following moves week to week.
-              </dd>
-            </div>
-            <div>
-              <dt className="font-semibold">Your competitors</dt>
-              <dd className="mt-1.5 text-sm leading-relaxed text-muted-foreground">
-                What their customers praise, complain about and ask for. Their unhappy customers are
-                the clearest brief you will ever get.
-              </dd>
-            </div>
-            <div>
-              <dt className="font-semibold">Your category</dt>
-              <dd className="mt-1.5 text-sm leading-relaxed text-muted-foreground">
-                The wider conversation among people who haven&rsquo;t chosen anyone yet: what they
-                want, what confuses them, what they&rsquo;re comparing.
-              </dd>
-            </div>
-          </dl>
-
-          <div className="mt-12 border-t border-border pt-8 sm:flex sm:gap-12">
-            <p className="shrink-0 font-mono text-xs text-muted-foreground sm:w-40">what gets read</p>
-            <div className="mt-3 sm:mt-0">
-              <p className="max-w-2xl leading-relaxed text-muted-foreground">
-                Comments and replies, plus what&rsquo;s said in the videos themselves, transcribed
-                and analysed alongside the conversation around them.
-              </p>
-              <p className="mt-3 max-w-2xl font-mono text-xs leading-relaxed text-muted-foreground">
-                in development: news and web context around your market, and more platforms,
-                starting with reddit.
-              </p>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* ── How it works — the filtering story, with the real funnel ──── */}
-      <section id="how" className="scroll-mt-16 border-t border-border bg-muted/40">
-        <div className="mx-auto w-full max-w-6xl px-5 py-16 sm:py-24">
-          <div className="lg:grid lg:grid-cols-[1fr_2fr] lg:gap-16">
-            <h2 className="font-heading text-3xl font-medium tracking-tight sm:text-4xl">
-              How it works
-            </h2>
-            <ol className="mt-10 space-y-10 border-l border-border pl-8 lg:mt-2">
-              {[
-                {
-                  n: '1',
-                  title: 'Give us the facts',
-                  body: 'Your brand. Your competitors. That’s everything you need to know. No keyword tuning, no query syntax, no research expertise. Verbatim works out where the conversation is and goes to find it.',
-                },
-                {
-                  n: '2',
-                  title: 'It throws most of it away',
-                  body: 'A week’s gather is mostly noise: spam, off-topic clips, brands that share your name. All of it gets judged for relevance before anything is analysed, because an insight built on the wrong conversation is worse than no insight.',
-                },
-                {
-                  n: '3',
-                  title: 'What survives gets read properly',
-                  body: 'The remaining conversation is grouped into themes, weighed by how many independent voices sit behind each one, and turned into findings. A passing remark never gets promoted into a trend.',
-                },
-                {
-                  n: '4',
-                  title: 'You get answers, not homework',
-                  body: 'A report with the insights that matter this week, each one traceable to what real people said. It lands in your inbox before Monday’s meeting.',
-                },
-              ].map((s) => (
-                <li key={s.n} className="relative">
-                  <span
-                    className="absolute -left-8 top-0.5 flex h-6 w-6 -translate-x-1/2 items-center justify-center rounded-full bg-primary font-mono text-xs text-primary-foreground"
-                    aria-hidden
-                  >
-                    {s.n}
-                  </span>
-                  <h3 className="text-lg font-semibold">{s.title}</h3>
-                  <p className="mt-2 max-w-xl text-sm leading-relaxed text-muted-foreground">
-                    {s.body}
-                  </p>
-                </li>
-              ))}
-            </ol>
-          </div>
-
-          {/* The funnel: the filtering claim, made falsifiable. */}
-          <div className="mt-14 rounded-xl bg-card px-6 py-6 ring-1 ring-black/[0.04] sm:px-8">
-            <p className="font-mono text-[11px] text-muted-foreground">
-              one real weekly run, end to end
-            </p>
-            <div className="mt-4 flex flex-wrap items-baseline gap-x-3 gap-y-2 font-mono text-sm">
-              <span>521 videos</span>
-              <span className="text-muted-foreground" aria-hidden>
-                →
-              </span>
-              <span>5,059 comments</span>
-              <span className="text-muted-foreground" aria-hidden>
-                →
-              </span>
-              <span>120 themes</span>
-              <span className="text-muted-foreground" aria-hidden>
-                →
-              </span>
-              <span className="marker">5 recommendations</span>
-            </div>
-            <p className="mt-4 max-w-2xl text-sm leading-relaxed text-muted-foreground">
-              That last number is the point. Everything before it is work you don&rsquo;t have to do.
-            </p>
-          </div>
-        </div>
-      </section>
-
-      {/* ── What you get — stacked, so the page changes rhythm here ───── */}
-      <section id="what" className="scroll-mt-16 border-t border-border">
-        <div className="mx-auto w-full max-w-6xl px-5 py-16 sm:py-24">
-          <h2 className="max-w-2xl font-heading text-3xl font-medium tracking-tight sm:text-4xl">
-            What you get every week
+      {/* Beat 2: the count */}
+      <section className="s count" aria-labelledby="count-h">
+        <div className="wrap">
+          <h2 id="count-h" className="lead-xl">
+            <span className="num">18,440 comments.</span>
+            <span className="quiet">Your name came up</span>
+            <span className="four">four times.</span>
           </h2>
+          <div>
+            <DotField />
+            <div className="dots-caption">
+              <span><i />Four comments named the brand.</span>
+              <span>The other 18,436 are the market.</span>
+            </div>
+          </div>
+          <p className="body">
+            One brand&rsquo;s market, counted in our own data. A tool built to find your name hears four comments and calls it low volume. It isn&rsquo;t low volume. It&rsquo;s the wrong question.
+          </p>
+        </div>
+      </section>
 
-          <dl className="mt-10 grid gap-x-12 gap-y-8 sm:grid-cols-2">
-            {[
-              {
-                t: 'What your market is talking about',
-                d: 'The themes moving your category, ranked by how much real evidence sits behind them. The voices are one click away.',
-              },
-              {
-                t: 'What your competitors’ customers say',
-                d: 'What people praise and complain about in rival audiences, and the gaps that leaves open for you.',
-              },
-              {
-                t: 'Recommendations you can defend',
-                d: 'Every recommendation leads with a verbatim quote. When you take it to your team, the evidence comes with you.',
-              },
-              {
-                t: 'What changed this week',
-                d: 'New themes, sentiment shifts, competitor moves, and how your own audience responded. The movement, week over week.',
-              },
-            ].map((item) => (
-              <div key={item.t}>
-                <dt className="font-semibold">{item.t}</dt>
-                <dd className="mt-1.5 max-w-lg text-sm leading-relaxed text-muted-foreground">
-                  {item.d}
-                </dd>
+      {/* Beat 3: the reveal */}
+      <section className="s-tight saying" aria-labelledby="saying-h">
+        <div className="wrap">
+          <div className="sticky">
+            <h2 id="saying-h" className="lead">This is what the other 18,436 were saying.</h2>
+            <p className="body" style={{ marginTop: 24 }}>
+              What&rsquo;s wrong with the product they own. What they&rsquo;d switch for. What the creator they trust said to camera. The thread where forty people compared notes. None of it was asked for, and almost none of it says a brand&rsquo;s name.
+            </p>
+          </div>
+          <div className="stream">
+            <div className="col a">
+              {colA.map((q) => <Quote key={q.text} q={q} />)}
+              {colA.map((q) => <Quote key={`d-${q.text}`} q={q} dup />)}
+            </div>
+            <div className="col b">
+              {colB.map((q) => <Quote key={q.text} q={q} />)}
+              {colB.map((q) => <Quote key={`d-${q.text}`} q={q} dup />)}
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* The model */}
+      <section className="s model-intro" id="model" aria-labelledby="model-h">
+        <div className="wrap">
+          <h2 id="model-h" className="lead">From all of that, Verbatim builds a working model of your market.</h2>
+          <div>
+            <p className="body">A model, not a feed of mentions: who the people in the conversation are, what they care about, and where you stand against your competitors. Rebuilt from what people said this week.</p>
+            <p className="body">And every week, what changed.</p>
+          </div>
+        </div>
+      </section>
+
+      {/* Who they are */}
+      <section className="surface" aria-labelledby="who-h">
+        <div className="wrap">
+          <div className="text">
+            <h3 id="who-h">Who they are.</h3>
+            <p className="body">The people in the conversation, sorted into the few kinds they turn out to be. For each one: what they want, what stops them, and the exact phrases they use.</p>
+          </div>
+          <Reveal className="panel">
+            <div className="panel-title"><b>Who&rsquo;s in your market</b><span>Three profiles from this week&rsquo;s conversation</span></div>
+            <div className="personas">
+              {personas.map((p, i) => (
+                <div className="persona" key={p.name}>
+                  <div className="name">{p.name}</div>
+                  <div className="share"><i style={{ ['--w' as string]: `${p.share}%`, ['--i' as string]: i }} /></div>
+                  <div className="pct">{p.share}% of the conversation</div>
+                  <dl>
+                    <dt>Wants</dt><dd>{p.wants}</dd>
+                    <dt>Stops them</dt><dd>{p.stops}</dd>
+                    <dt>Tips them</dt><dd>{p.tips}</dd>
+                  </dl>
+                  <div className="talk">{p.talk.map((t) => <span key={t}>{t}</span>)}</div>
+                </div>
+              ))}
+            </div>
+          </Reveal>
+        </div>
+      </section>
+
+      {/* What they talk about */}
+      <section className="surface flip" aria-labelledby="what-h">
+        <div className="wrap">
+          <Reveal className="panel">
+            <div className="panel-title"><b>What your market talks about</b><span>Sized by conversations this week</span></div>
+            <div className="tmap">
+              {themes.map((t, i) => (
+                <div
+                  key={t.label}
+                  className={`t${t.big ? ' big' : ''}${t.you ? ' you' : ''}`}
+                  style={{ gridColumn: `span ${t.col}`, gridRow: `span ${t.row}`, ['--i' as string]: i }}
+                >
+                  <b>{t.label}</b>
+                  <small>
+                    <span>{t.conversations}{i === 0 ? ' conversations' : ''}</span>
+                    {t.movement && <span className={t.movement === 'fading' ? 'down' : 'up'}>{t.movement}</span>}
+                  </small>
+                </div>
+              ))}
+            </div>
+          </Reveal>
+          <div className="text">
+            <h3 id="what-h">What they talk about.</h3>
+            <p className="body">The themes in the conversation, sized by how many people raised it and tracked week to week. Open any block and the people behind it are there, quoted exactly.</p>
+          </div>
+        </div>
+      </section>
+
+      {/* Where you stand */}
+      <section className="surface" aria-labelledby="stand-h">
+        <div className="wrap">
+          <div className="text">
+            <h3 id="stand-h">Where you stand.</h3>
+            <p className="body">You against each competitor and against the category as a whole, theme by theme. Which themes they own, which you own, and the questions under your videos that nobody answered.</p>
+          </div>
+          <Reveal className="panel">
+            <div className="panel-title"><b>The face-off</b><span>This week, against your closest competitor</span></div>
+            <div className="face">
+              <div className="head">
+                <span />
+                <span className="legend">
+                  <span><i style={{ background: 'var(--green)' }} />You</span>
+                  <span><i style={{ background: 'var(--orange)' }} />Competitor</span>
+                  <span><i style={{ background: '#C5CBD1' }} />Whole category</span>
+                </span>
+              </div>
+              {faceOff.map((row, ri) => (
+                <div className="row" key={row.label}>
+                  <span className="lbl">{row.label}</span>
+                  <div className="bars">
+                    <div className="bar you"><i style={{ ['--w' as string]: `${row.you.pct}%`, ['--i' as string]: ri * 3 }} /><em>{row.you.text}</em></div>
+                    <div className="bar them"><i style={{ ['--w' as string]: `${row.them.pct}%`, ['--i' as string]: ri * 3 + 1 }} /><em>{row.them.text}</em></div>
+                    {row.cat && <div className="bar cat"><i style={{ ['--w' as string]: `${row.cat.pct}%`, ['--i' as string]: ri * 3 + 2 }} /><em>{row.cat.text}</em></div>}
+                  </div>
+                </div>
+              ))}
+              <div className="owns">
+                <div className="own"><b>{faceOffOwns.them.title}</b><span className="voice">“{faceOffOwns.them.quote}”</span></div>
+                <div className="own"><b>{faceOffOwns.you.title}</b><span className="voice">“{faceOffOwns.you.quote}”</span></div>
+              </div>
+            </div>
+          </Reveal>
+        </div>
+      </section>
+
+      {/* And every week */}
+      <section className="surface flip" aria-labelledby="weekly-h">
+        <div className="wrap">
+          <div className="brief">
+            <div className="h"><b>Your market this week</b><span>Week 36. Ten minutes.</span></div>
+            <hr />
+            {brief.filter((l) => l.kind !== 'do').map((l, i) => (
+              <div className="d" key={i}>
+                <i className={l.kind === 'up' ? 'up' : l.kind === 'down' ? 'down' : undefined}>{l.kind === 'up' ? '↑' : l.kind === 'down' ? '↓' : '+'}</i>
+                <span>{l.parts.map((p, j) => (typeof p === 'string' ? p : <u key={j}>{p.u}</u>))}</span>
               </div>
             ))}
-          </dl>
-
-          {/* One report excerpt, styled like the product's own output. */}
-          <figure className="mt-14">
-            <div className="mx-auto max-w-2xl rounded-xl bg-card p-6 shadow-[0_16px_40px_-20px_rgba(13,33,23,0.25)] ring-1 ring-black/[0.04] sm:p-8">
-              <p className="font-mono text-[11px] text-muted-foreground">
-                from a weekly report · recommendation
-              </p>
-              <p className="mt-3 font-heading text-xl font-medium leading-snug sm:text-2xl">
-                Lead your next drop&rsquo;s messaging with{' '}
-                <span className="marker">all-day carry comfort</span>
-              </p>
-              <p className="mt-3 leading-relaxed text-muted-foreground">
-                Your competitor&rsquo;s customers are asking for it, and nobody in the category owns
-                it yet.
-              </p>
-              <blockquote className="mt-5 border-l-2 border-primary/40 pl-4 font-heading italic leading-snug text-foreground/80">
-                &ldquo;love this bag but the strap absolutely digs in by hour six&rdquo;
-              </blockquote>
-              <p className="mt-4 font-mono text-[11px] text-muted-foreground">
-                grounded in 47 conversations
-              </p>
-            </div>
-            <figcaption className="mt-3 text-center font-mono text-[11px] text-muted-foreground">
-              illustrative example
-            </figcaption>
-          </figure>
-        </div>
-      </section>
-
-      {/* ── Philosophy — the founder's line, quoted properly ──────────── */}
-      <section className="bg-[var(--pine)] text-[#EFF3EC]">
-        <div className="mx-auto w-full max-w-6xl px-5 py-16 sm:py-24">
-          <blockquote className="max-w-3xl font-heading text-3xl font-medium italic leading-snug tracking-tight sm:text-5xl">
-            &ldquo;If you only need to look once a week, it&rsquo;s doing its job.&rdquo;
-          </blockquote>
-          <p className="mt-4 font-mono text-xs text-[#9DB6A9]">
-            the principle verbatim is built on
-          </p>
-          <div className="mt-12 grid gap-8 md:grid-cols-2">
-            <div>
-              <h3 className="font-semibold">The work happens before you read it</h3>
-              <p className="mt-2.5 max-w-md text-sm leading-relaxed text-[#C4D2C6]">
-                Tools that show you numbers get used every day, because someone has to work out what
-                the numbers mean. Verbatim does that work. One weekly read is enough, and the
-                evidence is there whenever you want to go deeper.
-              </p>
-            </div>
-            <div>
-              <h3 className="font-semibold">Every insight has a source</h3>
-              <p className="mt-2.5 max-w-md text-sm leading-relaxed text-[#C4D2C6]">
-                No synthetic consumers and no black-box scores. Every insight traces back to
-                something a real person actually said, quoted exactly as they said it.
-              </p>
-            </div>
+            <hr />
+            {brief.filter((l) => l.kind === 'do').map((l, i) => (
+              <div className="d" key={`do-${i}`}><i /><span>{l.parts.map((p) => (typeof p === 'string' ? p : p.u))}</span></div>
+            ))}
+          </div>
+          <div className="text">
+            <h3 id="weekly-h">And every week, what changed.</h3>
+            <p className="body">The model is rebuilt from the week&rsquo;s conversation, and one page lands in your inbox: what moved and what we&rsquo;d do about it. Every line links to the exact words behind it.</p>
           </div>
         </div>
       </section>
 
-      {/* ── Founder's note — the human behind the product ─────────────── */}
-      <section className="border-b border-border">
-        <div className="mx-auto w-full max-w-6xl px-5 py-16 sm:py-20">
-          <figure className="max-w-2xl">
-            <figcaption className="font-mono text-xs text-muted-foreground">
-              a note from the founder
-            </figcaption>
-            <blockquote className="mt-5 font-heading text-xl italic leading-relaxed sm:text-2xl">
-              &ldquo;The comments under a brand&rsquo;s videos, and under its competitors&rsquo;
-              videos, hold better market research than most brands ever commission. Nobody reads
-              them, because nobody can. I built the system that does.&rdquo;
-            </blockquote>
-            <p className="mt-5 leading-relaxed text-muted-foreground">
-              Verbatim runs every week on a real brand&rsquo;s market today. Now I&rsquo;m looking
-              for five brands to shape it with. If that could be you, I read every request that
-              comes through this page.
-            </p>
-            <p className="mt-5 text-sm font-semibold">
-              Heinrich Viljoen
-              <span className="ml-2 font-normal text-muted-foreground">founder, Verbatim</span>
-            </p>
-          </figure>
+      {/* The analyst */}
+      <section className="stage-s" id="analyst" aria-labelledby="ask-h">
+        <AnalystStage />
+      </section>
+
+      {/* The rooms */}
+      <section className="rooms" id="reports" aria-labelledby="rooms-h">
+        <div className="wrap">
+          <div className="head">
+            <h2 id="rooms-h" className="lead">The same market, written for whoever is in the room.</h2>
+            <div>
+              <p className="body">Leadership gets one page. Sales gets the objections and who they lose to. Build a report once, schedule it to go out with every update, and share it with a link that needs no login.</p>
+              <p className="body">It goes out as your work, with Verbatim in the footer.</p>
+            </div>
+          </div>
+          <ReportCovers />
+          <div className="rules">
+            <p><b>Scheduled.</b> Every update or monthly, to a recipient list you control, PDF attached.</p>
+            <p><b>Shared by link.</b> Read-only, no account needed, expires when you say, one click to revoke.</p>
+            <p><b>Yours.</b> Your company on every page, written for anyone you name. Every quote still traces to its source.</p>
+          </div>
         </div>
       </section>
 
-      {/* ── Design partners ───────────────────────────────────────────── */}
-      <section id="early-access" className="scroll-mt-16">
-        <div className="mx-auto w-full max-w-6xl px-5 py-16 sm:py-24">
-          <div className="grid gap-10 lg:grid-cols-2 lg:gap-16">
-            <div>
-              <h2 className="font-heading text-3xl font-medium tracking-tight sm:text-4xl">
-                Taking five design partners this quarter
-              </h2>
-              <p className="mt-5 leading-relaxed text-muted-foreground">
-                Design partner means you run Verbatim on your real market and shape what gets built.
-                The exchange is simple:
-              </p>
-              <ul className="mt-6 space-y-3 text-sm leading-relaxed text-foreground/85">
-                <li className="flex gap-3">
-                  <span className="mt-2 h-1 w-4 shrink-0 bg-primary" aria-hidden />
-                  You get the full platform, a weekly report on your market, launch pricing locked
-                  in early, and a direct line to me.
-                </li>
-                <li className="flex gap-3">
-                  <span className="mt-2 h-1 w-4 shrink-0 bg-primary" aria-hidden />
-                  I ask that you actually use it, and that we talk for half an hour every two weeks
-                  about what&rsquo;s working and what isn&rsquo;t.
-                </li>
-                <li className="flex gap-3">
-                  <span className="mt-2 h-1 w-4 shrink-0 bg-primary" aria-hidden />
-                  Three months, then you decide. If it&rsquo;s not earning its keep, you leave on 14
-                  days&rsquo; notice.
-                </li>
-              </ul>
-              <p className="mt-6 text-sm text-muted-foreground">
-                Verbatim is new. You&rsquo;ll hit rough edges, and your feedback decides what gets
-                built next. Five spots. If it&rsquo;s not a fit yet, you&rsquo;ll hear that honestly.
-              </p>
-            </div>
-            <div className="rounded-xl bg-card p-6 shadow-[0_16px_40px_-20px_rgba(13,33,23,0.25)] ring-1 ring-black/[0.04] sm:p-8">
-              <LeadForm />
-            </div>
-          </div>
+      {/* The line, and the ask */}
+      <section className="s band" id="early-access" aria-labelledby="line-h">
+        <div className="wrap">
+          <h2 id="line-h">They hear your name. <span>We hear the market.</span></h2>
+          <p>Listening tools are built to find a name. In a market that rarely says it, they return nothing and call it quiet. Verbatim starts from the category.</p>
+          <LeadForm />
         </div>
       </section>
     </>

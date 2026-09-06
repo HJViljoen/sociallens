@@ -5,107 +5,47 @@ import { submitLead, type LeadState } from './actions'
 
 const idle: LeadState = { status: 'idle', message: '' }
 
-const inputClass =
-  'w-full rounded-lg border border-input bg-white/70 px-3.5 py-3 text-sm text-foreground transition focus:border-transparent focus:outline-none focus:ring-2 focus:ring-ring'
-
+// The early-access form, styled for the dark closing band. Three required
+// fields (a lead without a name and a brand cannot be acted on) plus the
+// optional question that seeds the first artefact we send back.
 export function LeadForm() {
   const [state, formAction, pending] = useActionState(submitLead, idle)
 
   if (state.status === 'sent') {
     return (
-      <div className="rounded-xl bg-secondary px-5 py-6 text-center">
-        <p className="font-semibold text-secondary-foreground">Thanks, got it.</p>
-        <p className="mt-1 text-sm text-muted-foreground">
+      <div className="access">
+        <div className="sent">
+          <b>Thanks, got it.</b>
           You&rsquo;ll hear back from the founder, usually within a day.
-        </p>
+        </div>
       </div>
     )
   }
 
   return (
-    <form action={formAction} className="space-y-4">
-      {/* Honeypot — hidden from humans, tempting to bots. */}
+    <form action={formAction} className="access">
+      {/* Honeypot: hidden from humans, tempting to bots. */}
       <div className="hidden" aria-hidden>
         <label>
           Website
           <input type="text" name="website" tabIndex={-1} autoComplete="off" />
         </label>
       </div>
-
-      <div className="grid gap-4 sm:grid-cols-2">
-        <div>
-          <label htmlFor="lead-name" className="mb-1.5 block text-sm font-medium">
-            Name
-          </label>
-          <input
-            id="lead-name"
-            type="text"
-            name="name"
-            autoComplete="name"
-            required
-            disabled={pending}
-            className={inputClass}
-          />
-        </div>
-        <div>
-          <label htmlFor="lead-email" className="mb-1.5 block text-sm font-medium">
-            Work email
-          </label>
-          <input
-            id="lead-email"
-            type="email"
-            name="email"
-            autoComplete="email"
-            required
-            disabled={pending}
-            className={inputClass}
-          />
-        </div>
+      <div className="fields">
+        <input type="text" name="name" autoComplete="name" required disabled={pending} placeholder="Your name" aria-label="Your name" />
+        <input type="email" name="email" autoComplete="email" required disabled={pending} placeholder="Work email" aria-label="Work email" />
       </div>
-      <div>
-        <label htmlFor="lead-company" className="mb-1.5 block text-sm font-medium">
-          Brand
-        </label>
-        <input
-          id="lead-company"
-          type="text"
-          name="company"
-          autoComplete="organization"
-          required
-          disabled={pending}
-          className={inputClass}
-        />
-      </div>
-      <div>
-        <label htmlFor="lead-interest" className="mb-1.5 block text-sm font-medium">
-          What would you want to know about your market?{' '}
-          <span className="font-normal text-muted-foreground">(optional)</span>
-        </label>
-        <textarea
-          id="lead-interest"
-          name="interest"
-          rows={3}
-          disabled={pending}
-          className={inputClass}
-        />
-      </div>
-
-      {/* Announced to assistive tech, and sits directly above the control that
-          triggered it. */}
-      <p role="alert" aria-live="polite" className="text-sm text-destructive empty:hidden">
+      <input type="text" name="company" autoComplete="organization" required disabled={pending} placeholder="Your brand" aria-label="Your brand" />
+      <textarea name="interest" disabled={pending} placeholder="What are you trying to decide? (optional)" aria-label="What are you trying to decide? Optional." />
+      <p role="alert" aria-live="polite" className="msg">
         {state.message}
       </p>
-
-      <button
-        type="submit"
-        disabled={pending}
-        className="w-full cursor-pointer rounded-lg bg-primary py-3 text-sm font-semibold text-primary-foreground transition duration-200 ease-site hover:brightness-110 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background active:scale-[0.98] disabled:opacity-50"
-      >
-        {pending ? 'Sending…' : 'Request early access'}
-      </button>
-      <p className="text-center text-xs text-muted-foreground">
-        Replies come from Heinrich, usually within a day.
-      </p>
+      <div>
+        <button type="submit" className="btn btn-green" disabled={pending}>
+          {pending ? 'Sending…' : 'Get early access'}
+        </button>
+      </div>
+      <p className="note">Replies come from Heinrich, usually within a day.</p>
     </form>
   )
 }
