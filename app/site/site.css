@@ -494,9 +494,65 @@
     .diff { grid-template-columns: 1fr; }
   }
 
+  /* ════════ PLAYBOOKS ════════ */
+
+  /* index: five rows, not cards */
+  .pb-index { margin-top: 56px; }
+  .pb-row { display: grid; grid-template-columns: minmax(0, 1fr) 120px minmax(0, 1fr) 64px 20px; gap: 24px; align-items: center; padding: 30px 0; border-top: 1px solid var(--hair); }
+  .pb-index .pb-row:last-child { border-bottom: 1px solid var(--hair); }
+  .pb-row .pb-job { font: 600 28px var(--font-bricolage), sans-serif; letter-spacing: -0.02em; line-height: 1.15; transition: color .15s; }
+  .pb-row:hover .pb-job { color: var(--green); }
+  .pb-row .pb-surface { font-size: 14px; color: var(--muted); }
+  .pb-row .pb-summary { font-size: 15.5px; color: var(--ink-2); line-height: 1.45; }
+  .pb-row .pb-time { font-size: 14px; color: var(--muted); text-align: right; white-space: nowrap; }
+  .pb-row .pb-arrow { color: var(--green); justify-self: end; }
+
+  /* article: a reading page, not a tour */
+  .pb { padding-bottom: 120px; }
+  .pb-head { padding: 96px 0 56px; }
+  .pb-head .pb-label { font-size: 15px; color: var(--muted); }
+  .pb-head h1 { margin-top: 14px; font-size: clamp(40px, 5vw, 72px); font-weight: 600; line-height: 1.04; letter-spacing: -0.035em; max-width: 20ch; }
+  .pb-head .pb-dek { margin-top: 24px; font-size: 21px; line-height: 1.4; color: var(--ink-2); max-width: 60ch; }
+  .pb h2 { font-size: 28px; font-weight: 600; letter-spacing: -0.02em; line-height: 1.15; }
+  .pb .body { max-width: 68ch; font-size: 18px; line-height: 1.6; }
+  .pb .body + .body { margin-top: 16px; }
+  .pb section { padding: 56px 0; }
+  .pb section + section { border-top: 1px solid var(--hair); }
+
+  /* steps: numbered because they're a sequence, no connecting line down the side */
+  .pb-steps { display: grid; gap: 0; }
+  .pb-step { display: grid; grid-template-columns: 44px minmax(0, 1fr); gap: 24px; padding: 40px 0; border-top: 1px solid var(--hair); }
+  .pb-steps .pb-step:first-child { border-top: 0; padding-top: 0; }
+  .pb-step .n { width: 44px; height: 44px; border-radius: 50%; background: var(--paper-2); display: flex; align-items: center; justify-content: center; font-weight: 600; color: var(--green); }
+  .pb-step h4 { font-size: 22px; font-weight: 600; letter-spacing: -0.02em; line-height: 1.15; }
+  .pb-step p { margin-top: 10px; font-size: 17px; line-height: 1.55; color: var(--ink-2); max-width: 62ch; }
+  .pb-step .demo { margin-top: 24px; }
+
+  /* what you send on */
+  .pb-send { margin-top: 8px; }
+  .pb-send .panel-title { margin-bottom: 18px; }
+  .pb-send p { margin-top: 14px; font-size: 16.5px; line-height: 1.5; color: var(--ink-2); max-width: 62ch; }
+
+  /* where this goes wrong: a plain bulleted list, no chrome */
+  .pb-limits { display: grid; gap: 12px; margin-top: 8px; }
+  .pb-limits li { font-size: 16.5px; line-height: 1.5; color: var(--ink-2); padding-left: 20px; position: relative; max-width: 62ch; }
+  .pb-limits li::before { content: ""; position: absolute; left: 0; top: 10px; width: 8px; height: 2px; background: var(--green); }
+
+  /* previous / next, before the closing band */
+  .pb-nav { display: flex; justify-content: space-between; gap: 24px; padding-top: 32px; margin-top: 32px; border-top: 1px solid var(--hair); font-size: 15px; }
+  .pb-nav a { color: var(--ink-2); transition: color .15s; }
+  .pb-nav a:hover { color: var(--green); }
+  .pb-nav .next { text-align: right; }
+
   @media (max-width: 900px) {
     .nav-links a:not(.btn) { display: none; }
     .nav .wordmark span { display: none; }
     .access .fields { grid-template-columns: 1fr; }
+    .pb-row { grid-template-columns: 1fr; gap: 6px; padding: 24px 0; }
+    .pb-row .pb-time, .pb-row .pb-arrow { display: none; }
+    .pb-head { padding: 64px 0 40px; }
+    .pb-step { grid-template-columns: 44px minmax(0, 1fr); padding: 28px 0; }
+    .pb-nav { flex-direction: column; gap: 12px; }
+    .pb-nav .next { text-align: left; }
   }
 }
