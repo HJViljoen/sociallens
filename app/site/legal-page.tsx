@@ -9,7 +9,7 @@ export function LegalPage({
   return (
     <>
       <SiteNav variant="light" />
-      <section className="legal">
+      <section className="legal" id="content" tabIndex={-1}>
         <div className="wrap">
           <h1>{title}</h1>
           <p className="updated">Last updated {updated}</p>

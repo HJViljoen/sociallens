@@ -44,7 +44,7 @@ export default function MarketingHome() {
       <header className="hero" id="top">
         <SiteNav variant="dark" />
         <Murmur />
-        <div className="wrap">
+        <div className="wrap" id="content" tabIndex={-1}>
           <h1>Stop listening for your name.</h1>
           <p className="sub">
             Your name is <b className="num">0.02%</b> of the conversation. Verbatim is built for the other{' '}

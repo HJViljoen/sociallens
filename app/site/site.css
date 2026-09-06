@@ -117,7 +117,6 @@
   .q .voice { font-size: 19px; line-height: 1.4; color: var(--ink); font-weight: 400; }
   .q .voice mark { background: linear-gradient(180deg, transparent 56%, var(--green-tint) 56%); color: inherit; padding: 0 3px; margin: 0 -3px; border-radius: 2px; }
   .q .src { font-size: 13.5px; color: var(--muted); }
-  .q-note { margin-top: 20px; font-size: 14px; color: var(--faint); }
 
   /* ── the model ── */
   .model-intro .wrap { display: grid; grid-template-columns: minmax(0, 7fr) minmax(0, 5fr); gap: 72px; align-items: start; }
@@ -131,11 +130,6 @@
   .surface.wide .text { max-width: 720px; margin-bottom: 36px; }
   .surface.wide .tmap { grid-auto-rows: 76px; gap: 10px; }
   .surface.wide .t b { font-size: 19px; } .surface.wide .t.big b { font-size: 28px; }
-  .surface.mail .wrap { grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); align-items: start; }
-  .mail-frame { background: var(--paper); border-radius: 10px; box-shadow: var(--shadow-lg); overflow: hidden; }
-  .mail-head { padding: 18px 28px; border-bottom: 1px solid #EBEDF0; display: grid; gap: 4px; font-size: 14px; color: var(--muted); }
-  .mail-head b { color: var(--ink); font-weight: 600; font-size: 17px; }
-  .mail-frame .brief { box-shadow: none; border-radius: 0; padding: 28px 28px 32px; }
   .surface .fine { margin-top: 18px; font-size: 15px; color: var(--muted); }
   .panel { background: var(--paper); border-radius: 8px; box-shadow: var(--shadow-lg); padding: 32px; }
   .panel-title { display: flex; justify-content: space-between; align-items: baseline; gap: 16px; margin-bottom: 22px; }
@@ -249,12 +243,6 @@
   .check .cl.ok .n { background: var(--green); } .check .cl.no .n { background: var(--amber); } .check .cl.silent .n { background: var(--hair); color: var(--ink-2); }
   .check .cl b { display: block; font-weight: 600; font-size: 16px; }
   .check .cl span { font-size: 15.5px; line-height: 1.45; color: var(--ink-2); }
-  .docview { font-family: var(--voice); font-size: 18px; line-height: 1.65; color: var(--ink); }
-  .docview mark { background: transparent; color: inherit; padding: 1px 3px; margin: 0 -3px; border-radius: 2px; transition: background .5s ease; }
-  .docview mark.lit.ok { background: var(--green-tint); }
-  .docview mark.lit.no { background: #FBE7C6; }
-  .docview .file { display: inline-flex; align-items: center; gap: 8px; font-family: var(--display); font-size: 14px; color: var(--muted); margin-bottom: 14px; }
-  .docview .file b { display: inline-block; width: 10px; height: 12px; border: 1.5px solid var(--muted); border-radius: 2px; }
 
   /* rooms: the reports */
   .rooms { padding: 150px 0 160px; background: var(--paper-2); overflow: hidden; }
@@ -276,8 +264,6 @@
   .rooms .rules p b { display: block; font-weight: 600; margin-bottom: 4px; }
 
   /* weekly */
-  .weekly { background: var(--paper-2); }
-  .weekly .wrap { display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); gap: 72px; align-items: center; }
   .brief { background: var(--paper); border-radius: 8px; box-shadow: var(--shadow-lg); padding: 36px 40px; display: grid; gap: 18px; }
   .brief .h { display: flex; justify-content: space-between; align-items: baseline; }
   .brief .h b { font-size: 19px; font-weight: 600; }
@@ -306,8 +292,7 @@
     .tmap .t.big b, .surface.wide .t.big b { font-size: 22px; }
     .panel-title { flex-direction: column; align-items: flex-start; gap: 4px; }
     .cover { height: auto; min-height: 176px; }
-      .surface.mail .wrap { grid-template-columns: 1fr; }
-      .saying .wrap, .model-intro .wrap, .surface .wrap, .surface.flip .wrap, .weekly .wrap, .ask-s .wrap { grid-template-columns: 1fr; gap: 36px; }
+          .saying .wrap, .model-intro .wrap, .surface .wrap, .surface.flip .wrap { grid-template-columns: 1fr; gap: 36px; }
     .surface.flip .text { order: 0; }
     .stage, .stage.docmode { grid-template-columns: 1fr; }
     .rooms .head, .rooms .rules { grid-template-columns: 1fr; gap: 28px; }
@@ -321,11 +306,9 @@
     .saying .sticky { position: static; }
     .personas { grid-template-columns: 1fr; }
     .tmap { grid-template-columns: repeat(6, minmax(0, 1fr)); grid-auto-rows: 64px; }
-    .row, .face .head { grid-template-columns: 1fr; gap: 8px; }
+    .face .row, .face .head { grid-template-columns: 1fr; gap: 8px; }
     .face .owns { grid-template-columns: 1fr; }
-    .chat .reg { grid-template-columns: 1fr; gap: 6px; }
-    .card form { grid-template-columns: 1fr; }
-    .panel { padding: 22px; }
+        .panel { padding: 22px; }
   }
   @media (prefers-reduced-motion: reduce) {
       .murmur span { opacity: .28 !important; transform: none !important; }
@@ -342,7 +325,6 @@
 
   
 
-  .two { display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); gap: 72px; align-items: start; }
 
   /* header */
   .hiw-head { padding: 110px 0 72px; }
@@ -413,11 +395,6 @@
   .verdict.flag { background: #FBE7C6; color: #8A5A0B; }
   .verdict.drop { background: #FBE3E0; color: #9E2A20; }
 
-  .depth { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
-  .depth div { background: var(--paper); border-radius: 8px; box-shadow: var(--shadow); padding: 22px 24px; }
-  .depth .n { font-size: 40px; font-weight: 700; letter-spacing: -0.04em; line-height: 1; color: var(--ink); }
-  .depth .n small { font-size: 15px; font-weight: 500; letter-spacing: 0; color: var(--muted); margin-left: 6px; }
-  .depth p { margin-top: 10px; font-size: 15px; color: var(--ink-2); line-height: 1.45; }
 
   /* 2: analyse */
   .steps { display: grid; gap: 0; position: relative; }
@@ -500,10 +477,10 @@
 
   @media (max-width: 900px) {
         .hiw-head { padding: 64px 0 48px; }
-    .index, .platforms, .also, .depth, .pages, .reports, .ship { grid-template-columns: 1fr; }
+    .index, .platforms, .also, .pages, .reports, .ship { grid-template-columns: 1fr; }
     .part { padding: 72px 0; }
     .part-head { grid-template-columns: 1fr; gap: 8px; margin-bottom: 40px; }
-    .hiw-sub, .two, .hiw-sub.flip { grid-template-columns: 1fr; gap: 24px; padding: 40px 0; }
+    .hiw-sub, .hiw-sub.flip { grid-template-columns: 1fr; gap: 24px; padding: 40px 0; }
     .hiw-sub.flip > :first-child { order: 0; }
     .hiw-sub.dark { padding: 32px 24px; }
     .communities { grid-template-columns: 1fr; }

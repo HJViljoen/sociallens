@@ -15,7 +15,7 @@ export default function HowItWorks() {
   return (
     <>
       <SiteNav variant="light" current="how-it-works" />
-      <header className="hiw-head">
+      <header className="hiw-head" id="content" tabIndex={-1}>
         <div className="wrap">
           <h1>They hear your name. <span>We hear the market.</span></h1>
           <p>Listening tools start from a keyword you register. Verbatim starts from the category: the comment threads, the Reddit threads and what’s said to camera around your kind of product, whether or not anyone types your name. Here is what happens, in three parts.</p>

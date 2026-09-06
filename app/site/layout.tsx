@@ -30,7 +30,7 @@ export default function MarketingLayout({
   return (
     <div className={`site-theme ${bricolage.variable}`}>
       <a
-        href="#main"
+        href="#content"
         className="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-50 focus:rounded-lg focus:bg-primary focus:px-4 focus:py-2 focus:text-sm focus:font-semibold focus:text-primary-foreground"
       >
         Skip to content
