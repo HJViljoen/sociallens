@@ -9,9 +9,12 @@ import type { InsightRow } from './types'
 // labels rarely match), so the pre-approved embedding-similarity merge is the
 // default. `'string'` is retained for A/B and as a no-cost fallback.
 //
-// Input to clusterInsights is assumed homogeneous (one bucket + one category) —
-// the caller in step-a2.ts guarantees that, so themes are only ever merged
-// within a category.
+// Input to clusterInsights is assumed homogeneous — one entity BUCKET, which
+// is what the caller in step-a2.ts groups by. Categories deliberately merge
+// inside a bucket (Redesign Spec §8 fix (a), 2026-07-03: a cost pain_point and
+// a cost question are one concern), and the theme's category is the mode of
+// its members'. (This comment said "one bucket + one category" until
+// 2026-09-06; it had been wrong since that spec fix.)
 
 export type ClusterMethod = 'embedding' | 'string'
 
@@ -21,12 +24,41 @@ export interface ClusterOptions {
   threshold?: number
 }
 
-/** Embed texts, preserving input order. Returns [] for empty input. */
+/** Inputs per embeddings request. The endpoint caps `input` at 2048 array
+ *  items AND the request at 300k tokens, so the array cap alone is not a safe
+ *  batch size — 2048 long descriptions would clear the item cap and fail on
+ *  tokens instead. 512 × ~60 tokens (measured on Össur) ≈ 31k tokens, with
+ *  headroom for descriptions ten times that long.
+ *
+ *  Batching lives HERE, below every caller, because the callers cannot know
+ *  their own size: Step A2 hands over a whole entity bucket and the insight
+ *  corpus is cumulative (incremental Pass A keeps every video's insights
+ *  current), so a bucket grows every week. Össur's `industry-other` reached
+ *  2283 on 2026-09-06 and the Sunday run died at 07:34 on
+ *  `400 Invalid 'input': array length must be 2048 or less` — 93 minutes and
+ *  $1.21 of gather and Pass A already spent, no email to the client. The same
+ *  shape as the 2026-08-30 killer (`.in()` over the whole corpus), one seam
+ *  over: any call whose size tracks the corpus needs a chunk loop. */
+const EMBED_BATCH = 512
+
+/** Embed texts, preserving input order. Returns [] for empty input.
+ *  Chunked (EMBED_BATCH) and sequential: a bucket is a handful of requests,
+ *  and the pipeline shares a 5-slot concurrency with everything else. A failed
+ *  chunk throws — the Inngest step retries the whole step. */
 export async function embedTexts(texts: string[]): Promise<number[][]> {
   if (texts.length === 0) return []
-  const res = await openai.embeddings.create({ model: EMBEDDING_MODEL, input: texts })
-  // The API returns items with an `index`; sort to be order-safe.
-  return [...res.data].sort((a, b) => a.index - b.index).map((d) => d.embedding)
+  const out: number[][] = []
+  for (let i = 0; i < texts.length; i += EMBED_BATCH) {
+    const chunk = texts.slice(i, i + EMBED_BATCH)
+    const res = await openai.embeddings.create({ model: EMBEDDING_MODEL, input: chunk })
+    if (res.data.length !== chunk.length) {
+      throw new Error(`embedTexts: ${EMBEDDING_MODEL} returned ${res.data.length} vectors for ${chunk.length} inputs`)
+    }
+    // The API returns items with an `index`; sort to be order-safe. The index
+    // is per-REQUEST, so sort within the chunk and append — never across.
+    for (const d of [...res.data].sort((a, b) => a.index - b.index)) out.push(d.embedding)
+  }
+  return out
 }
 
 export function cosine(a: number[], b: number[]): number {

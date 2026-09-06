@@ -93,9 +93,10 @@ async function main() {
   let written = 0
   for (let i = 0; i < capped.length; i += BATCH) {
     const chunk = capped.slice(i, i + BATCH)
-    // Batched because embedTexts issues ONE request per call and the pipeline's
-    // own callers hand it a bucket at a time; a whole tenant's population in a
-    // single request is a different order of magnitude.
+    // embedTexts chunks internally (2026-09-06), so this loop is no longer
+    // what keeps the request under the endpoint's caps. It stays because the
+    // script writes rows per chunk and prints progress — a whole tenant's
+    // population is a long enough job to want both.
     const vectors = await embedTexts(chunk.map((r) => embedInput(r)))
     if (vectors.length !== chunk.length) {
       throw new Error(`embedTexts returned ${vectors.length} vectors for ${chunk.length} inputs`)
